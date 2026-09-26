@@ -34,11 +34,17 @@ const CSS = `
 .es-chip .dot { min-width:20px; height:20px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center;
   font-weight:700; font-size:11px; color:#1f2328; padding:0 4px; }
 .es-chip.fresh { border-color:var(--es-new); box-shadow:0 0 0 2px rgba(47,158,68,.3); }
-.es-fold { margin-top:10px; }
-.es-fold-grid { display:grid; gap:2px; }
-.es-cell { aspect-ratio:1; border-radius:2px; background:var(--es-soft); border:1px solid var(--es-border); }
-.es-cell.on { background:#74c0fc; border-color:#4dabf7; }
-.es-cell.hit { background:var(--es-hit); border-color:var(--es-hit); }
+.es-vec-head { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:10px 0 6px; }
+.es-arrow { font-family:ui-monospace,monospace; color:var(--es-muted); }
+.es-grid { display:grid; gap:3px; }
+.es-cell { aspect-ratio:1; border-radius:3px; background:var(--es-card); border:1px solid var(--es-border);
+  display:flex; align-items:center; justify-content:center; font:700 10px/1 ui-monospace,monospace; color:#1f2328;
+  overflow:hidden; transition:transform .15s; }
+.es-grid.tiny .es-cell { border-radius:1px; font-size:0; }
+.es-cell.hit { box-shadow:0 0 0 2px var(--es-hit) inset; }
+.es-cell.fresh { outline:2px solid var(--es-new); outline-offset:1px; transform:scale(1.15); }
+.es-cell.hl { outline:2px solid var(--es-fg); outline-offset:1px; }
+.es-fold-line { font-family:ui-monospace,monospace; font-size:12px; margin-top:6px; }
 .es-muted { color:var(--es-muted); }
 .es-hint { color:var(--es-muted); font-size:11.5px; margin-top:4px; }
 `;
@@ -162,7 +168,10 @@ function render({ model, el: host }) {
         `<div class="es-recipe">${esc(s.recipe_text)}</div>` +
         `<div>This identifier describes <span class="es-env">${esc(s.env)}</span> ` +
         `<span class="es-muted">(${s.atoms.length} atom${s.atoms.length === 1 ? "" : "s"}, ${s.bonds.length} bond${s.bonds.length === 1 ? "" : "s"})</span></div>` +
-        `<div style="margin-top:6px"><span class="es-tag" style="background:${colour}">${tag}</span>${esc(s.why)}</div>`;
+        `<div style="margin-top:6px"><span class="es-tag" style="background:${colour}">${tag}</span>${esc(s.why)}</div>` +
+        (s.status === "new"
+          ? `<div class="es-fold-line">fold: 0x${(s.identifier >>> 0).toString(16).padStart(8, "0")} mod ${get("n_bits")} → bit ${s.identifier % get("n_bits")}</div>`
+          : `<div class="es-fold-line es-muted">not added, so no bit changes</div>`);
     } else {
       box.innerHTML = `<h4>Iteration ${r}</h4><div class="es-muted">Click an atom to see how its identifier was built.</div>`;
     }
@@ -182,25 +191,20 @@ function render({ model, el: host }) {
     fp.appendChild(el("h4", {}, `The fingerprint so far: ${kept.size} feature${kept.size === 1 ? "" : "s"}` +
       (dropped ? ` <span class="es-muted" style="font-weight:400">· ${dropped} environment${dropped === 1 ? "" : "s"} dropped</span>` : "")));
     const chips = el("div", { className: "es-chips" });
+    const nBits = get("n_bits");
     for (const f of kept.values()) {
       const fresh = current && current.status === "new" && f.identifier === current.identifier;
       const c = el("span", { className: "es-chip" + (fresh ? " fresh" : "") });
       c.innerHTML = `<span class="dot" style="background:${colours[f.identifier] || "#ddd"}">${esc(f.label)}</span>` +
         `<span class="es-env">${esc(f.env)}</span>` + (f.atomsWith > 1 ? `<span class="es-muted">×${f.atomsWith} atoms</span>` : "");
+      const bit = f.identifier % nBits;
+      c.addEventListener("mouseenter", () => fp.querySelector(`.es-cell[data-bit="${bit}"]`)?.classList.add("hl"));
+      c.addEventListener("mouseleave", () => fp.querySelector(`.es-cell[data-bit="${bit}"]`)?.classList.remove("hl"));
       chips.appendChild(c);
     }
     fp.appendChild(chips);
-    fp.appendChild(el("div", { className: "es-hint" },
-      "Each identifier is counted once, however many atoms share it. This set of identifiers is the unfolded ECFP."));
-    panel.appendChild(fp);
-    main.appendChild(panel);
-    root.appendChild(main);
 
-    if (get("show_fold")) drawFold(kept);
-  }
-
-  function drawFold(kept) {
-    const nBits = get("n_bits");
+    // --- the same features as a folded bit vector
     const byBit = new Map();
     for (const f of kept.values()) {
       const b = f.identifier % nBits;
@@ -208,34 +212,43 @@ function render({ model, el: host }) {
       byBit.get(b).push(f);
     }
     const collided = [...byBit.values()].filter((v) => v.length > 1).length;
-    const fold = el("div", { className: "es-fold" });
-    const bar = el("div", { className: "es-bar" });
-    bar.append(
-      el("span", {}, `<b>Fold</b> ${kept.size} features into`),
-      seg([[16, "16"], [64, "64"], [256, "256"], [1024, "1024"], [2048, "2048"]], nBits, (v) => set({ n_bits: v })),
-      el("span", {}, `bits → ${byBit.size} bits set` +
-        (collided ? ` · <span style="color:var(--es-hit);font-weight:600">${collided} bit${collided > 1 ? "s hold" : " holds"} more than one feature</span>` : " · no collisions")),
+    const head = el("div", { className: "es-vec-head" });
+    head.append(
+      el("span", { className: "es-arrow", textContent: "↓ identifier mod" }),
+      seg([[16, "16"], [64, "64"], [256, "256"], [2048, "2048"]], nBits, (v) => set({ n_bits: v })),
+      el("span", {}, `<b>${byBit.size}</b> of ${nBits} bits on` +
+        (collided ? ` · <span style="color:var(--es-hit);font-weight:600">${collided} bit${collided > 1 ? "s hold" : " holds"} two or more features</span>` : "")),
     );
-    fold.appendChild(bar);
-    const cols = nBits <= 64 ? 16 : nBits <= 256 ? 32 : 64;
-    const grid = el("div", { className: "es-fold-grid" });
-    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    grid.style.maxWidth = nBits <= 64 ? "420px" : "100%";
+    fp.appendChild(head);
+    const tiny = nBits > 256;
+    const grid = el("div", { className: "es-grid" + (tiny ? " tiny" : "") });
+    grid.style.gridTemplateColumns = `repeat(${nBits <= 64 ? 16 : nBits <= 256 ? 32 : 64}, 1fr)`;
+    const freshBit = current && current.status === "new" ? current.identifier % nBits : -1;
     for (let b = 0; b < nBits; b++) {
       const fs = byBit.get(b);
       const cell = el("div", { className: "es-cell" });
+      cell.dataset.bit = b;
+      cell.title = `bit ${b}` + (fs ? ": " + fs.map((f) => `${f.label} ${f.env}`).join(" | ") : " (0)");
       if (fs) {
-        cell.classList.add(fs.length > 1 ? "hit" : "on");
-        cell.title = `bit ${b}: ` + fs.map((f) => `${f.label} ${f.env}`).join(" | ");
+        cell.style.background = colours[fs[0].identifier] || "#74c0fc";
+        if (!tiny) cell.textContent = fs.map((f) => f.label).join("");
+        if (fs.length > 1) cell.classList.add("hit");
       }
+      if (b === freshBit) cell.classList.add("fresh");
       grid.appendChild(cell);
     }
-    fold.appendChild(grid);
-    root.appendChild(fold);
+    fp.appendChild(grid);
+    fp.appendChild(el("div", { className: "es-hint" },
+      "Top: the unfolded ECFP, a set of identifiers (each counted once, however many atoms share it). " +
+      "Bottom: the bit vector a model sees. Each identifier switches on bit (identifier mod n_bits); " +
+      "a red-framed bit holds two different features, which the model can no longer tell apart."));
+    panel.appendChild(fp);
+    main.appendChild(panel);
+    root.appendChild(main);
   }
 
   draw();
-  for (const k of ["svg", "steps", "radius", "atom", "n_bits", "show_fold"]) model.on(`change:${k}`, draw);
+  for (const k of ["svg", "steps", "radius", "atom", "n_bits"]) model.on(`change:${k}`, draw);
 }
 
 export default { render };

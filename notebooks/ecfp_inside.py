@@ -294,8 +294,8 @@ def _(mo):
     bit with `identifier % n_bits`. That is a hash table with no collision handling. Two unrelated
     environments that land on the same bit become indistinguishable, forever.
 
-    Below, paracetamol's ECFP4 features are folded into a tiny bit vector. Each square is a bit; red
-    squares hold more than one feature (hover to see which). Try 16, 64 and 2048 bits.
+    Below, paracetamol's ECFP4 features are folded into a tiny bit vector. Each square is a bit; a
+    red-framed square holds more than one feature (hover to see which). Try 16, 64 and 2048 bits.
     """)
     return
 
@@ -309,7 +309,6 @@ def _(ECFPStepper, mo):
             guided=False,
             radius=2,
             atom=-1,
-            show_fold=True,
             n_bits=16,
         )
     )

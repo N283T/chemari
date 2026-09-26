@@ -289,7 +289,7 @@ def _(mo):
     これは collision の処理を持たない hash table です。同じ bit に落ちた無関係な 2 つの環境は、二度と区別
     できなくなります。
 
-    下では、paracetamol の ECFP4 特徴を小さな bit vector に fold しています。マス 1 つが 1 bit で、赤いマスは
+    下では、paracetamol の ECFP4 特徴を小さな bit vector に fold しています。マス 1 つが 1 bit で、赤枠のマスは
     2 つ以上の特徴を抱えています (カーソルを乗せると中身が見えます)。16、64、2048 bit を試してみてください。
     """)
     return
@@ -304,7 +304,6 @@ def _(ECFPStepper, mo):
             guided=False,
             radius=2,
             atom=-1,
-            show_fold=True,
             n_bits=16,
         )
     )

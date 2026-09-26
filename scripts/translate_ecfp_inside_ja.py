@@ -230,8 +230,8 @@ r(
     bit with `identifier % n_bits`. That is a hash table with no collision handling. Two unrelated
     environments that land on the same bit become indistinguishable, forever.
 
-    Below, paracetamol's ECFP4 features are folded into a tiny bit vector. Each square is a bit; red
-    squares hold more than one feature (hover to see which). Try 16, 64 and 2048 bits.""",
+    Below, paracetamol's ECFP4 features are folded into a tiny bit vector. Each square is a bit; a
+    red-framed square holds more than one feature (hover to see which). Try 16, 64 and 2048 bits.""",
     r"""    ## 2 · Folding: identifier から 2048 bit へ
 
     Unfold された fingerprint は 32-bit 整数の集合で、取りうる値は約 40 億通りあります。機械学習ライブラリは
@@ -239,7 +239,7 @@ r(
     これは collision の処理を持たない hash table です。同じ bit に落ちた無関係な 2 つの環境は、二度と区別
     できなくなります。
 
-    下では、paracetamol の ECFP4 特徴を小さな bit vector に fold しています。マス 1 つが 1 bit で、赤いマスは
+    下では、paracetamol の ECFP4 特徴を小さな bit vector に fold しています。マス 1 つが 1 bit で、赤枠のマスは
     2 つ以上の特徴を抱えています (カーソルを乗せると中身が見えます)。16、64、2048 bit を試してみてください。""",
 )
 r(

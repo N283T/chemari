@@ -252,8 +252,8 @@ class ECFPStepper(anywidget.AnyWidget):
     In guided mode, "next" walks atom by atom through every iteration, showing what was hashed
     (as readable labels: a, b… for iteration 0, A, B… for iteration 1, A'… for 2), which
     substructure the identifier describes, whether the environment is kept, and the growing
-    set of features. Explore mode lets you jump between iterations and click atoms. With
-    ``show_fold=True`` the collected identifiers are also folded into a small bit vector.
+    set of features, both as identifiers and folded into a bit vector (``n_bits``). Explore mode
+    lets you jump between iterations and click atoms.
     Identifiers come from :func:`molwidgets.ecfp.ecfp_trace` (same features as RDKit, different
     hash function).
     """
@@ -263,7 +263,6 @@ class ECFPStepper(anywidget.AnyWidget):
     radius = traitlets.Int(0).tag(sync=True)
     atom = traitlets.Int(0).tag(sync=True)
     guided = traitlets.Bool(True).tag(sync=True)
-    show_fold = traitlets.Bool(False).tag(sync=True)
     n_bits = traitlets.Int(64).tag(sync=True)
     steps = traitlets.List().tag(sync=True)
     colours = traitlets.Dict().tag(sync=True)
