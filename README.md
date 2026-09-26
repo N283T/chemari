@@ -5,6 +5,7 @@ It asks why Morgan-fingerprint models struggle on the OpenADMET PXR induction da
 it with two custom [anywidget](https://anywidget.dev) components.
 
 - `notebooks/pxr_fingerprints.py` — the notebook
+- `notebooks/pxr_fingerprints_ja.py` — Japanese edition (same analysis, Japanese prose)
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
