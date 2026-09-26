@@ -13,6 +13,9 @@ it with two custom [anywidget](https://anywidget.dev) components.
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
+  - `ECFPMovie`: an ~80 s animated explainer of ECFP4 (radius 0 → 2, duplicates, folding,
+    collisions, Tanimoto) for N-methylacetamide, built on real RDKit identifiers; a self-contained
+    HTML page (`static/ecfp_movie.html`) shown in an iframe
   - `ECFPStepper`: step through the ECFP algorithm iteration by iteration, with per-atom
     identifiers, the hashed "recipe" for each atom, duplicate removal, and the growing feature set
     shown both as identifiers and as a folded bit vector

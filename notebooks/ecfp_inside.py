@@ -35,7 +35,8 @@ def _(mo):
     If you have trained a QSAR model, you have probably typed something like
 
     ```python
-    fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
+    gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+    fp = gen.GetFingerprint(mol)
     ```
 
     and moved on. ECFP4 is the default molecular representation in cheminformatics: it powers
@@ -82,6 +83,7 @@ def _():
     alt.data_transformers.disable_max_rows()
 
     from molwidgets import (
+        ECFPMovie,
         ECFPStepper,
         MorganBitTiles,
         MorganExplorer,
@@ -96,6 +98,7 @@ def _():
 
     return (
         Chem,
+        ECFPMovie,
         ECFPStepper,
         MorganBitTiles,
         MorganExplorer,
@@ -147,6 +150,12 @@ def _(pl, standardize_smiles):
     train = data.filter(pl.col("split") == "train")
     test = data.filter(pl.col("split") == "test")
     return data, test, train
+
+
+@app.cell(hide_code=True)
+def _(ECFPMovie, mo):
+    mo.ui.anywidget(ECFPMovie())
+    return
 
 
 @app.cell(hide_code=True)

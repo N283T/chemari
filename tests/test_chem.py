@@ -105,3 +105,35 @@ def test_bit_tiles_widget_gallery():
     assert w.tiles and "<svg" in w.tiles[0]["svg"]
     w.selected = w.tiles[0]["bit"]
     assert w.gallery and any(g["mine"] for g in w.gallery)
+
+
+def test_movie_uses_real_rdkit_identifiers():
+    import re
+
+    from rdkit import Chem
+    from rdkit.Chem import rdFingerprintGenerator as G
+
+    from molwidgets import ECFPMovie
+
+    page = ECFPMovie().page
+    assert "Inside ECFP4" in page
+    ids = {
+        k: int(v)
+        for k, v in re.findall(r"(\w): (\d{6,})", page.split("const IDS = {")[1].split("};")[0])
+    }
+    # (atom, radius) that each letter stands for in the storyboard
+    where = {"a": (0, 0), "b": (1, 0), "c": (2, 0), "d": (3, 0), "e": (0, 1),
+             "f": (1, 1), "g": (2, 1), "h": (3, 1), "i": (4, 1), "j": (3, 2)}  # fmt: skip
+    ao = G.AdditionalOutput()
+    ao.AllocateBitInfoMap()
+    G.GetMorganGenerator(radius=2).GetSparseCountFingerprint(
+        Chem.MolFromSmiles("CC(=O)NC"), additionalOutput=ao
+    )
+    info = ao.GetBitInfoMap()
+    assert set(info) == set(ids.values())
+    for key, env in where.items():
+        assert env in info[ids[key]]
+    # the comparison molecule's 16-bit vector
+    bits = G.GetMorganGenerator(radius=2, fpSize=16).GetFingerprint(Chem.MolFromSmiles("CC(=O)NCC"))
+    assert "[0, 1, 5, 6, 7, 8, 9, 10, 11, 13, 14]" in page
+    assert list(bits.GetOnBits()) == [0, 1, 5, 6, 7, 8, 9, 10, 11, 13, 14]

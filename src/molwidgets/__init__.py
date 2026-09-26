@@ -10,10 +10,19 @@ from .chem import (
     tanimoto_matrix,
 )
 from .ecfp import ecfp_trace
-from .widgets import ECFPStepper, MolGrid, MorganBitTiles, MorganExplorer, bit_gallery, census_for
+from .widgets import (
+    ECFPMovie,
+    ECFPStepper,
+    MolGrid,
+    MorganBitTiles,
+    MorganExplorer,
+    bit_gallery,
+    census_for,
+)
 
 __all__ = [
     "BitCensus",
+    "ECFPMovie",
     "ECFPStepper",
     "MolGrid",
     "MorganBitTiles",

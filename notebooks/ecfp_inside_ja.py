@@ -16,7 +16,7 @@
 import marimo
 
 __generated_with = "0.25.0"
-app = marimo.App(width="medium", app_title="ECFP4 の中身: Morgan fingerprint ハンズオンガイド")
+app = marimo.App(width="medium", app_title="Inside ECFP4: a hands-on guide to Morgan fingerprints")
 
 
 @app.cell(hide_code=True)
@@ -29,31 +29,22 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # ECFP4 の中身
-    ### Morgan fingerprint ハンズオンガイド — 何を表し、何を失い、それがモデルにとって何を意味するか
+    # Inside ECFP4
+    ### A hands-on guide to Morgan fingerprints
 
-    QSAR モデルを作ったことがあれば、きっと一度はこう書いたはずです
-
-    ```python
-    fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
-    ```
-
-    そして、そのまま先に進んだのではないでしょうか。ECFP4 はケモインフォマティクスの標準的な分子表現で、
+    QSAR モデルを作るとき、とりあえず Morgan fingerprint (radius 2, 2048 bit) を入れて、
+    中身は気にせず先に進んでいませんか？ ECFP4 はケモインフォマティクスの標準的な分子表現で、
     類似検索、クラスタリング、ライブラリ設計、数えきれないほどの ML ベースラインを支えています。
-    OpenADMET の PXR チャレンジでは test set の定義にまで使われました。Test の 513 化合物は、
-    **強活性かつ選択的な PXR ヒットとの ECFP4 Tanimoto 類似度が 0.4 を超える** という基準で Enamine から
-    購入されたものです
-    ([challenge announcement](https://openadmet.ghost.io/announcing-the-next-openadmet-blind-challenge-predicting-pxr-induction/))。
 
-    それなのに、そのベクトルの bit 1380 が何を *意味するか*、そこに何種類の部分構造が同居しているかを
-    答えられる人はほとんどいません。この notebook では、その箱を開けてみます:
+    あまりに当たり前に使われているので、そのベクトルの bit 1380 が何を *意味するか*、そこに何種類の
+    部分構造が同居しているかを気にする人はほとんどいません。この notebook では、その箱を開けてみます:
 
-    1. **アルゴリズム** — 原子から bit まで 1 ステップずつ
-    2. **Collision** — fold が何をするかを bit ごとに描いて見る
-    3. **盲点** — 数 (count)、立体化学、環サイズ
-    4. **類似度** — 「Tanimoto > 0.4」が約束すること、しないこと
-    5. **モデルの中の ECFP** — feature importance と原子ごとの寄与
-    6. 長所・短所・おすすめ設定の **チートシート**
+    1. **The algorithm**
+    2. **Collisions**
+    3. **Blind spots**
+    4. **Similarity**
+    5. **ECFP inside a model**
+    6. **Cheat sheet**
 
     例には OpenADMET の PXR induction データセットを使います。インタラクティブな部品は、この notebook の
     ために作った [anywidget](https://anywidget.dev) ベースの自作パッケージ `molwidgets` です。
@@ -83,6 +74,7 @@ def _():
     alt.data_transformers.disable_max_rows()
 
     from molwidgets import (
+        ECFPMovie,
         ECFPStepper,
         MorganBitTiles,
         MorganExplorer,
@@ -97,6 +89,7 @@ def _():
 
     return (
         Chem,
+        ECFPMovie,
         ECFPStepper,
         MorganBitTiles,
         MorganExplorer,
@@ -151,25 +144,34 @@ def _(pl, standardize_smiles):
 
 
 @app.cell(hide_code=True)
+def _(ECFPMovie, mo):
+    mo.ui.anywidget(ECFPMovie())
+    return
+
+
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 1 · アルゴリズム: 原子から bit まで
+    ## 1 · The algorithm
 
-    ECFP は分子の記述を内側から外側へ、4 つの手順で組み立てます:
+    ECFP がやっていることは、ひとことで言えば「各原子のまわりを少しずつ広く見ながら、見えた部分構造に
+    番号をつけていく」ことです。手順は 4 つです。
 
-    1. **Atom invariants (iteration 0).** 各重原子を 6 つの数字から hash します: 原子番号、次数 (H を含む)、
-       水素の数、形式電荷、同位体、環に含まれるかどうか。
-    2. **広げる (iteration *r*).** 各原子の新しい identifier は、1 つ前の identifier と、ソートした
-       *(結合次数, 隣接原子の identifier)* のペアをまとめて hash したものです。Radius 1 は隣を、radius 2 は
-       隣の隣までを見ます。
-    3. **集める.** Identifier はすべて特徴になります。ただし、すでに集めたものとまったく同じ結合を覆うもの
-       (**duplicate**) と、環境がそれ以上広がらなかったもの (**no growth**) は除きます。結果は整数の *集合*、
-       つまり unfold された ECFP です。
-    4. **Fold する.** 各 identifier は bit `identifier % n_bits` を立てます — collision の処理を持たない
-       hash table です。
+    1. **Atom invariants**: まず原子ごとに番号をつけます。原子番号、結合している原子の数 (H を含む)、H の数、
+       電荷、同位体、環に入っているか、の 6 つを 1 つの整数に hash したものです。この 6 つが同じ原子は
+       同じ番号になります。
+    2. **Iteration**: 隣の原子を取り込んで番号を更新します。自分の番号と、隣の原子の番号 (と結合の種類) を
+       まとめてもう一度 hash します。1 回目で「自分 + 隣」(radius 1)、2 回目で「自分 + 隣 + 隣の隣」(radius 2)
+       を表す番号になります。ECFP4 は 2 回目まで行います。
+    3. **Deduplication**: ここまでに出てきた番号はすべて特徴になります。ただし、同じ原子の範囲を指す番号は
+       1 つにまとめます (**duplicate**)。広げても範囲が変わらなかった番号も捨てます (**no growth**)。
+       これで「分子に含まれる部分構造の番号の集合」ができます。
+    4. **Folding**: 番号は巨大な整数なので、`番号 % 2048` で 2048 個の箱のどれかに入れ、その箱の bit を 1 に
+       します。違う部分構造が同じ箱に入っても区別されません。これが **collision** です。
 
-    まずは **isobutane** で **next ▶** を押してみてください。Identifier は短いラベルで表示します (iteration 0 は
-    *a, b*、1 は *A, B*、2 は *A', B'*)。特徴の集合の下にある bit vector が、モデルが実際に見るものです。
+    下の widget で、まずは **isobutane** のまま **next ▶** を押してみてください。番号は長いので短いラベルで
+    表示します (iteration 0 は *a, b*、1 回目は *A, B*、2 回目は *A', B'*)。右下の bit vector が、
+    最終的にモデルが受け取るものです。
     """)
     return
 
@@ -204,15 +206,15 @@ def _(Chem, ECFPStepper, custom_smiles, example_pick, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    **Isobutane では**、ステップ 1–4 で 3 つのメチルがラベル **a**、中心が **b** になります。特徴は 2 つです。
-    Fingerprint は *a* が 3 回出てくることを記録しないからです。ステップ 5–8 で **A** = hash(*a* | single→*b*)、
-    つまり「CH についたメチル」と、**B**「メチルを 3 つ持つ CH」(これでもう分子全体) が加わります。
-    ステップ 9–12 では何も増えません。各メチルの radius 2 の環境は *B* と同じ結合を覆うので **duplicate**、
-    中心はもう広がれないので **no growth** です。特徴 4 つ、bit 4 つ。
+    **Isobutane の場合**: ステップ 1–4 では 3 つのメチルがすべて **a**、中心の炭素が **b** になります。
+    メチルは 3 つありますが、fingerprint に残るのは「*a* がある」という事実だけで、特徴は 2 つです。
+    ステップ 5–8 で「CH についたメチル」(**A**) と「メチルを 3 つ持つ CH」(**B**、これで分子全体) が加わります。
+    ステップ 9–12 では何も増えません。メチルから 2 つ広げた範囲は *B* とまったく同じ (**duplicate**)、
+    中心はもうそれ以上広がらない (**no growth**) からです。最終的に特徴 4 つ、bit 4 つです。
 
-    次は **paracetamol** を選んで **explore** に切り替えてください。4 つの芳香族 CH 炭素は iteration 0 で同じ
-    ラベルを共有します — ECFP の出発点は化学的な意味を持たないラベルです。そして 64 bit でもすでに赤枠の bit が
-    1 つあります。モデルがもう区別できない 2 つの特徴です。
+    次は **paracetamol** を選んで **explore** に切り替えてみてください。ベンゼン環の 4 つの CH は iteration 0 では
+    同じ番号です。環のどこにいるかは、隣、隣の隣と取り込んでいくことで区別されます。また 64 bit だと、すでに赤枠の bit が
+    1 つあります。2 つの違う部分構造が同じ bit に入ってしまい、モデルからは区別できなくなっている箇所です。
     """)
     return
 
@@ -264,7 +266,7 @@ def _(ecfp_module, inspect, mo, train, validation):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 2 · Collision
+    ## 2 · Collisions
 
     情報が失われるのは fold の段階です。1 つの分子について言えば、これは誕生日問題です: *k* 個の distinct な
     特徴を *n* bit に入れたとき、collision が 1 つも起きない確率は
@@ -435,7 +437,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 3 · 盲点
+    ## 3 · Blind spots
 
     Folding は偶然によって情報を失います。一方で、そもそも最初から集められない情報もあります。
     下の各行は *異なる* 分子のペアです。よく使われる 4 つの設定での Tanimoto 類似度を比べてみてください。
@@ -515,7 +517,7 @@ def _(mo):
       まとめるので scaffold hopping には役立ちますが、大事な変化を隠すこともあります。芳香族 CH が 1 つ N に
       変わる benzene → pyridine のペアを見てください。
 
-    ## 4 · 類似度: 「Tanimoto > 0.4」が約束すること
+    ## 4 · Similarity
 
     ECFP4 の Tanimoto 類似度は、2 つの分子が共通して立てている bit の割合です。アナログ探索の主力であり、
     PXR の test set もこれで作られました。下の図では、各 test 化合物を、最も近い **強活性** の training 化合物
@@ -593,7 +595,7 @@ def _(alt, fingerprint_matrix, mo, np, pl, tanimoto_matrix, test, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 5 · モデルの中の ECFP
+    ## 5 · ECFP inside a model
 
     たいていの人が最初に作るモデル — OpenADMET のチャレンジ tutorial と同じ **2048-bit ECFP4 の LightGBM** —
     を学習させて、何を学んだのかを聞いてみます。定番の道具は 2 つです:
@@ -739,7 +741,7 @@ def _(N_BITS, bit_gallery, mo, top_bit_pick, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 1 つの予測を読む
+    ### Reading one prediction
 
     ここからは分子単位で見ていきます。下のペアは、チャレンジ全体で 2 番目に難しかった test 化合物
     **OADMET-0006254** (pEC50 2.06) と、その training の nearest neighbour **OADMET-0002810** (pEC50 5.95) です。
@@ -894,7 +896,7 @@ def _(mo, pair_X, pair_contrib, pair_y):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 6 · チートシート
+    ## 6 · Cheat sheet
 
     **長所**
 
@@ -925,7 +927,7 @@ def _(mo):
 
     ---
 
-    ### この notebook について
+    ### About this notebook
 
     * **データ:** [openadmet/pxr-challenge-train-test](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test)
       (CC-BY-4.0)。Test set の設計と最難関化合物の分析は、OpenADMET の

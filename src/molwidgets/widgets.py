@@ -340,6 +340,18 @@ class ECFPStepper(anywidget.AnyWidget):
         self.svg = drawer.GetDrawingText().replace("</svg>", hits + "</svg>")
 
 
+class ECFPMovie(anywidget.AnyWidget):
+    """The "Inside ECFP4" explainer: an ~80 s scripted animation of how N-methylacetamide becomes
+    a folded bit vector, and what Tanimoto similarity makes of it. Identifiers are real RDKit
+    values; the page is self-contained HTML shown in an iframe."""
+
+    _esm = (_STATIC / "movie.js").read_text()
+    page = traitlets.Unicode("").tag(sync=True)
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(page=(_STATIC / "ecfp_movie.html").read_text(), **kwargs)
+
+
 def _env_svg(mol: Chem.Mol, center: int, radius: int, size: tuple[int, int] = (160, 130)) -> str:
     """RDKit's own bit depiction (Draw.DrawMorganEnv) as an SVG string."""
     from rdkit.Chem import Draw
