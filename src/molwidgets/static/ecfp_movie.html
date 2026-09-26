@@ -1,0 +1,844 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Inside ECFP4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg0: #070a12; --bg1: #0d1424; --fg: #eef1f7; --muted: #8b95ab; --line: #2a3450;
+  --amber: #ffb547; --blue: #4dabf7; --red: #ff5d5d; --card: #121a2d;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: transparent; color: var(--fg); overflow: hidden;
+  font-family: Inter, system-ui, sans-serif; }
+/* the video and its control bar are separate blocks; the bar sits under the frame, on the host page */
+#player { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; }
+#viewport { position: relative; overflow: hidden; background: var(--bg0); border-radius: 12px; flex: none; }
+#stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; }
+#bg, #world, #overlay { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+.a { position: absolute; left: 0; top: 0; will-change: transform, opacity; }
+
+/* chips */
+.chip { width: 64px; height: 64px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
+  font: 800 34px Inter, sans-serif; color: #fff; letter-spacing: -.02em;
+  box-shadow: 0 10px 28px -6px var(--glow, rgba(0,0,0,.5)), inset 0 1px 0 rgba(255,255,255,.35), inset 0 -3px 0 rgba(0,0,0,.18); }
+.chip.grey { filter: grayscale(1) brightness(.75); }
+.ecard { width: 150px; height: 236px; border-radius: 18px; background: linear-gradient(180deg, #16203a, #0f172b);
+  border: 1px solid #2b3960; box-shadow: 0 20px 40px -20px rgba(0,0,0,.9); display: flex; flex-direction: column; align-items: center; padding-top: 50px; }
+.ecard svg { width: 138px; height: 106px; display: block; }
+.ecard .rad { font: 600 15px Inter; color: var(--muted); margin-top: 6px; letter-spacing: .04em; }
+.num { font: 500 15px "JetBrains Mono", monospace; color: var(--muted); white-space: nowrap; }
+
+/* cards */
+.card { width: 420px; height: 70px; border-radius: 16px; background: linear-gradient(180deg, #17213a, #111a2e);
+  border: 1px solid #2b3960; display: flex; align-items: center; justify-content: space-between; padding: 0 26px;
+  font-size: 24px; color: var(--muted); box-shadow: 0 16px 40px -18px rgba(0,0,0,.8); }
+.card b { color: var(--fg); font: 700 32px "JetBrains Mono", monospace; }
+
+.hash { width: 150px; height: 150px; display: flex; align-items: center; justify-content: center; }
+.hash svg { position: absolute; inset: 0; }
+.hash span { font: 700 24px "JetBrains Mono", monospace; color: #fff; position: relative; }
+
+.pair { height: 84px; padding: 0 16px 0 18px; border-radius: 20px; background: #16203a; border: 1px solid #2d3b63;
+  display: flex; align-items: center; gap: 12px; font: 700 40px "JetBrains Mono", monospace; color: var(--amber); }
+.pair .chip { width: 52px; height: 52px; font-size: 28px; border-radius: 13px; }
+.plus { font: 300 60px Inter; color: var(--muted); }
+
+.stamp { font: 900 30px Inter; color: var(--red); border: 4px solid var(--red); border-radius: 10px; padding: 4px 14px;
+  letter-spacing: .08em; background: rgba(255,93,93,.08); white-space: nowrap; }
+
+.slot { width: 92px; height: 120px; border-radius: 18px; border: 2px solid #2d3a5c; background: rgba(18,26,45,.85); }
+.slotlbl { font: 500 18px "JetBrains Mono", monospace; color: var(--muted); }
+.digit { font: 700 62px "JetBrains Mono", monospace; }
+
+.traylbl { font: 700 18px Inter; letter-spacing: .22em; color: var(--muted); }
+.modtxt { font: 500 22px "JetBrains Mono", monospace; color: var(--fg); white-space: nowrap;
+  background: rgba(13,20,36,.92); padding: 6px 12px; border-radius: 10px; border: 1px solid #2d3a5c; }
+
+/* captions */
+#cap { position: absolute; left: 120px; top: 84px; width: 1100px; }
+#cap .tag { font: 700 20px Inter; letter-spacing: .28em; color: var(--blue); margin-bottom: 14px; }
+#cap .title { font: 800 60px/1.08 Inter; letter-spacing: -.025em; }
+#cap .sub { font: 400 30px/1.35 Inter; color: var(--muted); margin-top: 14px; }
+#cap.center { left: 0; width: 1920px; top: 390px; text-align: center; }
+#cap.center .title { font-size: 84px; }
+#cap.hero { left: 0; width: 1920px; top: 360px; text-align: center; }
+#cap.hero .title { font-size: 180px; font-weight: 900; letter-spacing: -.045em; color: #fff; text-shadow: 0 0 60px rgba(77,171,247,.45); }
+#cap.hero .title .w:last-child { color: #6cbcff; }
+#cap.hero .sub { font-size: 40px; margin-top: 10px; }
+#cap.alert .title { font-size: 96px; color: var(--red); letter-spacing: .02em; text-transform: uppercase; }
+#cap .w { display: inline-block; white-space: pre; }
+.k { display: inline-block; padding: 0 .28em; border-radius: .22em; color: #fff; font-weight: 800; }
+
+.bits { font: 700 104px "JetBrains Mono", monospace; letter-spacing: .06em; white-space: nowrap; }
+.bits span { display: inline-block; }
+
+/* controls */
+#controls { width: 100%; max-width: var(--vw); height: 44px; flex: none; display: flex; align-items: flex-start; gap: 14px; padding: 2px 4px 0; color: #8a93a6; font-size: 13px; }
+#controls button { background: none; border: 0; color: #8a93a6; font-size: 20px; line-height: 22px; padding: 0; cursor: pointer; width: 32px; }
+#bar { position: relative; flex: 1; height: 22px; cursor: pointer; }
+#bar .track { position: absolute; left: 0; right: 0; top: 9px; height: 4px; background: #2a3148; border-radius: 2px; }
+#bar .fill { position: absolute; left: 0; top: 9px; height: 4px; background: var(--blue); border-radius: 2px; }
+#bar .tick { position: absolute; top: 5px; width: 2px; height: 12px; background: #56607a; }
+#bar .tick span { position: absolute; top: 14px; left: 4px; white-space: nowrap; font-size: 11px; color: #7c869d; }
+#time { font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; line-height: 22px; }
+#big { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+#big div { width: 120px; height: 120px; border-radius: 50%; background: rgba(255,255,255,.12); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center; font-size: 48px; padding-left: 8px; border: 1px solid rgba(255,255,255,.25); }
+</style>
+</head>
+<body>
+<div id="player">
+  <div id="viewport">
+    <div id="stage">
+      <canvas id="bg" width="1920" height="1080"></canvas>
+      <svg id="world" viewBox="0 0 1920 1080"><g id="cam"></g></svg>
+      <svg id="overlay" viewBox="0 0 1920 1080"></svg>
+      <div id="actors"></div>
+      <div id="cap"></div>
+    </div>
+    <div id="big"><div>▶</div></div>
+  </div>
+  <div id="controls">
+    <button id="pp">▶</button>
+    <div id="bar"><div class="track"></div><div class="fill"></div></div>
+    <span id="time">0:00 / 0:00</span>
+  </div>
+</div>
+
+<script>
+// ============================================================================
+// Inside ECFP4: a scripted explainer. Everything on screen is a pure function
+// of the time t, so the timeline can be scrubbed (and later captured frame by
+// frame). Identifiers and hash values are illustrative, not RDKit's.
+// ============================================================================
+// Embedded (the ECFPMovie widget): the widget draws the control bar in the host page and talks to
+// this page with postMessage, so the frame holds only the 16:9 video.
+const EMBED = window.parent !== window;
+const CTRL_H = EMBED ? 0 : 50; // control bar + gap under the video
+const W = 1920, H = 1080, STORY_END = 99.4;
+// real time → story time: the intro cuts straight to the molecule, the unfolded scene runs slower
+// tempo per scene (story seconds per real second); the intro jumps straight to the molecule
+const PLAN = [
+  { s0: 0, s1: 2.3, rate: 2.2 },       // title card, about a second
+  { s0: 10.0, s1: 14.2, rate: 2.5 },   // molecule draws in
+  { s0: 14.2, s1: 30.9, rate: 1.1 },   // atom invariants
+  { s0: 30.9, s1: 50.9, rate: 0.95 },
+  { s0: 50.9, s1: 53.7, rate: 3.0 },   // skip the empty beat before radius 2
+  { s0: 53.7, s1: 64.8, rate: 0.95 },  // radius 1 and 2
+  { s0: 64.8, s1: 66.2, rate: 1.1 },
+  { s0: 66.2, s1: 71.2, rate: 1.25 },  // unfolded cards
+  { s0: 71.2, s1: 76.0, rate: 1.1 },   // folding
+  { s0: 76.0, s1: 79.0, rate: 4.0 },   // (nothing happens here any more)
+  { s0: 79.0, s1: 86.4, rate: 1.1 },   // collision, bit vector
+  { s0: 86.4, s1: 96.0, rate: 1.0 },   // Tanimoto
+  { s0: 96.0, s1: STORY_END, rate: 1.3 },
+];
+let _r = 0;
+const SEGS = PLAN.map((p) => { const g = { r0: _r, s0: p.s0, rate: p.rate }; _r += (p.s1 - p.s0) / p.rate; return g; });
+const T_END = _r;
+const story = (r) => { let g = SEGS[0]; for (const x of SEGS) if (r >= x.r0) g = x; return g.s0 + (r - g.r0) * g.rate; };
+const real = (s) => { let g = SEGS[0]; for (const x of SEGS) if (s >= x.s0) g = x; return g.r0 + (s - g.s0) / g.rate; };
+
+// ---------- easing / timing helpers ----------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const P = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, x) => a + (b - a) * x;
+const E = {
+  out: (x) => 1 - Math.pow(1 - x, 3),
+  in: (x) => x * x * x,
+  inOut: (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2),
+  back: (x) => { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); },
+};
+// 0 → 1 → 0 window with fades
+const win = (t, a, b, fi = 0.4, fo = 0.4) => Math.min(E.out(P(t, a, a + fi)), 1 - E.out(P(t, b - fo, b)));
+// keyframes: [[t, {…numbers}], …], eased between consecutive frames
+function kf(frames, t) {
+  if (t <= frames[0][0]) return { ...frames[0][1] };
+  for (let i = 1; i < frames.length; i++) {
+    const [t1, v1] = frames[i], [t0, v0] = frames[i - 1];
+    if (t < t1) { const x = E.inOut(P(t, t0, t1)); const o = {}; for (const k in v1) o[k] = lerp(v0[k], v1[k], x); return o; }
+  }
+  return { ...frames[frames.length - 1][1] };
+}
+
+// ---------- the molecule (world coordinates) ----------
+const ATOMS = [
+  { el: "C", text: "CH₃", x: 660, y: 600, dir: 1 },
+  { el: "C", text: "C", x: 860, y: 480, dir: 1 },
+  { el: "O", text: "O", x: 860, y: 268, dir: -1 },
+  { el: "N", text: "NH", x: 1060, y: 600, dir: 1 },
+  { el: "C", text: "CH₃", x: 1260, y: 480, dir: 1 },
+];
+const BONDS = [[0, 1, 1], [1, 2, 2], [1, 3, 1], [3, 4, 1]];
+function dist(c) {
+  const d = ATOMS.map(() => Infinity); d[c] = 0; const q = [c];
+  while (q.length) { const u = q.shift(); for (const [i, j] of BONDS) for (const [x, y] of [[i, j], [j, i]]) if (x === u && d[y] > d[u] + 1) { d[y] = d[u] + 1; q.push(y); } }
+  return d;
+}
+function env(c, r) {
+  const d = dist(c);
+  const bonds = new Set(BONDS.map((b, n) => (Math.min(d[b[0]], d[b[1]]) < r ? n : -1)).filter((n) => n >= 0));
+  const atoms = new Set([c]); for (const n of bonds) { atoms.add(BONDS[n][0]); atoms.add(BONDS[n][1]); }
+  return { atoms, bonds };
+}
+
+// ---------- identifiers ----------
+const COL = { a: "#8b5cf6", b: "#3b82f6", c: "#f97316", d: "#10b981", e: "#ec4899", f: "#6366f1",
+  g: "#f59e0b", h: "#22c55e", i: "#e11d48", j: "#a855f7", k: "#06b6d4", l: "#64748b", m: "#64748b", n: "#64748b", o: "#64748b" };
+// real RDKit Morgan identifiers for CC(=O)NC, radius 2 (rdFingerprintGenerator, RDKit 2026.03)
+const IDS = { a: 2246728737, b: 2246699815, c: 864942730, d: 847961216, e: 3545365497, f: 411967733,
+  g: 1510328189, h: 828793177, i: 3824063894, j: 88780136 };
+const ID = (k) => IDS[k];
+const BIT = Object.fromEntries(Object.entries(IDS).map(([k, v]) => [k, v % 16]));
+const fmt = (n) => n.toLocaleString("en-US");
+const KEYS = "abcdefghij".split("");
+
+// ---------- camera ----------
+const CAM = [
+  [0, { cx: 960, cy: 430, s: 1 }], [14.2, { cx: 960, cy: 430, s: 1 }],
+  [15.4, { cx: 1066, cy: 470, s: 1.55 }], [20.6, { cx: 1066, cy: 470, s: 1.55 }],
+  [21.8, { cx: 960, cy: 430, s: 1 }], [31.0, { cx: 960, cy: 430, s: 1 }],
+  [32.2, { cx: 1000, cy: 380, s: 1.3 }], [40.3, { cx: 1000, cy: 380, s: 1.3 }],
+  [41.3, { cx: 960, cy: 430, s: 1 }], [66.0, { cx: 960, cy: 430, s: 1 }],
+  [67.6, { cx: 960, cy: 330, s: 0.8 }], [79.0, { cx: 960, cy: 330, s: 0.8 }],
+  [80.2, { cx: 233, cy: 900, s: 0.55 }],
+];
+const WORLD_O = [[0, { o: 1 }], [65.8, { o: 1 }], [67.2, { o: 0.07 }], [79.0, { o: 0.07 }], [80.0, { o: 1 }], [86.0, { o: 1 }], [87.0, { o: 0 }]];
+const toScreen = (x, y, c) => [W / 2 + (x - c.cx) * c.s, H / 2 + (y - c.cy) * c.s];
+const labelWorld = (a) => [ATOMS[a].x, ATOMS[a].y + ATOMS[a].dir * 84];
+const badgeWorld = (a) => (ATOMS[a].dir < 0 ? [ATOMS[a].x + 76, ATOMS[a].y - 84] : [ATOMS[a].x, ATOMS[a].y + ATOMS[a].dir * 158]);
+const labelScreen = (a, t) => { const c = kf(CAM, t); return [...toScreen(...labelWorld(a), c), Math.pow(c.s, 0.6)]; };
+const badgeScreen = (a, t) => { const c = kf(CAM, t); return [...toScreen(...badgeWorld(a), c), Math.pow(c.s, 0.6)]; };
+
+// ---------- storyboard data ----------
+const CAPS = [
+  { t0: 0.1, t1: 2.3, style: "hero", title: "Inside ECFP4", sub: "How a molecule becomes a bit vector" },
+  { t0: 10.2, t1: 14.1, title: "N-methylacetamide", sub: "CC(=O)NC" },
+  { t0: 14.3, t1: 20.7, tag: "01 · RADIUS 0", title: "Six numbers per atom", sub: "…hashed into one integer: the atom's identifier." },
+  { t0: 21.0, t1: 25.3, tag: "01 · RADIUS 0", title: "Every atom gets one", sub: "Different properties, different identifiers." },
+  { t0: 25.5, t1: 28.9, tag: "01 · RADIUS 0", title: "Same six numbers, same identifier", sub: "Both methyls are simply [a] — for now." },
+  { t0: 29.0, t1: 30.7, tag: "01 · RADIUS 0", title: "Collect them in a set", sub: "[a] is stored once, however often it occurs." },
+  { t0: 30.9, t1: 40.5, tag: "02 · RADIUS 1", title: "Look one bond further", sub: "Own identifier + sorted (bond, neighbour) pairs → hash." },
+  { t0: 40.7, t1: 47.0, tag: "02 · RADIUS 1", title: "Every atom does the same", sub: "Using the old identifiers — then all update together." },
+  { t0: 47.2, t1: 50.8, tag: "02 · RADIUS 1", title: "Now the methyls differ", sub: "One sits next to C=O, the other next to N." },
+  { t0: 51.0, t1: 56.1, tag: "03 · RADIUS 2", title: "Neighbours of neighbours", sub: "Each identifier now covers a bigger substructure." },
+  { t0: 56.2, t1: 64.6, tag: "03 · RADIUS 2", title: "Seen these bonds before? Drop it.", sub: "An environment that covers the same bonds as an earlier one is a duplicate." },
+  { t0: 64.8, t1: 71.0, title: "The unfolded ECFP4", sub: "10 unique substructures, each a 32-bit integer (real RDKit values)." },
+  { t0: 71.2, t1: 79.0, tag: "04 · FOLDING", title: "Squeeze into a fixed length", sub: "bit = identifier mod 16   (mod 2048 in practice)" },
+  { t0: 79.2, t1: 82.7, style: "alert", title: "Collision", sub: "CH₃–C and C–NH–C: different substructures, same bit 9." },
+  { t0: 82.9, t1: 86.4, title: "This is all the model sees", sub: "No counts. No positions. No way to undo a collision." },
+  { t0: 86.5, t1: 88.6, tag: "05 · SIMILARITY", title: "Now take a second molecule", sub: "N-ethylacetamide, CC(=O)NCC: one carbon longer." },
+  { t0: 88.7, t1: 91.5, tag: "05 · SIMILARITY", title: "Tanimoto similarity", sub: "bits on in both ÷ bits on in either" },
+  { t0: 91.6, t1: 93.5, tag: "05 · SIMILARITY", title: "Very similar — or is it?", sub: "Short vectors mean more collisions, and collisions inflate similarity." },
+  { t0: 93.6, t1: 96.0, tag: "05 · SIMILARITY", title: "Bits 6 and 8 match by accident", sub: "Different substructures in A and B. With 2048 bits, Tanimoto drops to 0.41." },
+];
+const CHAPTERS = [[0, "Intro"], [14.3, "Radius 0"], [30.9, "Radius 1"], [51, "Radius 2"], [64.8, "Unfolded"], [71.2, "Folding"], [86.4, "Similarity"], [96.0, "Outro"]];
+
+// label events per atom: [time, key, fx]
+const LABEL = [
+  [[20.25, "a", "none"], [45.5, "e", "flip"]],
+  [[22.4, "b", "pop"], [45.7, "f", "flip"]],
+  [[23.2, "c", "pop"], [45.9, "g", "flip"]],
+  [[24.0, "d", "pop"], [46.1, "h", "flip"]],
+  [[26.0, "a", "pop"], [46.3, "i", "flip"]],
+];
+// "next" badges: atom, key, show, hide
+const BADGES = [
+  [1, "f", 39.6, 45.7, 0], [0, "e", 41.8, 45.5], [2, "g", 42.6, 45.9], [3, "h", 43.4, 46.1], [4, "i", 44.2, 46.3],
+  [3, "j", 55.0, 64.8], [0, "l", 57.0, 58.2], [2, "m", 59.0, 60.6], [1, "n", 61.2, 62.6], [4, "o", 63.2, 64.6],
+];
+const STAMPS = [[6, 57.6, "= f"], [7, 59.6, "= f"], [8, 61.7, "= j"], [9, 63.7, "= h"]];
+// highlighted environments: centre, radius, t0, t1, red?
+const ENV = [
+  [0, 0, 14.8, 20.6], [1, 0, 22.2, 22.9], [2, 0, 23.0, 23.7], [3, 0, 23.8, 24.5], [0, 0, 25.8, 28.8], [4, 0, 25.8, 28.8],
+  [1, 1, 31.6, 40.2], [0, 1, 41.4, 42.3], [2, 1, 42.2, 43.1], [3, 1, 43.0, 43.9], [4, 1, 43.8, 44.7],
+  [0, 1, 47.2, 50.4], [4, 1, 47.2, 50.4],
+  [3, 2, 54.0, 56.2], [0, 2, 56.2, 58.2], [2, 2, 58.2, 60.6], [1, 2, 60.6, 62.6], [4, 2, 62.6, 64.6],
+  [0, 1, 79.8, 82.8, 1], [3, 1, 79.8, 82.8, 1],
+].map(([c, r, t0, t1, red]) => ({ c, r, t0, t1, red: !!red, e: env(c, r), d: dist(c) }));
+// features flying into the tray: key → [start, source]
+const FLY = {
+  a: [29.0, "L0"], b: [29.2, "L1"], c: [29.4, "L2"], d: [29.6, "L3"],
+  e: [49.6, "L0"], f: [49.8, "L1"], g: [50.0, "L2"], h: [50.2, "L3"], i: [50.4, "L4"],
+  j: [64.8, "B3"],
+};
+// dim everything except these atoms (and bonds between them)
+const DIM = [[15.0, 20.7, [0]], [31.4, 40.3, [0, 1, 2, 3]]];
+const INV = [["Atomic number", "6"], ["Degree (incl. H)", "4"], ["Hydrogens", "3"], ["Charge", "0"], ["Isotope", "0"], ["In a ring", "no"]];
+// the first identifier drops alone (with its mod callout), the rest fall almost together
+const dropT = (i) => 74.0 + i * 0.07;
+
+// ---------- build DOM ----------
+const $ = (s) => document.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+const S = (tag, attrs = {}, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; };
+const D = (html, cls = "") => { const e = document.createElement("div"); e.className = "a " + cls; e.innerHTML = html; $("#actors").appendChild(e); return e; };
+const chipHTML = (k, extra = "") => `<div class="chip ${extra}" style="background:linear-gradient(160deg, ${COL[k]}, ${shade(COL[k])});--glow:${COL[k]}88">${k}</div>`;
+function shade(hex) { const n = parseInt(hex.slice(1), 16); const f = (v) => Math.round(v * 0.62); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; }
+function place(el, x, y, s = 1, o = 1, extra = "") {
+  if (o <= 0.002) { if (el.style.display !== "none") el.style.display = "none"; return; }
+  if (el.style.display === "none") el.style.display = "";
+  el.style.opacity = o;
+  el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${s}) ${extra}`;
+}
+
+// world svg
+const cam = $("#cam");
+const defs = S("defs", {}, $("#world"));
+defs.innerHTML = `<filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9"/></filter>
+  <radialGradient id="atomfill" cx="40%" cy="35%"><stop offset="0" stop-color="#23304f"/><stop offset="1" stop-color="#121a2d"/></radialGradient>`;
+const ringEls = ENV.map(() => S("circle", { fill: "none", "stroke-width": 3, "stroke-dasharray": "10 12" }, cam));
+// translucent "reach" blob per environment: grows outward bond by bond, so its size is the radius
+const blobEls = ENV.map((w) => {
+  const g = S("g", { opacity: 0 }, cam);
+  const lines = [...w.e.bonds].map((b) => { let [u, v] = BONDS[b]; if (w.d[u] > w.d[v]) [u, v] = [v, u];
+    return { u, v, lv: w.d[u], el: S("line", { "stroke-width": 150, "stroke-linecap": "round" }, g) }; });
+  const dots = [...w.e.atoms].map((a) => ({ a, k: w.d[a], el: S("circle", { cx: ATOMS[a].x, cy: ATOMS[a].y, r: 0 }, g) }));
+  return { g, lines, dots };
+});
+// step counters: "1", "2" on each bond as the reach passes over it
+const stepEls = ENV.map((w) => [...w.e.bonds].map((b) => {
+  let [u, v] = BONDS[b]; if (w.d[u] > w.d[v]) [u, v] = [v, u];
+  const x = (ATOMS[u].x + ATOMS[v].x) / 2, y = (ATOMS[u].y + ATOMS[v].y) / 2, lv = w.d[u];
+  const g = S("g", { opacity: 0 });
+  S("circle", { cx: x, cy: y, r: 25, fill: w.red ? "#ff5d5d" : "#ffb547", stroke: "#0b0f1a", "stroke-width": 5 }, g);
+  const tx = S("text", { x, y: y + 1, "text-anchor": "middle", "dominant-baseline": "central", "font-family": "Inter", "font-weight": 900, "font-size": 30, fill: "#0b0f1a" }, g);
+  tx.textContent = lv + 1;
+  return { g, x, y, lv };
+}));
+const glowEls = BONDS.map(([i, j]) => S("line", { x1: ATOMS[i].x, y1: ATOMS[i].y, x2: ATOMS[j].x, y2: ATOMS[j].y, "stroke-width": 44, "stroke-linecap": "round", filter: "url(#glow)" }, cam));
+const bondEls = BONDS.map(([i, j, o]) => {
+  const A = ATOMS[i], B = ATOMS[j], g = S("g", {}, cam), L = Math.hypot(B.x - A.x, B.y - A.y);
+  const lines = o === 2 ? [-8, 8] : [0];
+  const els = lines.map((off) => { const nx = ((B.y - A.y) / L) * off, ny = ((A.x - B.x) / L) * off;
+    return S("line", { x1: A.x + nx, y1: A.y + ny, x2: B.x + nx, y2: B.y + ny, stroke: "#c8d0e0", "stroke-width": 7, "stroke-linecap": "round", "stroke-dasharray": L, "stroke-dashoffset": L }, g); });
+  return { g, els, L };
+});
+const atomEls = ATOMS.map((a) => {
+  const g = S("g", {}, cam);
+  const halo = S("circle", { cx: a.x, cy: a.y, r: 62, fill: "none", "stroke-width": 0 }, g);
+  const c = S("circle", { cx: a.x, cy: a.y, r: 50, fill: "url(#atomfill)", stroke: "#3a4a74", "stroke-width": 3 }, g);
+  const tx = S("text", { x: a.x, y: a.y + 2, "text-anchor": "middle", "dominant-baseline": "central",
+    fill: a.el === "O" ? "#ff7b7b" : a.el === "N" ? "#6cbcff" : "#eef1f7", "font-size": a.text.length > 1 ? 34 : 40, "font-weight": 800, "font-family": "Inter" }, g);
+  tx.textContent = a.text;
+  return { g, halo, c };
+});
+stepEls.flat().forEach((st) => cam.appendChild(st.g));
+// overlay svg (screen space): collision connectors
+const conn = [0, 3].map(() => S("path", { fill: "none", stroke: "#ff5d5d", "stroke-width": 4, "stroke-dasharray": "14 10" }, $("#overlay")));
+
+// actors
+const labelEls = ATOMS.map(() => D(""));
+const badgeEls = BADGES.map(([, k, , , ]) => D(chipHTML(k, "abcdefghij".includes(k) ? "" : "grey")));
+const stampEls = STAMPS.map(([, , txt]) => D(`<div class="stamp">DUPLICATE ${txt}</div>`));
+const cardEls = INV.map(([k, v]) => D(`<div class="card">${k}<b>${v}</b></div>`));
+const hashEl = D(`<div class="hash"><svg viewBox="0 0 150 150"><defs><linearGradient id="hg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#4dabf7"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs>
+  <polygon id="hexp" points="75,8 133,41 133,109 75,142 17,109 17,41" fill="#0f1830" stroke="url(#hg)" stroke-width="5"/></svg><span>hash</span></div>`);
+const ownEl = D(chipHTML("b"));
+const plusEl = D(`<div class="plus">+</div>`);
+const PAIRS = [["=", "c"], ["–", "a"], ["–", "d"]]; // arrival order; sorted: a, d, c
+const SORTED = [2, 0, 1];                          // slot of each pair after sorting
+const pairEls = PAIRS.map(([b, k]) => D(`<div class="pair">${b}${chipHTML(k)}</div>`));
+const fOut = D(chipHTML("f"));
+const trayLbl = D(`<div class="traylbl">FEATURES</div>`);
+const ENVK = { a: [0, 0], b: [1, 0], c: [2, 0], d: [3, 0], e: [0, 1], f: [1, 1], g: [2, 1], h: [3, 1], i: [4, 1], j: [3, 2] };
+function miniSVG(key) {
+  const [c, r] = ENVK[key], e = env(c, r);
+  // crop to the environment plus one shell of faded context, like RDKit's DrawMorganBit
+  const d = dist(c), show = new Set(ATOMS.map((_, n) => n).filter((n) => d[n] <= r + 1));
+  const xs = [...show].map((n) => ATOMS[n].x), ys = [...show].map((n) => ATOMS[n].y);
+  let x0 = Math.min(...xs) - 70, x1 = Math.max(...xs) + 70, y0 = Math.min(...ys) - 70, y1 = Math.max(...ys) + 70;
+  const wantW = Math.max(x1 - x0, (y1 - y0) * 1.3), wantH = wantW / 1.3;
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  let out = `<svg viewBox="${cx - wantW / 2} ${cy - wantH / 2} ${wantW} ${wantH}">`;
+  BONDS.forEach(([i, j, o], n) => {
+    if (!show.has(i) || !show.has(j)) return;
+    const A = ATOMS[i], B = ATOMS[j], on = e.bonds.has(n);
+    if (on) out += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="#ffb547" stroke-opacity=".5" stroke-width="44" stroke-linecap="round"/>`;
+    const L = Math.hypot(B.x - A.x, B.y - A.y);
+    for (const off of o === 2 ? [-10, 10] : [0]) {
+      const nx = ((B.y - A.y) / L) * off, ny = ((A.x - B.x) / L) * off;
+      out += `<line x1="${A.x + nx}" y1="${A.y + ny}" x2="${B.x + nx}" y2="${B.y + ny}" stroke="${on ? "#eef1f7" : "#34405e"}" stroke-width="${on ? 10 : 7}" stroke-linecap="round" ${on ? "" : 'stroke-dasharray="14 14"'}/>`;
+    }
+  });
+  ATOMS.forEach((a, n) => {
+    if (!show.has(n)) return;
+    const centre = n === c, on = e.atoms.has(n);
+    const fill = centre ? "#1d3b66" : on ? "#3a2c12" : "#10182b", stroke = centre ? "#4dabf7" : on ? "#ffb547" : "#26304a";
+    const col = !on ? "#3a4560" : a.el === "O" ? "#ff7b7b" : a.el === "N" ? "#6cbcff" : "#eef1f7";
+    out += `<circle cx="${a.x}" cy="${a.y}" r="46" fill="${fill}" stroke="${stroke}" stroke-width="${centre ? 9 : 6}"/>`;
+    out += `<text x="${a.x}" y="${a.y + 3}" text-anchor="middle" dominant-baseline="central" font-family="Inter" font-weight="800" font-size="${a.text.length > 1 ? 40 : 50}" fill="${col}">${a.text}</text>`;
+  });
+  return out + "</svg>";
+}
+const cardEls2 = KEYS.map((k) => D(`<div class="ecard">${miniSVG(k)}<div class="rad">radius ${ENVK[k][1]}</div></div>`));
+cardEls2.forEach((e) => (e.style.zIndex = 2));
+const trayEls = KEYS.map((k) => D(chipHTML(k)));
+const aGhost = D(chipHTML("a"));
+const numEls = KEYS.map(() => D(`<div class="num"></div>`));
+const modTags = KEYS.map((k) => D(`<div class="num" style="color:#eef1f7;font-weight:700;font-size:17px">mod 16 = <span style="color:${COL[k]}">${BIT[k]}</span></div>`));
+modTags.forEach((e) => (e.style.zIndex = 3));
+const slotEls = Array.from({ length: 16 }, () => D(`<div class="slot"></div>`));
+const slotLbl = Array.from({ length: 16 }, (_, b) => D(`<div class="slotlbl">${b}</div>`));
+const digitEls = Array.from({ length: 16 }, (_, b) => D(`<div class="digit">${KEYS.some((k) => BIT[k] === b) ? 1 : 0}</div>`));
+slotEls.forEach((e) => (e.style.zIndex = 0)); numEls.forEach((e) => (e.style.zIndex = 3)); trayEls.forEach((e) => (e.style.zIndex = 3)); aGhost.style.zIndex = 3;
+const modEls = KEYS.map((k) => D(`<div class="modtxt">…${String(ID(k)).slice(-4)} mod 16 = <b style="color:${COL[k]}">${BIT[k]}</b></div>`));
+const BITSTR = Array.from({ length: 16 }, (_, b) => (KEYS.some((k) => BIT[k] === b) ? 1 : 0));
+const bitsEl = D(`<div class="bits">${BITSTR.map((v) => `<span style="color:${v ? "#fff" : "#39425a"}">${v}</span>`).join("")}</div>`);
+const outroSub = D(`<div style="font:500 34px Inter;color:#8b95ab;white-space:nowrap">radius 2 · 2048 bits · one bit per substructure, give or take a collision</div>`);
+// N-ethylacetamide, CC(=O)NCC: real RDKit ECFP4 folded to 16 bits
+const BVEC = Array.from({ length: 16 }, (_, b) => ([0, 1, 5, 6, 7, 8, 9, 10, 11, 13, 14].includes(b) ? 1 : 0));
+const ACCIDENT = [6, 8]; // on in both, but from different substructures
+const INTER = [...Array(16).keys()].filter((b) => BITSTR[b] && BVEC[b]);
+const ONLY = [...Array(16).keys()].filter((b) => (BITSTR[b] || BVEC[b]) && !(BITSTR[b] && BVEC[b]));
+const colEls = Array.from({ length: 16 }, () => D(`<div style="width:104px;border:3px solid;border-radius:22px"></div>`));
+colEls.forEach((e) => (e.style.zIndex = 1));
+const slotB = Array.from({ length: 16 }, () => D(`<div class="slot"></div>`));
+const digitB = BVEC.map((v) => D(`<div class="digit" style="color:${v ? "#fff" : "#3a4460"}">${v}</div>`));
+const lblB = Array.from({ length: 16 }, (_, b) => D(`<div class="slotlbl">${b}</div>`));
+[...slotB, ...digitB].forEach((e) => (e.style.zIndex = 2));
+const rowName = [D(`<div class="traylbl">A · N-METHYLACETAMIDE</div>`), D(`<div class="traylbl">B · N-ETHYLACETAMIDE</div>`)];
+const counters = D(`<div></div>`);
+counters.firstChild.remove();
+const formula = D(`<div style="font:800 64px Inter;white-space:nowrap;letter-spacing:-.02em">Tanimoto = <span style="color:#34d399">${INTER.length}</span> / <span style="color:#6cbcff">${INTER.length + ONLY.length}</span> = <span style="color:#ffcf85">${(INTER.length / (INTER.length + ONLY.length)).toFixed(2)}</span></div>`);
+const defFormula = D(`<div style="display:flex;align-items:center;gap:26px;font:800 50px Inter;white-space:nowrap">
+  <span>T(A, B) =</span>
+  <span style="display:inline-flex;flex-direction:column;align-items:center;font-family:'JetBrains Mono',monospace;font-size:44px">
+    <span style="color:#34d399;padding:0 14px 6px">|A ∩ B|</span>
+    <span style="color:#6cbcff;padding:6px 14px 0;border-top:4px solid #eef1f7">|A ∪ B|</span>
+  </span></div>`);
+const formula2 = D(`<div style="font:700 34px Inter;white-space:nowrap;color:#8b95ab;text-align:center;line-height:1.35">with 2048 bits<br><span style="color:#34d399">7</span> / <span style="color:#6cbcff">17</span> = <span style="color:#ffcf85">0.41</span></div>`);
+// Tanimoto as a live fraction: bits fly from the columns into the numerator and denominator
+const UNION = [...Array(16).keys()].filter((b) => BITSTR[b] || BVEC[b]);
+const TX = 1080, TY = 962;
+const fLabel = D(`<div style="font:800 54px Inter;white-space:nowrap">T(A, B) =</div>`);
+const fBar = D(`<div style="width:250px;height:5px;border-radius:3px;background:#eef1f7"></div>`);
+const fNum = D(`<div style="font:800 52px 'JetBrains Mono',monospace;color:#34d399;white-space:nowrap"></div>`);
+const fDen = D(`<div style="font:800 52px 'JetBrains Mono',monospace;color:#6cbcff;white-space:nowrap"></div>`);
+const fRes = D(`<div style="font:800 64px Inter;white-space:nowrap">= <span style="color:#ffcf85">${(INTER.length / UNION.length).toFixed(2)}</span></div>`);
+const dotG = INTER.map(() => D(`<div style="width:22px;height:22px;border-radius:50%;background:#34d399;box-shadow:0 0 18px #34d399"></div>`));
+const dotB = UNION.map(() => D(`<div style="width:22px;height:22px;border-radius:50%;background:#6cbcff;box-shadow:0 0 18px #6cbcff"></div>`));
+[...dotG, ...dotB].forEach((e) => (e.style.zIndex = 4));
+function molSVG(atoms, bonds, h = 150) {
+  const xs = atoms.map((a) => a.x), ys = atoms.map((a) => a.y);
+  const x0 = Math.min(...xs) - 60, y0 = Math.min(...ys) - 60, w = Math.max(...xs) - x0 + 60, hh = Math.max(...ys) - y0 + 60;
+  let o = `<svg viewBox="${x0} ${y0} ${w} ${hh}" height="${h}" width="${(h * w) / hh}">`;
+  for (const [i, j, ord] of bonds) {
+    const A = atoms[i], B = atoms[j], L = Math.hypot(B.x - A.x, B.y - A.y);
+    for (const off of ord === 2 ? [-10, 10] : [0]) { const nx = ((B.y - A.y) / L) * off, ny = ((A.x - B.x) / L) * off;
+      o += `<line x1="${A.x + nx}" y1="${A.y + ny}" x2="${B.x + nx}" y2="${B.y + ny}" stroke="#c8d0e0" stroke-width="10" stroke-linecap="round"/>`; }
+  }
+  for (const a of atoms) o += `<circle cx="${a.x}" cy="${a.y}" r="50" fill="#121a2d" stroke="#3a4a74" stroke-width="5"/><text x="${a.x}" y="${a.y + 2}" text-anchor="middle" dominant-baseline="central" font-family="Inter" font-weight="800" font-size="${a.text.length > 1 ? 38 : 46}" fill="${a.el === "O" ? "#ff7b7b" : a.el === "N" ? "#6cbcff" : "#eef1f7"}">${a.text}</text>`;
+  return o + "</svg>";
+}
+const ATOMS_B = [...ATOMS.slice(0, 4), { ...ATOMS[4], text: "CH₂" }, { el: "C", text: "CH₃", x: 1460, y: 600 }];
+const molA = D(molSVG(ATOMS, BONDS)), molB = D(molSVG(ATOMS_B, [...BONDS, [4, 5, 1]]));
+const endTitle = D(`<div style="font:900 64px Inter;letter-spacing:-.03em;white-space:nowrap">Inside <span style="color:#4dabf7">ECFP4</span></div>`);
+
+// ---------- background ----------
+const bg = $("#bg").getContext("2d");
+function rnd(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+function drawBg(t) {
+  const g = bg.createRadialGradient(W * 0.5, H * 0.42, 100, W * 0.5, H * 0.5, 1200);
+  g.addColorStop(0, "#111b33"); g.addColorStop(1, "#05070d");
+  bg.fillStyle = g; bg.fillRect(0, 0, W, H);
+  bg.fillStyle = "rgba(120,140,190,0.07)";
+  for (let x = 40; x < W; x += 60) for (let y = 40; y < H; y += 60) bg.fillRect(x, y, 2, 2);
+  const rain = Math.max(win(t, 0, 2.4, 0.3, 0.4), 0.6 * win(t, 96.2, STORY_END + 1, 1.0, 0.1));
+  if (rain > 0) {
+    bg.font = "500 22px 'JetBrains Mono', monospace";
+    for (let c = 0; c < 64; c++) {
+      const speed = 60 + rnd(c) * 140, off = rnd(c + 99) * H;
+      for (let r = 0; r < 14; r++) {
+        const y = ((t * speed + off + r * 30) % (H + 400)) - 200;
+        const a = rain * (1 - r / 14) * 0.35 * rnd(c * 7 + r);
+        bg.fillStyle = `rgba(110,170,255,${a})`;
+        bg.fillText(rnd(c * 31 + r + Math.floor(t * 3)) > 0.5 ? "1" : "0", c * 30 + 6, y);
+      }
+    }
+  }
+}
+
+// ---------- captions ----------
+let capIdx = -1;
+const capEl = $("#cap");
+function fmtCap(s) { return s.replace(/\[([a-k])\]/g, (_, k) => `<span class="k" style="background:${COL[k]}">${k}</span>`); }
+function words(s, cls) { return `<div class="${cls}">` + fmtCap(s).split(/(?<=\s)(?![^<]*>)/).map((w) => `<span class="w">${w}</span>`).join("") + "</div>"; }
+function drawCap(t) {
+  const i = CAPS.findIndex((c) => t >= c.t0 && t < c.t1);
+  if (i !== capIdx) {
+    capIdx = i;
+    if (i < 0) { capEl.innerHTML = ""; }
+    else { const c = CAPS[i]; capEl.className = c.style || "";
+      capEl.innerHTML = (c.tag ? `<div class="tag">${c.tag}</div>` : "") + words(c.title, "title") + (c.sub ? words(c.sub, "sub") : ""); }
+  }
+  if (i < 0) return;
+  const c = CAPS[i], out = 1 - E.out(P(t, c.t1 - 0.45, c.t1));
+  capEl.querySelectorAll(".w").forEach((w, n) => {
+    const p = E.out(P(t, c.t0 + n * 0.045, c.t0 + n * 0.045 + 0.5));
+    w.style.opacity = p * out; w.style.transform = `translateY(${(1 - p) * 26 - (1 - out) * 10}px)`;
+  });
+  const tag = capEl.querySelector(".tag");
+  if (tag) tag.style.opacity = E.out(P(t, c.t0, c.t0 + 0.4)) * out;
+  if (c.style === "alert") capEl.style.transform = `translateX(${Math.sin(t * 60) * 6 * (1 - P(t, c.t0, c.t0 + 0.6))}px)`;
+  else capEl.style.transform = "";
+}
+
+// ---------- layouts ----------
+const TRAY = [[0, { y: 1000, sp: 80, s: 0.85 }], [66.0, { y: 1000, sp: 80, s: 0.85 }], [67.6, { y: 440, sp: 158, s: 1.0 }],
+  [71.3, { y: 440, sp: 158, s: 1.0 }], [72.7, { y: 330, sp: 150, s: 1.05 }]];
+const trayPos = (i, t) => { const L = kf(TRAY, t); return [W / 2 + (i - 4.5) * L.sp, L.y, L.s]; };
+let NOW = 0;
+const SLOT_Y = 690, ROW_B = 715;
+// in the similarity scene the vector rows shrink and move right to make room for the molecules
+const simM = (t) => E.inOut(P(t, 86.4, 87.2));
+const rowA = (t) => lerp(SLOT_Y, 470, simM(t));
+const slotSc = (t) => lerp(1, 0.85, simM(t));
+const colX = (b, m) => lerp(W / 2 + (b - 7.5) * 106, 1130 + (b - 7.5) * 90, m);
+const slotPos = (b) => [colX(b, simM(NOW)), rowA(NOW)];
+const COLLIDE = 9;
+const stackOff = (k) => (k === "e" ? -26 : k === "h" ? 26 : 0);
+function src(tag, t) { return tag[0] === "L" ? labelScreen(+tag[1], t) : badgeScreen(+tag[1], t); }
+
+// ---------- render ----------
+function dimOf(t, a) { let d = 0; for (const [t0, t1, keep] of DIM) if (!keep.includes(a)) d = Math.max(d, win(t, t0, t1, 0.5, 0.5)); return d; }
+function labelState(a, t) {
+  const ev = LABEL[a]; let cur = -1;
+  for (let n = 0; n < ev.length; n++) if (t >= ev[n][0]) cur = n;
+  if (cur < 0) return null;
+  const [t0, key, fx] = ev[cur]; const q = P(t, t0, t0 + 0.5);
+  if (fx === "pop") return { key, s: E.back(q), sx: 1 };
+  if (fx === "flip") { const prev = ev[cur - 1][1]; return { key: q < 0.5 ? prev : key, s: 1 + 0.25 * Math.sin(Math.PI * q), sx: Math.abs(Math.cos(Math.PI * q)) }; }
+  return { key, s: 1, sx: 1 };
+}
+
+const cardIn = (i, t) => E.inOut(P(t, 66.7 + i * 0.07, 67.2 + i * 0.07)) * (1 - E.inOut(P(t, 71.4, 72.0)));
+function render(t) {
+  NOW = t;
+  drawBg(t);
+  drawCap(t);
+  const c = kf(CAM, t), wo = kf(WORLD_O, t).o;
+  cam.setAttribute("transform", `translate(${W / 2} ${H / 2}) scale(${c.s}) translate(${-c.cx} ${-c.cy})`);
+  cam.style.opacity = wo;
+
+  // molecule draw-in
+  bondEls.forEach((b, n) => { const p = E.inOut(P(t, 10.4 + n * 0.28, 11.0 + n * 0.28)); b.els.forEach((l) => l.setAttribute("stroke-dashoffset", b.L * (1 - p))); });
+  // environments
+  const bondA = BONDS.map(() => 0), bondRed = BONDS.map(() => 0), atomA = ATOMS.map(() => 0), centerA = ATOMS.map(() => 0);
+  ENV.forEach((w, n) => {
+    const a = win(t, w.t0, w.t1, 0.35, 0.35);
+    const ring = ringEls[n], blob = blobEls[n];
+    if (a <= 0) { ring.setAttribute("stroke-opacity", 0); blob.g.setAttribute("opacity", 0); stepEls[n].forEach((st) => st.g.setAttribute("opacity", 0)); return; }
+    const col = w.red ? "#ff5d5d" : "#ffb547";
+    blob.g.setAttribute("opacity", a * 0.17);
+    for (const L of blob.lines) {
+      const p = E.inOut(P(t, w.t0 + 0.15 + L.lv * 0.4, w.t0 + 0.5 + L.lv * 0.4)), A = ATOMS[L.u], B = ATOMS[L.v];
+      L.el.setAttribute("x1", A.x); L.el.setAttribute("y1", A.y);
+      L.el.setAttribute("x2", lerp(A.x, B.x, p)); L.el.setAttribute("y2", lerp(A.y, B.y, p));
+      L.el.setAttribute("stroke", col); L.el.setAttribute("stroke-opacity", p > 0 ? 1 : 0);
+    }
+    for (const D0 of blob.dots) {
+      const st = D0.k === 0 ? w.t0 : w.t0 + 0.4 + (D0.k - 1) * 0.4;
+      D0.el.setAttribute("r", 75 * E.back(P(t, st, st + 0.3))); D0.el.setAttribute("fill", col);
+    }
+    for (const st of stepEls[n]) {
+      const q = E.back(P(t, w.t0 + 0.45 + st.lv * 0.4, w.t0 + 0.75 + st.lv * 0.4));
+      st.g.setAttribute("opacity", a * Math.min(1, q));
+      st.g.setAttribute("transform", `translate(${st.x} ${st.y}) scale(${Math.max(0, q)}) translate(${-st.x} ${-st.y})`);
+    }
+    const grow = E.back(P(t, w.t0, w.t0 + 0.7));
+    ring.setAttribute("cx", ATOMS[w.c].x); ring.setAttribute("cy", ATOMS[w.c].y);
+    // the ring only marks the centre; the environment itself spreads along bonds (graph distance, not space)
+    ring.setAttribute("r", 62 + 14 * grow);
+    ring.setAttribute("stroke", w.red ? "#ff5d5d" : "#6cbcff");
+    ring.setAttribute("stroke-opacity", a * 0.75);
+    ring.setAttribute("stroke-dashoffset", -t * 30);
+    for (const b of w.e.bonds) { const lv = Math.min(w.d[BONDS[b][0]], w.d[BONDS[b][1]]); bondA[b] = Math.max(bondA[b], a * P(t, w.t0 + 0.15 + lv * 0.4, w.t0 + 0.5 + lv * 0.4)); if (w.red) bondRed[b] = 1; }
+    for (const at of w.e.atoms) atomA[at] = Math.max(atomA[at], a * P(t, w.t0 + Math.max(0, w.d[at] - 1) * 0.4 + (w.d[at] ? 0.3 : 0), w.t0 + 0.3 + Math.max(0, w.d[at] - 1) * 0.4 + (w.d[at] ? 0.3 : 0)));
+    centerA[w.c] = Math.max(centerA[w.c], a);
+    if (w.red) atomA[w.c] = Math.max(atomA[w.c], a), (atomEls[w.c].red = 1);
+  });
+  glowEls.forEach((g, n) => { g.setAttribute("stroke", bondRed[n] ? "#ff5d5d" : "#ffb547"); g.setAttribute("stroke-opacity", bondA[n] * 0.7); });
+  atomEls.forEach((ae, n) => {
+    const p = E.back(P(t, 10.9 + n * 0.16, 11.5 + n * 0.16)); const a = ATOMS[n];
+    ae.g.setAttribute("transform", `translate(${a.x} ${a.y}) scale(${Math.max(0, p)}) translate(${-a.x} ${-a.y})`);
+    const red = ENV.some((w) => w.red && w.e.atoms.has(n) && t > w.t0 && t < w.t1);
+    ae.halo.setAttribute("stroke", red ? "#ff5d5d" : centerA[n] >= atomA[n] ? "#4dabf7" : "#ffb547");
+    ae.halo.setAttribute("stroke-width", 8 * atomA[n]);
+    ae.halo.setAttribute("stroke-opacity", atomA[n]);
+    ae.c.setAttribute("stroke", centerA[n] > 0.3 ? "#6cbcff" : "#3a4a74");
+    ae.g.style.opacity = 1 - 0.85 * dimOf(t, n);
+  });
+  bondEls.forEach((b, n) => { const [i, j] = BONDS[n]; b.g.style.opacity = 1 - 0.85 * Math.max(dimOf(t, i), dimOf(t, j)); });
+
+  // atom labels
+  labelEls.forEach((el, a) => {
+    const st = labelState(a, t);
+    if (!st) return place(el, 0, 0, 1, 0);
+    if (el.dataset.key !== st.key) { el.innerHTML = chipHTML(st.key); el.dataset.key = st.key; }
+    const [x, y, s] = labelScreen(a, t);
+    place(el, x, y, s * st.s, wo * (1 - 0.85 * dimOf(t, a)) * (1 - P(t, 65.8, 66.6)), `scaleX(${st.sx})`);
+  });
+  // badges
+  BADGES.forEach(([a, k, t0, t1], n) => {
+    const el = badgeEls[n];
+    if (t < t0 || t >= t1) return place(el, 0, 0, 1, 0);
+    const [x, y, s] = badgeScreen(a, t);
+    const grey = !"abcdefghij".includes(k);
+    const fade = grey ? 1 - P(t, t1 - 0.35, t1) : 1;
+    const drop = grey ? E.in(P(t, t1 - 0.35, t1)) * 40 : 0;
+    place(el, x, y + drop, s * (n === 0 ? 1 : E.back(P(t, t0, t0 + 0.45))) * 0.9, fade * wo);
+  });
+  STAMPS.forEach(([b, t0], n) => {
+    const [a, , , t1] = BADGES[b]; const el = stampEls[n];
+    if (t < t0 || t >= t1) return place(el, 0, 0, 1, 0);
+    const [x, y, s] = badgeScreen(a, t); const q = E.out(P(t, t0, t0 + 0.25));
+    place(el, x + 170 * s, y, s * lerp(2.4, 1, q), q * (1 - P(t, t1 - 0.35, t1)), "rotate(-9deg)");
+  });
+
+  // invariant cards (screen space, around the zoomed CH3)
+  const c1 = labelScreen(0, t);
+  const atomS = toScreen(ATOMS[0].x, ATOMS[0].y, c);
+  INV.forEach((_, n) => {
+    const t0 = 15.6 + n * 0.22, tx = 1100, ty = 300 + n * 92;
+    const p = E.out(P(t, t0, t0 + 0.6)), q = E.in(P(t, 18.5 + n * 0.06, 19.2 + n * 0.06));
+    let x = lerp(atomS[0], tx, p), y = lerp(atomS[1], ty, p);
+    x = lerp(x, 1640, q); y = lerp(y, 530, q);
+    place(cardEls[n], x, y, lerp(0.3, 1, p) * (1 - 0.8 * q), p * (1 - q));
+  });
+  // hash icon
+  const h1 = win(t, 18.2, 20.4, 0.3, 0.3), h2 = win(t, 36.9, 39.1, 0.3, 0.3);
+  const hx = h1 > 0 ? [1640, 530] : [1770, 520];
+  const pulse = 1 + 0.08 * Math.sin(t * 18) * (h1 || h2);
+  place(hashEl, hx[0], hx[1], Math.max(h1, h2) * pulse, Math.max(h1, h2), `rotate(${t * 90}deg)`);
+  hashEl.querySelector("span").style.transform = `rotate(${-t * 90}deg)`;
+  // output chip of the invariant hash: flies to C1's label
+  if (t >= 19.5 && t < 20.25) {
+    const q = E.inOut(P(t, 19.6, 20.25));
+    if (labelEls[0].dataset.key !== "a") { labelEls[0].innerHTML = chipHTML("a"); labelEls[0].dataset.key = "a"; }
+    place(labelEls[0], lerp(1640, c1[0], q), lerp(530, c1[1], q) - Math.sin(Math.PI * q) * 120, lerp(1.3, c1[2], q) * E.back(P(t, 19.5, 19.8)), 1);
+  }
+
+  // radius-1 formula for the carbonyl carbon
+  const fo = 1 - P(t, 37.3, 37.9);
+  const slotX = (i) => 1350 + i * 150, FY = 520;
+  {
+    const [sx, sy, ss] = labelScreen(1, t);
+    const p = E.inOut(P(t, 33.0, 33.6)), q = E.in(P(t, 37.2, 37.9));
+    let x = lerp(sx, 1190, p), y = lerp(sy, FY, p) - Math.sin(Math.PI * p) * 80;
+    place(ownEl, lerp(x, 1770, q), lerp(y, FY, q), lerp(ss, 1.3, p) * (1 - 0.7 * q), t >= 33.0 ? fo : 0);
+    place(plusEl, 1262, FY, 1, win(t, 33.6, 37.6, 0.3, 0.3));
+  }
+  PAIRS.forEach(([, k], n) => {
+    const src = { c: 2, a: 0, d: 3 }[k], t0 = 33.8 + n * 0.6;
+    const [sx, sy] = labelScreen(src, t);
+    const p = E.inOut(P(t, t0, t0 + 0.6));
+    let x = lerp(sx, slotX(n), p), y = lerp(sy, FY, p) - Math.sin(Math.PI * p) * 90;
+    const r = E.inOut(P(t, 36.0, 36.9));
+    x = lerp(x, slotX(SORTED[n]), r); y -= Math.sin(Math.PI * r) * (SORTED[n] > n ? 110 : -70);
+    const q = E.in(P(t, 37.2, 37.9));
+    x = lerp(x, 1770, q); y = lerp(y, FY, q);
+    place(pairEls[n], x, y, lerp(0.6, 1, p) * (1 - 0.7 * q), t >= t0 ? fo : 0);
+  });
+  if (t >= 38.5 && t < 39.6) {
+    const [bx, by, bs] = badgeScreen(1, t); const q = E.inOut(P(t, 38.9, 39.6));
+    place(fOut, lerp(1770, bx, q), lerp(520, by, q) - Math.sin(Math.PI * q) * 140, lerp(1.4, bs * 0.9, q) * E.back(P(t, 38.5, 38.85)), 1);
+  } else place(fOut, 0, 0, 1, 0);
+
+  // feature tray
+  const L = kf(TRAY, t);
+  const trayDim = 1 - 0.8 * win(t, 31.0, 40.8, 0.6, 0.6);
+  place(trayLbl, W / 2 - 4.5 * L.sp - 150, L.y, 1, win(t, 29.0, 66.0, 0.5, 0.5) * trayDim);
+  KEYS.forEach((k, i) => {
+    const el = trayEls[i], [tf, from] = FLY[k];
+    if (t < tf) return place(el, 0, 0, 1, 0);
+    const [tx, ty, ts] = trayPos(i, t);
+    const td = dropT(i);
+    let x, y, s, o = 1;
+    if (t < tf + 0.9) {
+      const [sx, sy, ss] = src(from, tf); const p = E.inOut(P(t, tf, tf + 0.9));
+      x = lerp(sx, tx, p); y = lerp(sy, ty, p) - Math.sin(Math.PI * p) * 150; s = lerp(ss, ts, p) * (1 + 0.2 * Math.sin(Math.PI * p));
+    } else if (t < td) { x = tx; y = ty; s = ts * (1 + 0.15 * Math.sin(Math.PI * P(t, tf + 0.9, tf + 1.2))); o = trayDim; }
+    else {
+      const [bx, by] = slotPos(BIT[k]); const p = P(t, td, td + 0.6);
+      x = lerp(tx, bx, E.out(p)); y = lerp(ty, by + stackOff(k), E.in(p)); s = lerp(ts, 0.62, p);
+      const land = P(t, td + 0.6, td + 0.9); if (land > 0 && land < 1) s *= 1 + 0.2 * Math.sin(Math.PI * land);
+      if (t > 79.3 && (k === "e" || k === "h")) s *= 1 + 0.12 * Math.abs(Math.sin((t - 79.3) * 6)) * (1 - P(t, 82, 82.7));
+      o = 1 - P(t, 82.9 + BIT[k] * 0.05, 83.3 + BIT[k] * 0.05);
+    }
+    place(el, x, y, s, o);
+  });
+  // the second [a] from the other methyl merges into the first
+  if (t >= 29.1 && t < 30.1) {
+    const [sx, sy, ss] = labelScreen(4, 29.1); const [tx, ty, ts] = trayPos(0, t); const p = E.inOut(P(t, 29.1, 30.0));
+    place(aGhost, lerp(sx, tx, p), lerp(sy, ty, p) - Math.sin(Math.PI * p) * 220, lerp(ss, ts, p), 1 - P(t, 29.8, 30.05));
+  } else place(aGhost, 0, 0, 1, 0);
+  // environment cards behind the chips (unfolded scene)
+  KEYS.forEach((k, i) => {
+    const t0 = 66.7 + i * 0.07, o = win(t, t0, 72.0, 0.45, 0.5);
+    if (o <= 0) return place(cardEls2[i], 0, 0, 1, 0);
+    const [x, y, s] = trayPos(i, t);
+    place(cardEls2[i], x, y + 103 * s, s * E.back(P(t, t0, t0 + 0.5)) * (1 - 0.3 * P(t, 71.5, 72.0)), o);
+  });
+  // integers under the chips
+  KEYS.forEach((k, i) => {
+    const el = numEls[i], td = dropT(i);
+    const o = win(t, 67.8 + i * 0.07, td + 0.1, 0.3, 0.2);
+    if (o <= 0) return place(el, 0, 0, 1, 0);
+    const settle = 67.9 + i * 0.05 + 0.35;
+    const txt = t < settle ? fmt(Math.floor(rnd(i * 13 + Math.floor(t * 20)) * 4e9)) : fmt(ID(k));
+    if (el.firstChild.textContent !== txt) el.firstChild.textContent = txt;
+    const [x, y, s] = trayPos(i, t);
+    place(el, x, y + lerp(58, 192, cardIn(i, t)) * s, s * 0.85, o);
+  });
+  // "mod 16 = bit" appears under each number just before the drop
+  KEYS.forEach((k, i) => {
+    const td = dropT(i), [x, y, s] = trayPos(i, t);
+    const mq = E.back(P(t, 72.9 + i * 0.06, 73.3 + i * 0.06));
+    place(modTags[i], x, y + 58 * s + 28, Math.max(0, mq), Math.min(1, mq) * (1 - P(t, td, td + 0.2)));
+  });
+  // slots
+  const collide = win(t, 79.2, 82.8, 0.2, 0.3);
+  for (let b = 0; b < 16; b++) {
+    const [x, y] = slotPos(b); const p = E.back(P(t, 71.8 + b * 0.04, 72.3 + b * 0.04));
+    const fade = 1 - P(t, 96.0, 96.6);
+    const dim = b === COLLIDE ? 1 : 1 - 0.55 * collide;
+    const sc = slotSc(t);
+    place(slotEls[b], x, y, p * sc, Math.min(1, p) * fade * dim, b === COLLIDE ? `translateX(${Math.sin(t * 50) * 5 * collide}px)` : "");
+    const sl = slotEls[b].firstChild;
+    sl.style.borderColor = b === COLLIDE && collide > 0 ? `rgba(255,93,93,${0.4 + 0.6 * collide})` : "#2d3a5c";
+    sl.style.boxShadow = b === COLLIDE && collide > 0 ? `0 0 ${40 * collide}px rgba(255,93,93,.55)` : "none";
+    place(slotLbl[b], x, y + 86 * sc, sc, Math.min(1, p) * fade * dim * 0.9);
+    const d = E.back(P(t, 83.0 + b * 0.05, 83.5 + b * 0.05));
+    place(digitEls[b], x, y, d * sc, Math.min(1, d) * fade);
+    digitEls[b].firstChild.style.color = BITSTR[b] ? "#fff" : "#3a4460";
+    if (BITSTR[b]) slotEls[b].firstChild.style.background = t > 83 ? "rgba(77,171,247,.16)" : "rgba(18,26,45,.85)";
+  }
+  // "… mod 16 = b" callouts
+  KEYS.forEach((k, i) => {
+    const td = dropT(i); const [x] = slotPos(BIT[k]);
+    const o = 0;
+    place(modEls[i], clamp(x, 200, 1720), SLOT_Y - 118 - (i % 2) * 52, 1, o);
+  });
+  // collision connectors
+  [0, 3].forEach((a, n) => {
+    const p = conn[n]; const o = win(t, 79.9, 82.8, 0.2, 0.3);
+    if (o <= 0) { p.setAttribute("stroke-opacity", 0); return; }
+    const [ax, ay] = toScreen(ATOMS[a].x, ATOMS[a].y + 60, c); const [bx, by] = slotPos(COLLIDE);
+    const d = `M ${ax} ${ay} C ${ax} ${ay + 160}, ${bx} ${by - 260}, ${bx} ${by - 70}`;
+    p.setAttribute("d", d); const len = p.getTotalLength();
+    p.setAttribute("stroke-dasharray", `${len}`); p.setAttribute("stroke-dashoffset", len * (1 - E.inOut(P(t, 79.9, 80.7))));
+    p.setAttribute("stroke-opacity", o);
+  });
+
+  // outro
+  place(bitsEl, 0, 0, 1, 0);
+  place(endTitle, W / 2, 470, 1.6, E.out(P(t, 96.4, 97.0)));
+  place(outroSub, W / 2, 590, 1, E.out(P(t, 97.0, 97.6)));
+
+  // similarity: second molecule's vector, intersection, union, Tanimoto
+  const simOut = 1 - P(t, 96.0, 96.6), yA = rowA(t);
+  place(rowName[0], 230, yA + 92, 0.8, E.out(P(t, 86.8, 87.3)) * simOut);
+  place(rowName[1], 230, ROW_B + 92, 0.8, E.out(P(t, 87.3, 87.8)) * simOut);
+  for (let b = 0; b < 16; b++) {
+    const x = colX(b, 1), q = E.out(P(t, 87.3 + b * 0.035, 87.8 + b * 0.035));
+    place(slotB[b], x + (1 - q) * 240, ROW_B, 0.85, q * simOut);
+    slotB[b].firstChild.style.background = BVEC[b] ? "rgba(77,171,247,.16)" : "rgba(18,26,45,.85)";
+    slotB[b].firstChild.style.borderColor = BVEC[b] ? "#4dabf7" : "#2d3a5c";
+    place(digitB[b], x + (1 - q) * 240, ROW_B, 0.85, q * simOut);
+    place(lblB[b], x + (1 - q) * 240, ROW_B + 73, 0.85, q * simOut * 0.9);
+    // column highlight: both (green), either only (blue, dashed), bit 12 (red)
+    const both = BITSTR[b] && BVEC[b], either = BITSTR[b] || BVEC[b];
+    const k = both ? INTER.indexOf(b) : ONLY.indexOf(b);
+    const t0 = both ? 88.9 + k * 0.13 : 90.3 + k * 0.13;
+    const on = either ? E.back(P(t, t0, t0 + 0.35)) : 0;
+    const red = ACCIDENT.includes(b) ? win(t, 93.6, 96.0, 0.3, 0.3) : 0;
+    const col = colEls[b].firstChild;
+    col.style.borderColor = red > 0.05 ? "#ff5d5d" : both ? "#34d399" : "#4dabf7";
+    col.style.borderStyle = both || red > 0.05 ? "solid" : "dashed";
+    col.style.background = both ? `rgba(52,211,153,${0.1 + 0.08 * red})` : "transparent";
+    col.style.boxShadow = red > 0.05 ? `0 0 ${36 * red}px rgba(255,93,93,.6)` : both ? "0 0 24px rgba(52,211,153,.25)" : "none";
+    col.style.height = `${(ROW_B - yA + 130) / 0.85}px`;
+    place(colEls[b], x, (yA + ROW_B) / 2, 0.85 * Math.max(0, on) * (1 + 0.06 * red * Math.sin(t * 12)), Math.min(1, on) * simOut);
+  }
+  place(counters, 0, 0, 1, 0); place(defFormula, 0, 0, 1, 0); place(formula, 0, 0, 1, 0);
+  const fq = E.back(P(t, 88.7, 89.2)), fvis = Math.min(1, fq) * simOut;
+  const midY = (yA + ROW_B) / 2;
+  place(fLabel, TX - 290, TY, Math.max(0, fq), fvis);
+  place(fBar, TX, TY, Math.max(0, fq), fvis);
+  const flyDot = (el, b, t0, ty) => {
+    const p = P(t, t0, t0 + 0.55);
+    if (p <= 0 || p >= 1) return place(el, 0, 0, 1, 0);
+    const q = E.inOut(p), x0 = colX(b, 1);
+    place(el, lerp(x0, TX, q), lerp(midY, ty, q) - Math.sin(Math.PI * q) * 120, 1 - 0.4 * q, 1);
+  };
+  const tG = (k) => 89.2 + k * 0.13, tB = (k) => 90.5 + k * 0.09;
+  INTER.forEach((b, k) => flyDot(dotG[k], b, tG(k), TY - 52));
+  UNION.forEach((b, k) => flyDot(dotB[k], b, tB(k), TY + 52));
+  const nG = INTER.filter((_, k) => t >= tG(k) + 0.55).length, nB = UNION.filter((_, k) => t >= tB(k) + 0.55).length;
+  const numTxt = nG ? String(nG) : "|A ∩ B|", denTxt = nB ? String(nB) : "|A ∪ B|";
+  if (fNum.firstChild.textContent !== numTxt) fNum.firstChild.textContent = numTxt;
+  if (fDen.firstChild.textContent !== denTxt) fDen.firstChild.textContent = denTxt;
+  const bump = (n, tt) => (n ? 1 + 0.25 * (1 - P(t, tt(n - 1) + 0.55, tt(n - 1) + 0.8)) : 1);
+  place(fNum, TX, TY - 50, Math.max(0, fq) * bump(nG, tG), fvis);
+  place(fDen, TX, TY + 52, Math.max(0, fq) * bump(nB, tB), fvis);
+  const rq = E.back(P(t, 91.8, 92.3));
+  place(fRes, TX + 270, TY, Math.max(0, rq), Math.min(1, rq) * simOut);
+  const f2 = E.back(P(t, 94.4, 94.9));
+  place(formula2, 1640, TY, Math.max(0, f2), Math.min(1, f2) * simOut);
+  place(molA, 230, yA - 10, 1, E.out(P(t, 86.8, 87.3)) * simOut);
+  place(molB, 230, ROW_B - 10, 1, E.out(P(t, 87.3, 87.8)) * simOut);
+}
+
+// ---------- player ----------
+let t = 0, playing = false, last = 0, lastPost = 0;
+const vp = $("#viewport"), stage = $("#stage");
+if (EMBED) { $("#controls").style.display = "none"; vp.style.borderRadius = "0"; }
+function fit() {
+  const k = Math.min(innerWidth / W, (innerHeight - CTRL_H) / H);
+  vp.style.width = `${W * k}px`; vp.style.height = `${H * k}px`; stage.style.transform = `scale(${k})`;
+  document.documentElement.style.setProperty("--vw", `${W * k}px`);
+}
+addEventListener("resize", fit); fit();
+const bar = $("#bar");
+CHAPTERS.forEach(([ct, name]) => { const d = document.createElement("div"); d.className = "tick"; d.style.left = `${(real(ct) / T_END) * 100}%`; d.innerHTML = `<span>${name}</span>`; bar.appendChild(d); });
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+function frame(now) {
+  if (playing) { t += (now - last) / 1000; if (t >= T_END) { t = T_END; setPlay(false); } }
+  last = now;
+  render(t === 0 && !playing ? 1.2 : story(t)); // poster frame: the title card
+  bar.querySelector(".fill").style.width = `${(t / T_END) * 100}%`;
+  $("#time").textContent = `${mmss(t)} / ${mmss(T_END)}`;
+  if (EMBED && now - lastPost > 60) {
+    lastPost = now;
+    parent.postMessage({ type: "ecfp-movie", t, end: T_END, playing, chapters: CHAPTERS.map(([ct, n]) => [real(ct), n]) }, "*");
+  }
+  requestAnimationFrame(frame);
+}
+function setPlay(v) { playing = v; if (v && t >= T_END) t = 0; $("#pp").textContent = v ? "❚❚" : "▶"; $("#big").style.display = v ? "none" : "flex"; }
+$("#pp").onclick = () => setPlay(!playing);
+$("#big").onclick = () => setPlay(true);
+function seekFrom(ev) { const r = bar.getBoundingClientRect(); t = clamp((ev.clientX - r.left) / r.width) * T_END; }
+bar.addEventListener("pointerdown", (ev) => { seekFrom(ev); const mv = (e) => seekFrom(e); addEventListener("pointermove", mv); addEventListener("pointerup", () => removeEventListener("pointermove", mv), { once: true }); });
+addEventListener("keydown", (ev) => {
+  if (ev.key === " ") { ev.preventDefault(); setPlay(!playing); }
+  if (ev.key === "ArrowRight") t = Math.min(T_END, t + 2);
+  if (ev.key === "ArrowLeft") t = Math.max(0, t - 2);
+});
+addEventListener("message", (ev) => {
+  const m = ev.data;
+  if (!m || m.type !== "ecfp-movie-cmd") return;
+  if (m.cmd === "toggle") setPlay(!playing);
+  if (m.cmd === "seek") t = clamp(+m.t, 0, T_END);
+});
+window.seek = (s) => { t = real(s); render(s); }; // takes story time
+const q = new URLSearchParams(location.search).get("t"); if (q) t = +q;
+requestAnimationFrame((n) => { last = n; frame(n); });
+</script>
+</body>
+</html>
