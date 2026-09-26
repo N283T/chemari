@@ -6,7 +6,8 @@
 #     "polars>=1.30",
 #     "numpy>=2",
 #     "altair>=5.5",
-#     "scikit-learn>=1.7",
+#     "lightgbm>=4.5",
+#     "scikit-learn>=1.7",  # required by lightgbm's sklearn API
 #     "scipy>=1.14",
 #     "rdkit>=2025.9",
 # ]
@@ -63,13 +64,13 @@ def _(mo):
 @app.cell
 def _():
     import altair as alt
+    import lightgbm as lgb
     import numpy as np
     import polars as pl
     from rdkit import Chem
     from rdkit.Chem import Crippen, Descriptors, rdFingerprintGenerator
     from rdkit.Chem import rdMolDescriptors as rdmd
     from scipy.stats import spearmanr
-    from sklearn.ensemble import RandomForestRegressor
 
     alt.data_transformers.disable_max_rows()  # a few charts plot all ~4.6k compounds
 
@@ -88,10 +89,10 @@ def _():
         Descriptors,
         MolGrid,
         MorganExplorer,
-        RandomForestRegressor,
         alt,
         census_for,
         fingerprint_matrix,
+        lgb,
         np,
         pl,
         rdFingerprintGenerator,
@@ -338,9 +339,19 @@ def _(census_for, explorer, mo, np, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 3 · The puzzle: the test set looks familiar
+    ## 3 · How the test set was built
 
-    A common excuse for a weak model is *"the test compounds are out of domain"*. Let's check.
+    The 513 test compounds are not a random sample. OpenADMET took the **63** compounds that were potent
+    (EC50 ≤ 1 µM) *and* selective in the PXR-null counter-screen, and bought Enamine analogues with an
+    **ECFP4 Tanimoto similarity > 0.4** to them
+    ([challenge announcement](https://openadmet.ghost.io/announcing-the-next-openadmet-blind-challenge-predicting-pxr-induction/)).
+    It is a hit-expansion set, exactly how a medicinal chemist would follow up a screen.
+
+    So two things are true by construction: every test compound has a close relative in the training
+    data, and that relative is usually potent. Let's confirm it, and then ask the question that actually
+    matters: **given a close, potent neighbour, can structural similarity tell which analogues keep the
+    activity?**
+
     For every compound we find its **nearest neighbour (NN)** in the training set by Tanimoto
     similarity on Morgan fingerprints (radius 2, 2048 bits). For training compounds we exclude the
     compound itself.
@@ -412,9 +423,9 @@ def _(S_test, S_train, alt, mo, np, pl):
                 widths="equal",
             ),
             mo.md(
-                "The test set is **closer** to the training data than the training compounds are to each "
-                "other. The test compounds were designed around chemistry that *is* in the training set. "
-                "If structural similarity carried the activity signal, this should be an easy test."
+                "As designed, the test set is **closer** to the training data than the training compounds "
+                "are to each other. Being out of domain is not the problem here. The question is whether "
+                "similarity carries the activity, and the most direct way to find out is to predict with it."
             ),
         ]
     )
@@ -542,16 +553,18 @@ def _(alt, mo, nn_test, pl, y_test, y_train):
                     _chart,
                     mo.md(
                         f"""
-    The vertical band in the scatter above is not an accident. The nearest neighbours of test compounds
-    are overwhelmingly **potent** training compounds: their mean pEC50 is **{_nn.mean():.2f}**, against
-    **{y_train.mean():.2f}** for the training set as a whole, and **{(_nn >= 5.5).mean():.0%}** of them
-    have pEC50 ≥ 5.5.
+    The vertical band in the scatter above is the test-set design showing through. The nearest
+    neighbours of test compounds are overwhelmingly **potent** training compounds: their mean pEC50 is
+    **{_nn.mean():.2f}**, against **{y_train.mean():.2f}** for the training set as a whole, and
+    **{(_nn >= 5.5).mean():.0%}** of them have pEC50 ≥ 5.5. That is expected, since the analogues were
+    chosen around the hits.
 
-    The test compounds themselves do not follow. They are analogues made around the most active
-    training chemotypes, and their potency spreads from ~2 to ~7 (mean **{y_test.mean():.2f}**).
-    In other words, the test set is an **SAR exploration around the hits**: every compound has a
-    close, potent relative, and the question is which small changes keep the activity. That is
-    exactly the question a similarity-based model cannot answer.
+    What matters is that the test compounds themselves do not follow. Their potency spreads from ~2 to ~7
+    (mean **{y_test.mean():.2f}**): an **SAR exploration around the hits**, where every compound has a
+    close, potent relative *by construction* and the real question is which small changes keep the
+    activity. That is exactly the question a similarity-based model cannot answer, and the one the
+    OpenADMET [post-challenge analysis](https://openadmet.ghost.io/dont-look-back-in-error-what-we-learned-predicting-pxr-induction-part-i/)
+    identifies as the shared failure point of every top team.
     """
                     ),
                 ],
@@ -969,9 +982,9 @@ def _(mo):
 
     ## 6 · Model lab
 
-    Train a random forest on the training set and score it on the 513 unblinded test compounds. The
-    three default configurations are pre-computed; change the settings and press **Train** to add
-    your own row to the scoreboard.
+    Train a LightGBM model (the same kind of baseline as OpenADMET's challenge tutorial) on the training
+    set and score it on the 513 unblinded test compounds. The three default configurations are
+    pre-computed; change the settings and press **Train** to add your own row to the scoreboard.
     """)
     return
 
@@ -1000,8 +1013,8 @@ def _(
     Chem,
     D_test,
     D_train,
-    RandomForestRegressor,
     S_test,
+    lgb,
     np,
     rdFingerprintGenerator,
     spearmanr,
@@ -1025,14 +1038,21 @@ def _(
         return blocks
 
     def evaluate(parts, radius=2, n_bits=2048, chiral=False, seed=0):
-        """Fit a random forest on train, return test metrics and predictions."""
+        """Fit LightGBM on train, return test metrics and predictions."""
         tr = featurize(train["smiles"].to_list(), parts, radius, n_bits, chiral)
         te = featurize(test["smiles"].to_list(), parts, radius, n_bits, chiral)
         if "14 descriptors" in parts:
             tr.append(D_train)
             te.append(D_test)
-        model = RandomForestRegressor(
-            n_estimators=150, min_samples_leaf=2, max_features=0.3, n_jobs=-1, random_state=seed
+        model = lgb.LGBMRegressor(
+            n_estimators=400,
+            learning_rate=0.05,
+            num_leaves=31,
+            colsample_bytree=0.5,
+            subsample=0.8,
+            subsample_freq=1,
+            random_state=seed,
+            verbose=-1,
         ).fit(np.hstack(tr), y_train)
         pred = model.predict(np.hstack(te))
         fp_desc = " + ".join(parts)
@@ -1174,8 +1194,9 @@ def _(mo):
 
     ## 7 · Take-aways
 
-    1. **The PXR test set is not out of domain.** Test compounds are, on average, *more* similar to the
-       training set than training compounds are to each other.
+    1. **The PXR test set is in domain by design.** It is a hit-expansion set: every test compound was
+       picked as an ECFP4 neighbour of a potent hit, so it is closer to the training data than training
+       compounds are to each other, and its nearest neighbour is usually potent.
     2. **Similarity does not transfer activity here.** The nearest training neighbour's pEC50 is about
        as informative as a random training compound's. The similarity–activity curve falls, but slowly.
     3. **Much of the signal is global.** Lipophilicity and size explain a share of the variance that a

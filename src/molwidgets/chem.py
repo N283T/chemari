@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import lru_cache
+from typing import Any
 
 import numpy as np
 from rdkit import Chem, RDLogger
@@ -187,3 +188,42 @@ def bit_census(smiles: list[str], radius: int = 2, n_bits: int = 2048) -> BitCen
             )
         examples[bit] = rows
     return BitCensus(radius=radius, n_bits=n_bits, n_mols=len(smiles), on=on, examples=examples)
+
+
+def molecule_bit_tiles(smiles: str, radius: int = 2, n_bits: int = 2048) -> list[dict]:
+    """One entry per distinct Morgan identifier of a molecule, with the folded bit it sets.
+
+    Symmetric atoms that share an identifier are merged (``count``); two *different*
+    identifiers that fold onto the same bit are an in-molecule collision (``collides``).
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return []
+    ao = rdFingerprintGenerator.AdditionalOutput()
+    ao.AllocateBitInfoMap()
+    rdFingerprintGenerator.GetMorganGenerator(radius=radius).GetSparseCountFingerprint(
+        mol, additionalOutput=ao
+    )
+    tiles: list[dict[str, Any]] = []
+    for uid, envs in ao.GetBitInfoMap().items():
+        center, rad = min(envs, key=lambda e: (e[1], e[0]))
+        where = []  # every occurrence, so all matching atoms can be highlighted
+        for c, r in envs:
+            atoms, bonds = env_atoms_bonds(mol, c, r)
+            where.append({"center": int(c), "atoms": atoms, "bonds": bonds})
+        tiles.append(
+            {
+                "uid": int(uid),
+                "bit": int(uid % n_bits),
+                "radius": int(rad),
+                "center": int(center),
+                "count": len(envs),
+                "env": env_smiles(mol, center, rad),
+                "where": where,
+            }
+        )
+    bits = [int(uid % n_bits) for uid in ao.GetBitInfoMap()]
+    for t in tiles:
+        t["collides"] = bits.count(int(t["uid"]) % n_bits) > 1
+    tiles.sort(key=lambda t: (t["radius"], t["bit"], t["uid"]))
+    return tiles

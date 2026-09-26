@@ -6,7 +6,8 @@
 #     "polars>=1.30",
 #     "numpy>=2",
 #     "altair>=5.5",
-#     "scikit-learn>=1.7",
+#     "lightgbm>=4.5",
+#     "scikit-learn>=1.7",  # required by lightgbm's sklearn API
 #     "scipy>=1.14",
 #     "rdkit>=2025.9",
 # ]
@@ -61,13 +62,13 @@ def _(mo):
 @app.cell
 def _():
     import altair as alt
+    import lightgbm as lgb
     import numpy as np
     import polars as pl
     from rdkit import Chem
     from rdkit.Chem import Crippen, Descriptors, rdFingerprintGenerator
     from rdkit.Chem import rdMolDescriptors as rdmd
     from scipy.stats import spearmanr
-    from sklearn.ensemble import RandomForestRegressor
 
     alt.data_transformers.disable_max_rows()  # a few charts plot all ~4.6k compounds
 
@@ -86,10 +87,10 @@ def _():
         Descriptors,
         MolGrid,
         MorganExplorer,
-        RandomForestRegressor,
         alt,
         census_for,
         fingerprint_matrix,
+        lgb,
         np,
         pl,
         rdFingerprintGenerator,
@@ -333,11 +334,20 @@ def _(census_for, explorer, mo, np, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 3 · パズル: test set は「見覚えがある」
+    ## 3 · Test set はどう作られたか
 
-    モデルが弱いときによく聞く言い訳は *「test 化合物が applicability domain の外だから」* です。
-    確かめてみましょう。各化合物について、Morgan fingerprint (radius 2, 2048 bits) の Tanimoto
-    類似度で training set の **nearest neighbour (NN)** を探します。Training 化合物については自分自身を除きます。
+    Test の 513 化合物はランダムに選ばれたものではありません。OpenADMET は、強活性 (EC50 ≤ 1 µM) *かつ*
+    PXR-null の counter-screen で選択的だった **63** 化合物を選び、それらとの **ECFP4 Tanimoto 類似度が
+    0.4 を超える** analogue を Enamine から購入しました
+    ([challenge announcement](https://openadmet.ghost.io/announcing-the-next-openadmet-blind-challenge-predicting-pxr-induction/))。
+    メディシナルケミストがスクリーニングのヒットを追いかけるときと同じ、hit expansion のセットです。
+
+    つまり、次の 2 つは設計上当然成り立ちます。どの test 化合物にも training データに近い「親戚」がいること、
+    そしてその親戚はたいてい強活性であること。まずそれを確認し、そのうえで本当に大事な問いに進みます:
+    **近くに強活性の neighbour がいるとき、構造の類似度で「どの analogue が活性を保つか」を見分けられるか?**
+
+    各化合物について、Morgan fingerprint (radius 2, 2048 bits) の Tanimoto 類似度で training set の
+    **nearest neighbour (NN)** を探します。Training 化合物については自分自身を除きます。
     """)
     return
 
@@ -406,9 +416,9 @@ def _(S_test, S_train, alt, mo, np, pl):
                 widths="equal",
             ),
             mo.md(
-                "Test set は、training 化合物同士よりも **training set に近い** のです。Test 化合物は、"
-                "training set に *実際にある* ケミストリーを中心に設計されています。構造の類似度が活性の情報を"
-                "運んでいるなら、これは簡単なテストのはずです。"
+                "設計どおり、test set は training 化合物同士よりも **training set に近い** です。"
+                "Applicability domain の外にあることが問題なのではありません。問題は類似度が活性を運ぶかどうかで、"
+                "それを確かめるいちばん直接的な方法は、類似度で予測してみることです。"
             ),
         ]
     )
@@ -536,14 +546,17 @@ def _(alt, mo, nn_test, pl, y_test, y_train):
                     _chart,
                     mo.md(
                         f"""
-    上の散布図の縦の帯は偶然ではありません。Test 化合物の nearest neighbour は、圧倒的に **強活性** の
-    training 化合物です。その平均 pEC50 は **{_nn.mean():.2f}** で、training 全体の
-    **{y_train.mean():.2f}** を大きく上回り、**{(_nn >= 5.5).mean():.0%}** が pEC50 ≥ 5.5 です。
+    上の散布図の縦の帯は、test set の設計がそのまま見えているものです。Test 化合物の nearest neighbour は
+    圧倒的に **強活性** の training 化合物で、その平均 pEC50 は **{_nn.mean():.2f}** (training 全体では
+    **{y_train.mean():.2f}**)、**{(_nn >= 5.5).mean():.0%}** が pEC50 ≥ 5.5 です。Analogue はヒットの周りで
+    選ばれたのだから、これは当然です。
 
-    ところが test 化合物自身はそうなっていません。Test 化合物は最も活性の高い chemotype の周りで作られた
-    analogue で、活性は ~2 から ~7 まで広がっています (平均 **{y_test.mean():.2f}**)。つまり test set は
-    **ヒット化合物周りの SAR 探索** です。どの化合物にも近くに強活性の「親戚」がいて、問われているのは
-    「どの小さな変化なら活性が残るのか」。これこそ、類似度ベースのモデルが答えられない問いです。
+    大事なのは、test 化合物自身の活性はそれに従わないことです。活性は ~2 から ~7 まで広がっています
+    (平均 **{y_test.mean():.2f}**)。つまり test set は **ヒット化合物周りの SAR 探索** で、どの化合物にも
+    *設計上* 近くに強活性の「親戚」がいて、本当に問われているのは「どの小さな変化なら活性が残るのか」です。
+    これこそ類似度ベースのモデルが答えられない問いであり、OpenADMET の
+    [post-challenge analysis](https://openadmet.ghost.io/dont-look-back-in-error-what-we-learned-predicting-pxr-induction-part-i/)
+    が上位チーム共通の失敗点として挙げているものです。
     """
                     ),
                 ],
@@ -956,7 +969,8 @@ def _(mo):
 
     ## 6 · Model lab
 
-    Training set で random forest を学習し、正解公開済みの test 513 化合物でスコアを出します。
+    Training set で LightGBM (OpenADMET のチャレンジ tutorial と同じ種類のベースライン) を学習し、
+    正解公開済みの test 513 化合物でスコアを出します。
     デフォルトの 3 設定は計算済みです。設定を変えて **Train** を押すと、スコアボードに自分の行が追加されます。
     """)
     return
@@ -986,8 +1000,8 @@ def _(
     Chem,
     D_test,
     D_train,
-    RandomForestRegressor,
     S_test,
+    lgb,
     np,
     rdFingerprintGenerator,
     spearmanr,
@@ -1011,14 +1025,21 @@ def _(
         return blocks
 
     def evaluate(parts, radius=2, n_bits=2048, chiral=False, seed=0):
-        """Fit a random forest on train, return test metrics and predictions."""
+        """Fit LightGBM on train, return test metrics and predictions."""
         tr = featurize(train["smiles"].to_list(), parts, radius, n_bits, chiral)
         te = featurize(test["smiles"].to_list(), parts, radius, n_bits, chiral)
         if "14 descriptors" in parts:
             tr.append(D_train)
             te.append(D_test)
-        model = RandomForestRegressor(
-            n_estimators=150, min_samples_leaf=2, max_features=0.3, n_jobs=-1, random_state=seed
+        model = lgb.LGBMRegressor(
+            n_estimators=400,
+            learning_rate=0.05,
+            num_leaves=31,
+            colsample_bytree=0.5,
+            subsample=0.8,
+            subsample_freq=1,
+            random_state=seed,
+            verbose=-1,
         ).fit(np.hstack(tr), y_train)
         pred = model.predict(np.hstack(te))
         fp_desc = " + ".join(parts)
@@ -1159,8 +1180,9 @@ def _(mo):
 
     ## 7 · まとめ
 
-    1. **PXR の test set は domain の外ではない。** Test 化合物は平均すると、training 化合物同士よりも
-       training set に *近い*。
+    1. **PXR の test set は設計上 domain の内側にある。** Hit expansion のセットで、どの test 化合物も
+       強活性ヒットの ECFP4 近傍として選ばれている。そのため training 化合物同士よりも training set に近く、
+       nearest neighbour はたいてい強活性。
     2. **ここでは類似度が活性を運ばない。** 最も近い training 化合物の pEC50 は、ランダムな training 化合物と
        同じくらいの情報しか持たない。類似度–活性のカーブは下がるが、ゆるやか。
     3. **シグナルの多くは分子全体にある。** 脂溶性とサイズは、局所環境の集まりでは表せない分散の一部を説明し、

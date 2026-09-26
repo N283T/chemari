@@ -4,19 +4,26 @@ from .chem import (
     BitCensus,
     bit_census,
     fingerprint_matrix,
+    molecule_bit_tiles,
     morgan_bits,
     standardize_smiles,
     tanimoto_matrix,
 )
-from .widgets import MolGrid, MorganExplorer, census_for
+from .ecfp import ecfp_trace
+from .widgets import ECFPStepper, MolGrid, MorganBitTiles, MorganExplorer, bit_gallery, census_for
 
 __all__ = [
     "BitCensus",
+    "ECFPStepper",
     "MolGrid",
+    "MorganBitTiles",
     "MorganExplorer",
     "bit_census",
+    "bit_gallery",
     "census_for",
+    "ecfp_trace",
     "fingerprint_matrix",
+    "molecule_bit_tiles",
     "morgan_bits",
     "standardize_smiles",
     "tanimoto_matrix",

@@ -111,6 +111,12 @@ class MorganExplorer(anywidget.AnyWidget):
     bit_examples = traitlets.List(traitlets.Dict()).tag(sync=True)
     y_label = traitlets.Unicode("y").tag(sync=True)
     pair_note = traitlets.Unicode("").tag(sync=True)
+    # Optional model attribution per molecule: {bit: contribution}, e.g. LightGBM TreeSHAP.
+    # Shown only while the explorer's radius / n_bits match the model's fingerprint.
+    contributions = traitlets.List(traitlets.Dict()).tag(sync=True)
+    contrib_label = traitlets.Unicode("SHAP").tag(sync=True)
+    contrib_radius = traitlets.Int(2).tag(sync=True)
+    contrib_n_bits = traitlets.Int(2048).tag(sync=True)
 
     def __init__(
         self,
@@ -160,3 +166,306 @@ class MorganExplorer(anywidget.AnyWidget):
             atoms, bonds = env_atoms_bonds(Chem.MolFromSmiles(parent), ex["center"], ex["radius"])
             rows.append({**ex, "parent_smiles": parent, "atoms": atoms, "bonds": bonds})
         self.bit_examples = rows
+
+
+def _id_colour(identifier: int) -> tuple[float, float, float]:
+    """A stable pastel colour per identifier, so equal identifiers look equal."""
+    import colorsys
+
+    hue = (identifier * 0.618033988749895) % 1.0
+    return colorsys.hls_to_rgb(hue, 0.72, 0.75)
+
+
+_BOND_NAMES = {2: "single", 3: "aromatic", 4: "double", 6: "triple"}  # bond order x 2
+_INVARIANT_TEXT = ("Z", "degree", "H", "charge", "isotope", "ring")
+
+
+def _iteration_labels(radius: int, n: int) -> list[str]:
+    """a, b, c … for iteration 0; A, B … for 1; A', B' … for 2; A'' … for 3.
+
+    ASCII primes, because RDKit's drawing font has no U+2032.
+    """
+    import string
+
+    letters = string.ascii_lowercase if radius == 0 else string.ascii_uppercase
+    primes = "" if radius <= 1 else "'" * (radius - 1)
+    return [(letters[i] if i < 26 else f"{letters[i % 26]}{i // 26}") + primes for i in range(n)]
+
+
+def _readable_steps(mol: Chem.Mol, trace) -> list[list[dict]]:
+    """Add human-readable labels, environment SMILES and explanations to an ECFP trace."""
+
+    def env_text(step) -> str:
+        atom = mol.GetAtomWithIdx(step.atom)
+        if not step.bonds:
+            h = atom.GetTotalNumHs()
+            text = atom.GetSymbol() + (f"H{h if h > 1 else ''}" if h else "")
+            return text + (" (ring)" if atom.IsInRing() else "")
+        return Chem.MolFragmentToSmiles(
+            mol, atomsToUse=step.atoms, bondsToUse=step.bonds, rootedAtAtom=step.atom
+        )
+
+    out: list[list[dict]] = []
+    prev_label: dict[int, str] = {}
+    for r, layer in enumerate(trace.steps):
+        order: list[int] = []
+        for s in layer:  # label identifiers in order of first appearance
+            if s.identifier not in order:
+                order.append(s.identifier)
+        label_of = dict(zip(order, _iteration_labels(r, len(order))))
+        rows = []
+        for s in layer:
+            d = dict(s.__dict__)
+            d["label"] = label_of[s.identifier]
+            d["env"] = env_text(s)
+            atom = mol.GetAtomWithIdx(s.atom)
+            if r == 0:
+                values = [*s.recipe[:5], "yes" if s.recipe[5] else "no"]
+                parts = ", ".join(f"{n} {v}" for n, v in zip(_INVARIANT_TEXT, values))
+                d["recipe_text"] = f"{d['label']} = hash({atom.GetSymbol()}: {parts})"
+            else:
+                own = prev_label[s.recipe[1]]
+                nbrs = ", ".join(
+                    f"{_BOND_NAMES.get(bo, bo)}→{prev_label[i]}" for bo, i in s.recipe[2]
+                )
+                d["recipe_text"] = f"{d['label']} = hash({own} | {nbrs})"
+            if s.status == "new":
+                d["why"] = "A new environment: its identifier joins the fingerprint."
+            elif s.status == "duplicate":
+                d["why"] = (
+                    f"Covers exactly the same bonds as atom {s.duplicate_of}'s environment, "
+                    "which is already in the fingerprint, so it is dropped."
+                )
+            else:
+                d["why"] = (
+                    "The environment did not grow (it already covers everything), so it is dropped."
+                )
+            rows.append(d)
+        out.append(rows)
+        prev_label = label_of
+    return out
+
+
+class ECFPStepper(anywidget.AnyWidget):
+    """Step through the ECFP/Morgan algorithm for one molecule.
+
+    In guided mode, "next" walks atom by atom through every iteration, showing what was hashed
+    (as readable labels: a, b… for iteration 0, A, B… for iteration 1, A'… for 2), which
+    substructure the identifier describes, whether the environment is kept, and the growing
+    set of features, both as identifiers and folded into a bit vector (``n_bits``). Explore mode
+    lets you jump between iterations and click atoms.
+    Identifiers come from :func:`molwidgets.ecfp.ecfp_trace` (same features as RDKit, different
+    hash function).
+    """
+
+    _esm = _bundle("stepper.js")
+
+    radius = traitlets.Int(0).tag(sync=True)
+    atom = traitlets.Int(0).tag(sync=True)
+    guided = traitlets.Bool(True).tag(sync=True)
+    n_bits = traitlets.Int(64).tag(sync=True)
+    steps = traitlets.List().tag(sync=True)
+    colours = traitlets.Dict().tag(sync=True)
+    svg = traitlets.Unicode("").tag(sync=True)
+    invariant_names = traitlets.List(traitlets.Unicode()).tag(sync=True)
+
+    def __init__(self, smiles: str, max_radius: int = 3, **kwargs):
+        from .ecfp import INVARIANT_NAMES, ecfp_trace
+
+        self._mol = Chem.MolFromSmiles(smiles)
+        trace = ecfp_trace(smiles, max_radius)
+        steps = _readable_steps(self._mol, trace)
+        colours = {
+            str(d["identifier"]): "rgb({:.0f},{:.0f},{:.0f})".format(
+                *(255 * c for c in _id_colour(d["identifier"]))
+            )
+            for layer in steps
+            for d in layer
+        }
+        super().__init__(
+            steps=steps, colours=colours, invariant_names=list(INVARIANT_NAMES), **kwargs
+        )
+        self.observe(self._render, names=["radius", "atom"])
+        self._render()
+
+    def _render(self, _change=None) -> None:
+        from rdkit.Chem.Draw import rdMolDraw2D
+
+        mol = Chem.Mol(self._mol)
+        layer = self.steps[min(self.radius, len(self.steps) - 1)]
+        for s in layer:
+            mol.GetAtomWithIdx(s["atom"]).SetProp("atomNote", s["label"])
+        colours = {s["atom"]: _id_colour(s["identifier"]) for s in layer}
+        atoms = list(colours)
+        bond_colours: dict[int, tuple[float, float, float]] = {}
+        radii = {a: 0.32 for a in atoms}
+        if self.atom >= 0:
+            sel = layer[self.atom]
+            focus = set(sel["atoms"])
+            c = _id_colour(sel["identifier"])
+            fade = (0.93, 0.93, 0.93)
+            colours = {a: (c if a in focus else fade) for a in atoms}
+            colours[self.atom] = (
+                max(0.0, c[0] - 0.25),
+                max(0.0, c[1] - 0.25),
+                max(0.0, c[2] - 0.25),
+            )
+            bond_colours = {b: c for b in sel["bonds"]}
+            radii = {a: (0.42 if a == self.atom else 0.32) for a in atoms}
+        drawer = rdMolDraw2D.MolDraw2DSVG(460, 340)
+        opts = drawer.drawOptions()
+        opts.annotationFontScale = 0.85
+        # Small teaching molecules should fill the panel; large ones keep a sane bond length.
+        opts.fixedBondLength = (
+            70 if mol.GetNumAtoms() <= 8 else 45 if mol.GetNumAtoms() <= 16 else 34
+        )
+        opts.padding = 0.08
+        rdMolDraw2D.PrepareAndDrawMolecule(
+            drawer,
+            mol,
+            highlightAtoms=atoms,
+            highlightAtomColors=colours,
+            highlightBonds=list(bond_colours),
+            highlightBondColors=bond_colours,
+            highlightAtomRadii=radii,
+        )
+        # Invisible click targets at the atom positions.
+        hits = "".join(
+            f'<circle class="es-hit" data-atom="{i}" cx="{p.x:.1f}" cy="{p.y:.1f}" r="13" '
+            'fill="transparent" style="cursor:pointer"/>'
+            for i in range(mol.GetNumAtoms())
+            for p in [drawer.GetDrawCoords(i)]
+        )
+        drawer.FinishDrawing()
+        self.svg = drawer.GetDrawingText().replace("</svg>", hits + "</svg>")
+
+
+def _env_svg(mol: Chem.Mol, center: int, radius: int, size: tuple[int, int] = (160, 130)) -> str:
+    """RDKit's own bit depiction (Draw.DrawMorganEnv) as an SVG string."""
+    from rdkit.Chem import Draw
+
+    svg = Draw.DrawMorganEnv(mol, center, radius, molSize=size, useSVG=True)
+    return svg if isinstance(svg, str) else svg.data
+
+
+class MorganBitTiles(anywidget.AnyWidget):
+    """A molecule next to its Morgan bits, each drawn like RDKit's DrawMorganBit.
+
+    The right-hand list has one row per distinct identifier with its ``Draw.DrawMorganEnv``
+    picture (blue: centre atom, yellow: aromatic, grey: ring atoms, light grey: neighbours
+    outside the environment) and the bit it folds onto; hovering or clicking a row highlights
+    that environment in the full molecule on the left. Rows that fold onto the same bit are
+    marked in red. With a reference set, each row shows how many other substructures share its
+    bit, and clicking it draws them.
+    """
+
+    _esm = _bundle("tiles.js")
+
+    radius = traitlets.Int(2).tag(sync=True)
+    n_bits = traitlets.Int(2048).tag(sync=True)
+    label = traitlets.Unicode("").tag(sync=True)
+    smiles = traitlets.Unicode("").tag(sync=True)
+    tiles = traitlets.List().tag(sync=True)
+    selected = traitlets.Int(-1).tag(sync=True)  # bit
+    gallery = traitlets.List().tag(sync=True)
+
+    def __init__(
+        self,
+        smiles: str,
+        reference: list[str] | None = None,
+        ids: list[str] | None = None,
+        max_gallery: int = 16,
+        **kwargs,
+    ):
+        self._smiles = smiles
+        self._mol = Chem.MolFromSmiles(smiles)
+        self._reference = list(reference) if reference is not None else None
+        self._ids = [str(i) for i in ids] if ids is not None else None
+        self._max_gallery = max_gallery
+        super().__init__(smiles=smiles, **kwargs)  # same atom order as self._mol
+        self.observe(self._refresh, names=["radius", "n_bits"])
+        self.observe(self._refresh_gallery, names=["selected"])
+        self._refresh()
+
+    def _census(self) -> BitCensus | None:
+        if self._reference is None:
+            return None
+        return census_for(self._reference, self.radius, self.n_bits)
+
+    def _refresh(self, _change=None) -> None:
+        from .chem import molecule_bit_tiles
+
+        census = self._census()
+        tiles = []
+        for t in molecule_bit_tiles(self._smiles, self.radius, self.n_bits):
+            row = {**t, "svg": _env_svg(self._mol, t["center"], t["radius"], (120, 90))}
+            if census is not None:
+                row["n_envs"] = int(census.n_envs[t["bit"]])
+                row["n_on"] = int(census.on[:, t["bit"]].sum())
+            tiles.append(row)
+        self.tiles = tiles
+        self.selected = -1
+        self._refresh_gallery()
+
+    def _refresh_gallery(self, _change=None) -> None:
+        census = self._census()
+        if census is None or self.selected < 0 or self._reference is None:
+            self.gallery = []
+            return
+        mine = {t["uid"] for t in self.tiles if t["bit"] == self.selected}
+        rows = []
+        for ex in census.examples.get(self.selected, [])[: self._max_gallery]:
+            parent = Chem.MolFromSmiles(self._reference[ex["mol_index"]])
+            rows.append(
+                {
+                    "svg": _env_svg(parent, ex["center"], ex["radius"]),
+                    "env": ex["smiles"],
+                    "radius": ex["radius"],
+                    "count": ex["count"],
+                    "id": self._ids[ex["mol_index"]] if self._ids else str(ex["mol_index"]),
+                    "mine": ex["uid"] in mine,
+                }
+            )
+        self.gallery = rows
+
+
+def bit_gallery(
+    bit: int,
+    reference: list[str],
+    ids: list[str] | None = None,
+    radius: int = 2,
+    n_bits: int = 2048,
+    max_items: int = 12,
+) -> str:
+    """HTML grid of every distinct environment that folds onto ``bit`` in a reference set.
+
+    Uses the same RDKit ``DrawMorganEnv`` pictures as :class:`MorganBitTiles`, so a bit looks the
+    same wherever it appears in a notebook. Wrap the result in ``mo.Html``.
+    """
+    import html
+
+    examples = census_for(reference, radius, n_bits).examples.get(bit, [])
+    cards = []
+    for ex in examples[:max_items]:
+        mol = Chem.MolFromSmiles(reference[ex["mol_index"]])
+        label = ids[ex["mol_index"]] if ids else str(ex["mol_index"])
+        cards.append(
+            '<div class="mwg-card"><div class="mwg-head">'
+            f"<span>r{ex['radius']}</span><span>in {ex['count']} mols</span></div>"
+            f"{_env_svg(mol, ex['center'], ex['radius'], (150, 120))}"
+            f'<div class="mwg-env">{html.escape(ex["smiles"])}</div>'
+            f'<div class="mwg-id">e.g. {html.escape(str(label))}</div></div>'
+        )
+    more = len(examples) - len(cards)
+    return (
+        "<style>.mwg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}"
+        ".mwg-card{background:#fff;color:#1f2328;border:1px solid #d0d7de;border-radius:8px;padding:4px 6px}"
+        ".mwg-card svg{width:100%;height:auto;display:block}"
+        ".mwg-head{display:flex;justify-content:space-between;font-size:11px;color:#6b7280}"
+        ".mwg-env{font:11px ui-monospace,monospace;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+        ".mwg-id{font-size:10.5px;color:#6b7280}.mwg-title{margin:0 0 6px;font-weight:600}</style>"
+        f'<div class="mwg-title">Bit {bit}: {len(examples)} different environment'
+        f"{'s' if len(examples) != 1 else ''} in the reference set"
+        f"{f' (first {len(cards)} shown)' if more > 0 else ''}</div>"
+        f'<div class="mwg-grid">{"".join(cards)}</div>'
+    )
