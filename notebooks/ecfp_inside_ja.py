@@ -48,13 +48,14 @@ def _(mo):
     それなのに、そのベクトルの bit 1380 が何を *意味するか*、そこに何種類の部分構造が同居しているかを
     答えられる人はほとんどいません。この notebook では、その箱を開けてみます:
 
-    1. **アルゴリズム** を 1 iteration ずつ、ゼロから書いた読める実装と一緒に
-    2. **Folding と collision** — みんなが忘れているステップ
-    3. **盲点** — 数 (count)、立体化学、環サイズ
-    4. **類似度** — 「Tanimoto > 0.4」が約束すること、しないこと
-    5. **モデルの中の ECFP** — LightGBM の feature importance と原子ごとの寄与、そして collision が
+    1. **アルゴリズム** — 原子から bit まで 1 ステップずつ、ゼロから書いた読める実装と一緒に
+    2. **Collision** — fold が無関係な部分構造をどのくらい混ぜてしまうか
+    3. **部分構造と bit** — 官能基がどの bit を立てるか、その bit に他に何が住んでいるか
+    4. **盲点** — 数 (count)、立体化学、環サイズ
+    5. **類似度** — 「Tanimoto > 0.4」が約束すること、しないこと
+    6. **モデルの中の ECFP** — LightGBM の feature importance と原子ごとの寄与、そして collision が
        それを読みにくくする理由
-    6. 長所・短所・おすすめ設定の **チートシート**
+    7. 長所・短所・おすすめ設定の **チートシート**
 
     例には OpenADMET の PXR induction データセットを使います。インタラクティブな部品は、この notebook の
     ために作った [anywidget](https://anywidget.dev) ベースの自作パッケージ `molwidgets` です。
@@ -87,6 +88,7 @@ def _():
         ECFPStepper,
         MolGrid,
         MorganExplorer,
+        SubstructureBits,
         census_for,
         ecfp_trace,
         fingerprint_matrix,
@@ -100,6 +102,7 @@ def _():
         ECFPStepper,
         MolGrid,
         MorganExplorer,
+        SubstructureBits,
         alt,
         census_for,
         ecfp_module,
@@ -152,7 +155,7 @@ def _(pl, standardize_smiles):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 1 · アルゴリズムを 1 iteration ずつ
+    ## 1 · アルゴリズム: 原子から bit まで
 
     ECFP は分子の記述を内側から外側へ組み立てていきます。
 
@@ -168,9 +171,14 @@ def _(mo):
     まったく同じ結合の集合を表すものは除きます。こうした重複は捨てられ、環境がそれ以上広がらなくなった
     原子 (届く範囲をすでに全部覆っている) も捨てられます。結果は整数の *集合*、つまり unfold された ECFP です。
 
+    **Folding.** 機械学習ライブラリは固定長のベクトルを求めるので、各 identifier は bit
+    `identifier % n_bits` を立てます。これは collision の処理を持たない hash table で、同じ bit に落ちた
+    無関係な 2 つの環境は二度と区別できなくなります。
+
     まずは一番小さくて面白い分子、**isobutane** (CH(CH₃)₃) から始めます。**next ▶** を押すと、1 原子ずつ
     アルゴリズムを追えます。Identifier は 32-bit の数字の代わりに短いラベルで表示します: iteration 0 は
-    *a, b, …*、iteration 1 は *A, B, …*、iteration 2 は *A', B', …* です。
+    *a, b, …*、iteration 1 は *A, B, …*、iteration 2 は *A', B', …* です。特徴の集合の下には、同じ特徴を
+    64 bit のベクトルに fold したもの — モデルが実際に見るもの — を表示しています。
     """)
     return
 
@@ -211,7 +219,7 @@ def _(mo):
       中心の CH は **b**。この時点で特徴は 2 つです。Fingerprint は *a* が 3 回出てくることを記録しません。
     * **ステップ 5–8 (iteration 1).** 各 CH₃ は **A** = hash(*a* | single→*b*)、つまり「CH についたメチル」に
       なります。中心は **B** = hash(*b* | single→*a* ×3)、「メチルを 3 つ持つ CH」で、これだけでもう分子全体です。
-      特徴は 4 つになります。
+      特徴は 4 つ、bit も 4 つです。
     * **ステップ 9–12 (iteration 2).** メチルの環境は中心を越えて 3 本の結合すべてを覆うようになります。これは
       *B* がすでに覆っている結合とまったく同じなので、**duplicate** として捨てられます。中心はもう広がれないので
       **no growth** です。新しい特徴は増えず、isobutane の ECFP 特徴は **radius 1 以上なら常に 4 つ** です。
@@ -224,6 +232,8 @@ def _(mo):
     * **対称性は残る.** 対称な原子はどの radius でも同じ identifier を持ち、1 回だけ数えられます。
     * **重複はよく起きる.** Radius が大きくなると、隣り合う原子が同じ結合を覆うようになり、片方だけが残ります。
       小さな分子は 1〜2 回の iteration で成長が止まります。
+    * **Fold で情報が失われる.** Paracetamol は 64 bit でもすでに赤枠の bit が 1 つあります。モデルがもう
+      区別できない 2 つの特徴です。ベクトルを 16 bit にすると、さらに増えていくのが見えます。
 
     ### アルゴリズム全体は 1 画面に収まる
 
@@ -282,40 +292,10 @@ def _(mo, train, validation):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 2 · Folding: identifier から 2048 bit へ
+    ## 2 · Bit はどのくらい衝突するのか?
 
-    Unfold された fingerprint は 32-bit 整数の集合で、取りうる値は約 40 億通りあります。機械学習ライブラリは
-    固定長のベクトルを求めるので、RDKit は各 identifier を `identifier % n_bits` で bit に **fold** します。
-    これは collision の処理を持たない hash table です。同じ bit に落ちた無関係な 2 つの環境は、二度と区別
-    できなくなります。
-
-    下では、paracetamol の ECFP4 特徴を小さな bit vector に fold しています。マス 1 つが 1 bit で、赤枠のマスは
-    2 つ以上の特徴を抱えています (カーソルを乗せると中身が見えます)。16、64、2048 bit を試してみてください。
-    """)
-    return
-
-
-@app.cell
-def _(ECFPStepper, mo):
-    fold_demo = mo.ui.anywidget(
-        ECFPStepper(
-            "CC(=O)Nc1ccc(O)cc1",
-            max_radius=2,
-            guided=False,
-            radius=2,
-            atom=-1,
-            n_bits=16,
-        )
-    )
-    fold_demo
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Collision はどのくらい起きるのか? 答えは誕生日問題です。*k* 個の distinct な特徴を持つ分子を *n* bit に
-    fold したとき、collision が 1 つも起きない確率は
+    情報が失われるのは fold の段階です。では collision はどのくらい起きるのか? 答えは誕生日問題です。
+    *k* 個の distinct な特徴を持つ分子を *n* bit に fold したとき、collision が 1 つも起きない確率は
 
     $$P(\text{no collision}) = \prod_{i=0}^{k-1}\left(1 - \frac{i}{n}\right) \approx e^{-k(k-1)/2n}.$$
 
@@ -472,7 +452,60 @@ def _(MorganExplorer, mo, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 3 · 盲点
+    ## 3 · 部分構造と bit
+
+    化学者は官能基で考え、fingerprint は bit で考えます。SMARTS パターンを入力する (またはプリセットを選ぶ) と、
+    その官能基が PXR の training set 全体でどの bit を立てているかが見られます:
+
+    * **inside** の bit は、環境がパターンの中に完全に収まっているもの — その官能基自身の bit で、それを含む
+      どの分子でも同じです。
+    * **context** の bit は、パターン上の原子を中心にしつつ隣の原子まで届くもので、分子ごとに変わります。
+    * **share from pattern** は、その bit が立っている分子のうち、このパターンのおかげで立っている分子の
+      割合です。残りは、同じ bit に fold された別の部分構造によるものです。
+
+    行にカーソルを乗せると、例の分子の中でその環境がハイライトされます。
+    """)
+    return
+
+
+@app.cell
+def _(SubstructureBits, mo, train):
+    smarts_bits = mo.ui.anywidget(
+        SubstructureBits(
+            train["smiles"].to_list(),
+            ids=train["id"].to_list(),
+            y=train["pEC50"].to_numpy(),
+            y_label="pEC50",
+            smarts="C(=O)[OX2H1]",
+        )
+    )
+    smarts_bits
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    試してみてほしいこと:
+
+    * **2048 bit でのカルボン酸.** カルボン酸自身の bit は 4 つしかありません。2 つの環境が *同じ官能基の中で*
+      衝突しているからです: カルボニル炭素 (`[C;D3;H0]`) とヒドロキシ酸素 (`[O;D1;H1]`) が、どちらも bit 807 に
+      落ちています。8192 bit に切り替えると 2 つは分かれ、`OC` の bit の share from pattern も跳ね上がります。
+      同じ bit を共有する無関係な環境がずっと少なくなるからです。
+    * **スルホンアミドとカルボン酸.** どちらも末端酸素 (`[O;D1;H0]`) の bit を立てます。こちらは fold の偶然では
+      ありません。Radius 0 の invariant は結合次数を見ないので、S=O の酸素と C=O の酸素は同じ identifier に
+      なります。区別できるのは radius 1 の bit (`O=S` と `O=C`) だけです。
+    * **Pyridine の N.** `[nX2]` 自身の bit は、むき出しの芳香族窒素を表す 1 つだけです。それより具体的な bit は
+      すべて *context* で、環の置換基によって変わります。原子 1 つの CH → N 置換でわずかな bit しか変わらない
+      §6 の例を見るとき、このことを思い出してください。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## 4 · 盲点
 
     Folding は偶然によって情報を失います。一方で、そもそも最初から集められない情報もあります。
     下の各行は *異なる* 分子のペアです。よく使われる 4 つの設定での Tanimoto 類似度を比べてみてください。
@@ -494,7 +527,7 @@ def _(Chem, pl, rdFingerprintGenerator):
             "Cc1c(OCC(F)(F)F)ccnc1CS(=O)c1nc2ccccc2[nH]1",
         ),
         "biphenyl と terphenyl": ("c1ccc(-c2ccccc2)cc1", "c1ccc(-c2ccc(-c3ccccc3)cc2)cc1"),
-        "benzene → pyridine (§5 の PXR ペア)": (
+        "benzene → pyridine (§6 の PXR ペア)": (
             "CC(C)(C)NS(=O)(=O)C1(CNc2cc(Br)ccc2C#N)CCC1",
             "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",
         ),
@@ -552,7 +585,7 @@ def _(mo):
       まとめるので scaffold hopping には役立ちますが、大事な変化を隠すこともあります。芳香族 CH が 1 つ N に
       変わる benzene → pyridine のペアを見てください。
 
-    ## 4 · 類似度: 「Tanimoto > 0.4」が約束すること
+    ## 5 · 類似度: 「Tanimoto > 0.4」が約束すること
 
     ECFP4 の Tanimoto 類似度は、2 つの分子が共通して立てている bit の割合です。アナログ探索の主力であり、
     PXR の test set もこれで作られました。下の図では、各 test 化合物を、最も近い **強活性** の training 化合物
@@ -630,7 +663,7 @@ def _(alt, fingerprint_matrix, mo, np, pl, tanimoto_matrix, test, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 5 · モデルの中の ECFP
+    ## 6 · モデルの中の ECFP
 
     たいていの人が最初に作るモデル — OpenADMET のチャレンジ tutorial と同じ **2048-bit ECFP4 の LightGBM** —
     を学習させて、何を学んだのかを聞いてみます。定番の道具は 2 つです:
@@ -950,7 +983,7 @@ def _(mo, pair_X, pair_contrib, pair_y):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 6 · チートシート
+    ## 7 · チートシート
 
     **長所**
 

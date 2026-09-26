@@ -338,3 +338,85 @@ class ECFPStepper(anywidget.AnyWidget):
         )
         drawer.FinishDrawing()
         self.svg = drawer.GetDrawingText().replace("</svg>", hits + "</svg>")
+
+
+DEFAULT_PRESETS = [
+    ("pyridine N", "[nX2]"),
+    ("sulfonamide", "S(=O)(=O)N"),
+    ("carboxylic acid", "C(=O)[OX2H1]"),
+    ("CF3", "C(F)(F)F"),
+    ("aryl chloride", "c[Cl]"),
+]
+
+
+class SubstructureBits(anywidget.AnyWidget):
+    """Type a SMARTS pattern and see which Morgan bits it sets across a reference set.
+
+    For each bit the widget reports whether the environment lies *inside* the pattern or
+    reaches into its *context*, how many matching molecules set it through the pattern, how
+    many molecules have the bit on at all (the rest owe it to other substructures folded into
+    the same bit), how many distinct environments share the bit, and the mean activity with
+    the bit on minus off.
+    """
+
+    _esm = _bundle("subbits.js")
+
+    smarts = traitlets.Unicode("[nX2]").tag(sync=True)
+    radius = traitlets.Int(2).tag(sync=True)
+    n_bits = traitlets.Int(2048).tag(sync=True)
+    presets = traitlets.List().tag(sync=True)
+    result = traitlets.Dict().tag(sync=True)
+    y_label = traitlets.Unicode("y").tag(sync=True)
+
+    def __init__(
+        self,
+        reference: list[str],
+        ids: list[str] | None = None,
+        y: Any = None,
+        presets: list[tuple[str, str]] | None = None,
+        max_context_bits: int = 15,
+        **kwargs,
+    ):
+        self._reference = list(reference)
+        self._ids = (
+            [str(i) for i in ids] if ids is not None else [str(i) for i in range(len(reference))]
+        )
+        self._y = None if y is None else np.asarray(y, dtype=float)
+        self._max_context = max_context_bits
+        super().__init__(presets=[list(p) for p in (presets or DEFAULT_PRESETS)], **kwargs)
+        self.observe(self._refresh, names=["smarts", "radius", "n_bits"])
+        self._refresh()
+
+    def _refresh(self, _change=None) -> None:
+        from .chem import substructure_bits
+
+        res = substructure_bits(self.smarts, self._reference, self.radius, self.n_bits)
+        census = census_for(self._reference, self.radius, self.n_bits)
+        n_envs = census.n_envs
+        inside = [b for b in res["bits"] if b["kind"] == "inside"]
+        context = [b for b in res["bits"] if b["kind"] == "context"][: self._max_context]
+        bits = []
+        for b in inside + context:
+            on = census.on[:, b["bit"]].astype(bool)
+            delta = None
+            if self._y is not None and on.any() and (~on).any():
+                delta = float(np.nanmean(self._y[on]) - np.nanmean(self._y[~on]))
+            bits.append(
+                {**b, "n_on": int(on.sum()), "n_envs": int(n_envs[b["bit"]]), "delta": delta}
+            )
+        examples = [
+            {
+                "id": self._ids[ex["index"]],
+                "smiles": ex["smiles"],
+                "match": ex["match"],
+                "bits": {str(k): v for k, v in ex["bits"].items()},
+            }
+            for ex in res["examples"]
+        ]
+        self.result = {
+            "valid": res["valid"],
+            "n_match": res["n_match"],
+            "n_total": len(self._reference),
+            "bits": bits,
+            "examples": examples,
+        }

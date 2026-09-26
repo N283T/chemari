@@ -14,7 +14,11 @@ it with two custom [anywidget](https://anywidget.dev) components.
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
   - `ECFPStepper`: step through the ECFP algorithm iteration by iteration, with per-atom
-    identifiers, the hashed "recipe" for each atom, duplicate removal and a folding grid
+    identifiers, the hashed "recipe" for each atom, duplicate removal, and the growing feature set
+    shown both as identifiers and as a folded bit vector
+  - `SubstructureBits`: type a SMARTS pattern and see which bits it sets across a dataset, whether
+    each lies inside the pattern or reaches its context, and how much of each bit belongs to other
+    substructures
   - `MorganExplorer`: bit-by-bit view of a Morgan fingerprint for one molecule or a pair, with the
     atom environments behind each bit, dataset statistics per bit, and a gallery of the different
     substructures that collide in a selected bit; optionally per-bit model contributions

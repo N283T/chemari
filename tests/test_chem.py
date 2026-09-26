@@ -83,3 +83,23 @@ def test_stepper_renders_click_targets():
     assert w.svg.count('class="es-hit"') == 3
     w.atom, w.radius = 1, 2
     assert "<svg" in w.svg
+
+
+def test_substructure_bits_inside_and_context():
+    from molwidgets import substructure_bits
+
+    res = substructure_bits("C(F)(F)F", ["FC(F)(F)c1ccccc1", "CCO", "OC(F)(F)F"], 2, 2048)
+    assert res["valid"] and res["n_match"] == 2
+    kinds = {b["kind"] for b in res["bits"]}
+    assert kinds == {"inside", "context"}
+    assert not substructure_bits("C(((", ["CCO"])["valid"]
+
+
+def test_substructure_widget_reports_dataset_stats():
+    from molwidgets import SubstructureBits
+
+    w = SubstructureBits(["FC(F)(F)c1ccccc1", "CCO", "OC(F)(F)F"], y=[5.0, 3.0, 4.0])
+    w.smarts = "C(F)(F)F"
+    assert w.result["n_match"] == 2
+    b = w.result["bits"][0]
+    assert {"n_on", "n_envs", "delta"} <= set(b)

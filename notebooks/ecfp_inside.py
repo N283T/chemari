@@ -47,13 +47,15 @@ def _(mo):
     Yet few people could say what bit 1380 of that vector *means*, or how many different
     substructures share it. This notebook opens the box:
 
-    1. **The algorithm**, one iteration at a time, with a from-scratch implementation you can read
-    2. **Folding and collisions** — the step everybody forgets
-    3. **Blind spots** — counts, stereochemistry, ring size
-    4. **Similarity** — what "Tanimoto > 0.4" does and does not promise
-    5. **ECFP inside a model** — LightGBM feature importance and per-atom attributions, and why
+    1. **The algorithm**, from atoms to bits, one step at a time, with a from-scratch implementation
+       you can read
+    2. **Collisions** — how often folding merges unrelated substructures
+    3. **Substructures and bits** — which bits a functional group sets, and what else lives in them
+    4. **Blind spots** — counts, stereochemistry, ring size
+    5. **Similarity** — what "Tanimoto > 0.4" does and does not promise
+    6. **ECFP inside a model** — LightGBM feature importance and per-atom attributions, and why
        collisions make them hard to read
-    6. **A cheat sheet** of strengths, weaknesses and sensible defaults
+    7. **A cheat sheet** of strengths, weaknesses and sensible defaults
 
     Examples come from the OpenADMET PXR induction dataset. The interactive pieces are custom
     [anywidget](https://anywidget.dev) components from the `molwidgets` package written for this notebook.
@@ -86,6 +88,7 @@ def _():
         ECFPStepper,
         MolGrid,
         MorganExplorer,
+        SubstructureBits,
         census_for,
         ecfp_trace,
         fingerprint_matrix,
@@ -99,6 +102,7 @@ def _():
         ECFPStepper,
         MolGrid,
         MorganExplorer,
+        SubstructureBits,
         alt,
         census_for,
         ecfp_module,
@@ -151,7 +155,7 @@ def _(pl, standardize_smiles):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 1 · The algorithm, one iteration at a time
+    ## 1 · The algorithm: from atoms to bits
 
     ECFP builds a molecule's description from the inside out.
 
@@ -170,9 +174,14 @@ def _(mo):
     are dropped, as are atoms whose environment stopped growing (it already covers everything it can
     reach). The result is a *set* of integers: the unfolded ECFP.
 
+    **Folding.** Machine-learning libraries want a fixed-length vector, so each identifier switches on
+    bit `identifier % n_bits`. That is a hash table with no collision handling: two unrelated
+    environments that land on the same bit become indistinguishable, forever.
+
     Start with the smallest interesting molecule, **isobutane** (CH(CH₃)₃), and press **next ▶** to walk
     through the algorithm one atom at a time. Instead of 32-bit numbers, identifiers are shown as short
     labels: *a, b, …* for iteration 0, *A, B, …* for iteration 1, *A', B', …* for iteration 2.
+    Under the feature set, the same features are folded into a 64-bit vector — what a model sees.
     """)
     return
 
@@ -214,7 +223,7 @@ def _(mo):
       *a* occurs three times.
     * **Steps 5–8, iteration 1.** Each CH₃ becomes **A** = hash(*a* | single→*b*): "a methyl on a CH".
       The centre becomes **B** = hash(*b* | single→*a* ×3): "a CH carrying three methyls", which is
-      already the whole molecule. Four features.
+      already the whole molecule. Four features, four bits.
     * **Steps 9–12, iteration 2.** Each methyl's environment now reaches across the centre and covers
       all three bonds — exactly the bonds *B* already covers, so it is dropped as a **duplicate**. The
       centre cannot grow any further (**no growth**). Nothing new is added: isobutane has **4 ECFP
@@ -228,6 +237,9 @@ def _(mo):
     * **Symmetry survives.** Symmetric atoms keep equal identifiers at every radius and count once.
     * **Duplicates are common.** At higher radius, neighbouring atoms often end up covering the same
       bonds; only one of them is kept. Small molecules stop growing after one or two iterations.
+    * **Folding loses information.** Paracetamol already has one red-framed bit at 64 bits: two
+      different features the model can no longer tell apart. Switch the vector to 16 bits and watch
+      more appear.
 
     ### The whole algorithm fits on one screen
 
@@ -287,40 +299,10 @@ def _(mo, train, validation):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 2 · Folding: from identifiers to 2048 bits
+    ## 2 · How often do bits collide?
 
-    The unfolded fingerprint is a set of 32-bit integers — about four billion possible values.
-    Machine-learning libraries want a fixed-length vector, so RDKit **folds** each identifier onto a
-    bit with `identifier % n_bits`. That is a hash table with no collision handling. Two unrelated
-    environments that land on the same bit become indistinguishable, forever.
-
-    Below, paracetamol's ECFP4 features are folded into a tiny bit vector. Each square is a bit; a
-    red-framed square holds more than one feature (hover to see which). Try 16, 64 and 2048 bits.
-    """)
-    return
-
-
-@app.cell
-def _(ECFPStepper, mo):
-    fold_demo = mo.ui.anywidget(
-        ECFPStepper(
-            "CC(=O)Nc1ccc(O)cc1",
-            max_radius=2,
-            guided=False,
-            radius=2,
-            atom=-1,
-            n_bits=16,
-        )
-    )
-    fold_demo
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    How likely are collisions? It is the birthday problem. A molecule with *k* distinct features folded into
-    *n* bits avoids every collision with probability
+    Folding is where information is lost, so how likely is a collision? It is the birthday problem.
+    A molecule with *k* distinct features folded into *n* bits avoids every collision with probability
 
     $$P(\text{no collision}) = \prod_{i=0}^{k-1}\left(1 - \frac{i}{n}\right) \approx e^{-k(k-1)/2n}.$$
 
@@ -480,7 +462,61 @@ def _(MorganExplorer, mo, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 3 · Blind spots
+    ## 3 · Substructures and bits
+
+    Chemists think in functional groups; the fingerprint thinks in bits. Type a SMARTS pattern (or
+    pick a preset) to see which bits a group sets across the PXR training set:
+
+    * **inside** bits describe environments that lie entirely within the pattern — the group's own
+      bits, identical in every molecule that contains it;
+    * **context** bits are centred on the pattern but reach its neighbours, so they change from
+      molecule to molecule;
+    * **share from pattern** tells you, of all molecules with that bit on, how many owe it to this
+      pattern. The rest is other substructures folded into the same bit.
+
+    Hover a row to see the environment in the example molecules.
+    """)
+    return
+
+
+@app.cell
+def _(SubstructureBits, mo, train):
+    smarts_bits = mo.ui.anywidget(
+        SubstructureBits(
+            train["smiles"].to_list(),
+            ids=train["id"].to_list(),
+            y=train["pEC50"].to_numpy(),
+            y_label="pEC50",
+            smarts="C(=O)[OX2H1]",
+        )
+    )
+    smarts_bits
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Things to try:
+
+    * **Carboxylic acid at 2048 bits.** The acid sets only four bits of its own, because two of its
+      environments collide *inside the same group*: the carbonyl carbon (`[C;D3;H0]`) and the hydroxyl
+      oxygen (`[O;D1;H1]`) both land on bit 807. Switch to 8192 bits and they separate; the `OC` bit's
+      share from the pattern also jumps, because far fewer unrelated environments share it.
+    * **Sulfonamide vs carboxylic acid.** Both set the bit for a terminal oxygen (`[O;D1;H0]`). That one
+      is not a folding accident: radius-0 invariants ignore bond order, so an S=O oxygen and a C=O
+      oxygen get the same identifier. Only the radius-1 bits (`O=S` vs `O=C`) tell them apart.
+    * **Pyridine N.** `[nX2]` has exactly one bit of its own, the bare aromatic nitrogen; everything
+      more specific is *context* and depends on the ring's substituents. Keep this in mind for §6,
+      where a single CH → N swap changes only a handful of bits.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## 4 · Blind spots
 
     Folding loses information by accident. Some information is never collected in the first place.
     Each row below is a pair of *different* molecules; compare their Tanimoto similarity under four
@@ -503,7 +539,7 @@ def _(Chem, pl, rdFingerprintGenerator):
             "Cc1c(OCC(F)(F)F)ccnc1CS(=O)c1nc2ccccc2[nH]1",
         ),
         "biphenyl vs terphenyl": ("c1ccc(-c2ccccc2)cc1", "c1ccc(-c2ccc(-c3ccccc3)cc2)cc1"),
-        "benzene → pyridine (PXR pair from §5)": (
+        "benzene → pyridine (PXR pair from §6)": (
             "CC(C)(C)NS(=O)(=O)C1(CNc2cc(Br)ccc2C#N)CCC1",
             "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",
         ),
@@ -562,7 +598,7 @@ def _(mo):
       aromatic carbon), which helps scaffold hopping but can hide changes that matter. Check the
       benzene → pyridine pair: one aromatic CH becomes an N.
 
-    ## 4 · Similarity: what "Tanimoto > 0.4" promises
+    ## 5 · Similarity: what "Tanimoto > 0.4" promises
 
     Tanimoto similarity on ECFP4 is the share of set bits two molecules have in common. It is the
     workhorse of analogue searching, and it is how the PXR test set was built. Below, every test
@@ -641,7 +677,7 @@ def _(alt, fingerprint_matrix, mo, np, pl, tanimoto_matrix, test, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 5 · ECFP inside a model
+    ## 6 · ECFP inside a model
 
     Let's train the model most people would train first — **LightGBM on 2048-bit ECFP4**, the same
     baseline OpenADMET's challenge tutorial uses — and then ask it what it learned. Two standard tools:
@@ -963,7 +999,7 @@ def _(mo, pair_X, pair_contrib, pair_y):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 6 · Cheat sheet
+    ## 7 · Cheat sheet
 
     **Strengths**
 

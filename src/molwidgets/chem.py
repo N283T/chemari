@@ -187,3 +187,80 @@ def bit_census(smiles: list[str], radius: int = 2, n_bits: int = 2048) -> BitCen
             )
         examples[bit] = rows
     return BitCensus(radius=radius, n_bits=n_bits, n_mols=len(smiles), on=on, examples=examples)
+
+
+def substructure_bits(
+    query: str,
+    smiles: list[str],
+    radius: int = 2,
+    n_bits: int = 2048,
+    max_examples: int = 6,
+) -> dict:
+    """Which folded Morgan bits a substructure sets, across a set of molecules.
+
+    For every molecule that matches ``query`` (SMARTS, or SMILES as a fallback), each Morgan
+    environment centred on a matched atom is classified as **inside** (all its atoms lie in the
+    match: the pattern's own bits) or **context** (it reaches outside the match, so it also depends
+    on the neighbours). Returns per-bit counts plus a few example molecules with atom maps.
+    """
+    q = Chem.MolFromSmarts(query) if query else None
+    if q is None and query:
+        q = Chem.MolFromSmiles(query)
+    if q is None or q.GetNumAtoms() == 0:
+        return {"valid": False, "n_match": 0, "bits": [], "examples": []}
+    gen = _generator(radius, n_bits)
+    per_bit: dict[int, dict] = {}
+    examples: list[dict] = []
+    n_match = 0
+    for i, smi in enumerate(smiles):
+        mol = Chem.MolFromSmiles(smi)
+        if mol is None:
+            continue
+        match = mol.GetSubstructMatch(q)
+        if not match:
+            continue
+        n_match += 1
+        matched = set(match)
+        ao = rdFingerprintGenerator.AdditionalOutput()
+        ao.AllocateBitInfoMap()
+        gen.GetFingerprint(mol, additionalOutput=ao)
+        envs_here: dict[int, list[dict]] = {}
+        for bit, envs in ao.GetBitInfoMap().items():
+            for center, rad in envs:
+                if center not in matched:
+                    continue
+                atoms, bonds = env_atoms_bonds(mol, center, rad)
+                envs_here.setdefault(int(bit), []).append(
+                    {
+                        "center": center,
+                        "radius": rad,
+                        "atoms": atoms,
+                        "bonds": bonds,
+                        "kind": "inside" if set(atoms) <= matched else "context",
+                    }
+                )
+        for bit, envs in envs_here.items():
+            row = per_bit.setdefault(
+                bit, {"bit": bit, "n_with": 0, "n_inside": 0, "radius": 99, "_envs": {}}
+            )
+            row["n_with"] += 1
+            if any(e["kind"] == "inside" for e in envs):
+                row["n_inside"] += 1
+            row["radius"] = min(row["radius"], *(e["radius"] for e in envs))
+            for e in envs:  # every distinct environment of the pattern that lands on this bit
+                text = env_smiles(mol, e["center"], e["radius"])
+                row["_envs"][text] = row["_envs"].get(text, 0) + 1
+        if len(examples) < max_examples:
+            examples.append(
+                {"index": i, "smiles": smi, "match": sorted(matched), "bits": envs_here}
+            )
+    bits = []
+    for row in per_bit.values():
+        row["kind"] = "inside" if row["n_inside"] == row["n_with"] else "context"
+        envs = sorted(row.pop("_envs").items(), key=lambda kv: -kv[1])
+        # context environments vary by molecule: show the most common few
+        row["env"] = " | ".join(t for t, _ in envs[: (4 if row["kind"] == "inside" else 2)])
+        row["n_pattern_envs"] = len(envs)
+        bits.append(row)
+    bits.sort(key=lambda r: (r["kind"] != "inside", -r["n_with"], r["radius"]))
+    return {"valid": True, "n_match": n_match, "bits": bits, "examples": examples}
