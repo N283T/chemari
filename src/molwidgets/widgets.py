@@ -349,13 +349,14 @@ def _env_svg(mol: Chem.Mol, center: int, radius: int, size: tuple[int, int] = (1
 
 
 class MorganBitTiles(anywidget.AnyWidget):
-    """A molecule's Morgan fingerprint as a grid of bit pictures, like RDKit's DrawMorganBits.
+    """A molecule next to its Morgan bits, each drawn like RDKit's DrawMorganBit.
 
-    Each tile is one distinct identifier drawn with ``Draw.DrawMorganEnv`` (blue: centre atom,
-    yellow: aromatic atoms, grey: ring atoms, light grey: neighbours outside the environment),
-    labelled with the bit it folds onto. Tiles that fold onto the same bit are framed in red.
-    With a reference set, each tile also shows how many other substructures share its bit, and
-    clicking a tile draws them.
+    The right-hand list has one row per distinct identifier with its ``Draw.DrawMorganEnv``
+    picture (blue: centre atom, yellow: aromatic, grey: ring atoms, light grey: neighbours
+    outside the environment) and the bit it folds onto; hovering or clicking a row highlights
+    that environment in the full molecule on the left. Rows that fold onto the same bit are
+    marked in red. With a reference set, each row shows how many other substructures share its
+    bit, and clicking it draws them.
     """
 
     _esm = _bundle("tiles.js")
@@ -363,6 +364,7 @@ class MorganBitTiles(anywidget.AnyWidget):
     radius = traitlets.Int(2).tag(sync=True)
     n_bits = traitlets.Int(2048).tag(sync=True)
     label = traitlets.Unicode("").tag(sync=True)
+    smiles = traitlets.Unicode("").tag(sync=True)
     tiles = traitlets.List().tag(sync=True)
     selected = traitlets.Int(-1).tag(sync=True)  # bit
     gallery = traitlets.List().tag(sync=True)
@@ -380,7 +382,7 @@ class MorganBitTiles(anywidget.AnyWidget):
         self._reference = list(reference) if reference is not None else None
         self._ids = [str(i) for i in ids] if ids is not None else None
         self._max_gallery = max_gallery
-        super().__init__(**kwargs)
+        super().__init__(smiles=smiles, **kwargs)  # same atom order as self._mol
         self.observe(self._refresh, names=["radius", "n_bits"])
         self.observe(self._refresh_gallery, names=["selected"])
         self._refresh()
@@ -396,7 +398,7 @@ class MorganBitTiles(anywidget.AnyWidget):
         census = self._census()
         tiles = []
         for t in molecule_bit_tiles(self._smiles, self.radius, self.n_bits):
-            row = {**t, "svg": _env_svg(self._mol, t["center"], t["radius"])}
+            row = {**t, "svg": _env_svg(self._mol, t["center"], t["radius"], (120, 90))}
             if census is not None:
                 row["n_envs"] = int(census.n_envs[t["bit"]])
                 row["n_on"] = int(census.on[:, t["bit"]].sum())

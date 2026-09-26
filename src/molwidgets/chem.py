@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import lru_cache
+from typing import Any
 
 import numpy as np
 from rdkit import Chem, RDLogger
@@ -203,9 +204,13 @@ def molecule_bit_tiles(smiles: str, radius: int = 2, n_bits: int = 2048) -> list
     rdFingerprintGenerator.GetMorganGenerator(radius=radius).GetSparseCountFingerprint(
         mol, additionalOutput=ao
     )
-    tiles = []
+    tiles: list[dict[str, Any]] = []
     for uid, envs in ao.GetBitInfoMap().items():
         center, rad = min(envs, key=lambda e: (e[1], e[0]))
+        where = []  # every occurrence, so all matching atoms can be highlighted
+        for c, r in envs:
+            atoms, bonds = env_atoms_bonds(mol, c, r)
+            where.append({"center": int(c), "atoms": atoms, "bonds": bonds})
         tiles.append(
             {
                 "uid": int(uid),
@@ -214,6 +219,7 @@ def molecule_bit_tiles(smiles: str, radius: int = 2, n_bits: int = 2048) -> list
                 "center": int(center),
                 "count": len(envs),
                 "env": env_smiles(mol, center, rad),
+                "where": where,
             }
         )
     bits = [int(uid % n_bits) for uid in ao.GetBitInfoMap()]

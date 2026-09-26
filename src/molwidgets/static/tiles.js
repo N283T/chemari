@@ -1,37 +1,53 @@
-// MorganBitTiles: a molecule's Morgan fingerprint as a grid of bit pictures (RDKit DrawMorganEnv).
-// Pictures are rendered in Python; this module only lays them out and handles selection.
+// MorganBitTiles: the molecule on the left, its Morgan bits on the right. Each bit row carries
+// RDKit's DrawMorganEnv picture (rendered in Python); hovering or clicking a row highlights that
+// environment in the full molecule (drawn here with RDKit.js).
+// Depends on loadRDKit / drawSvg / isDark (prepended by the Python side).
 
 const CSS = `
 .bt-root { font: 13px/1.45 system-ui, sans-serif; color: var(--bt-fg); --bt-fg:#1f2328; --bt-muted:#6b7280;
-  --bt-border:#d0d7de; --bt-card:#fff; --bt-soft:#f6f8fa; --bt-hit:#d6336c; --bt-accent:#1c7ed6; }
-.bt-root.dark { --bt-fg:#e6e6e6; --bt-muted:#9aa4b2; --bt-border:#3a3f47; --bt-card:#1c1f24; --bt-soft:#24282e; }
+  --bt-border:#d0d7de; --bt-card:#fff; --bt-soft:#f6f8fa; --bt-hit:#d6336c; --bt-accent:#1c7ed6; --bt-sel:#e7f5ff; }
+.bt-root.dark { --bt-fg:#e6e6e6; --bt-muted:#9aa4b2; --bt-border:#3a3f47; --bt-card:#1c1f24; --bt-soft:#24282e; --bt-sel:#1b2a3a; }
 .bt-bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
 .bt-seg { display:inline-flex; border:1px solid var(--bt-border); border-radius:6px; overflow:hidden; }
 .bt-seg button { font:inherit; color:var(--bt-fg); background:var(--bt-soft); border:0; padding:2px 9px; cursor:pointer; }
 .bt-seg button + button { border-left:1px solid var(--bt-border); }
 .bt-seg button.on { background:var(--bt-fg); color:var(--bt-card); }
 .bt-lbl { color:var(--bt-muted); }
-.bt-summary { margin-bottom:8px; }
-.bt-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap:8px; }
-.bt-tile { background:#fff; color:#1f2328; border:1px solid var(--bt-border); border-radius:8px; padding:4px 6px 6px;
-  cursor:pointer; position:relative; }
-.bt-tile:hover { box-shadow:0 1px 6px rgba(0,0,0,.15); }
-.bt-tile.hit { border:2px solid var(--bt-hit); }
-.bt-tile.sel { box-shadow:0 0 0 3px var(--bt-accent); }
-.bt-tile svg { width:100%; height:auto; display:block; }
-.bt-head { display:flex; justify-content:space-between; font-size:12px; font-weight:700; }
-.bt-head span:last-child { font-weight:400; color:#6b7280; }
-.bt-env { font:11px ui-monospace,monospace; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.bt-badge { display:inline-block; margin-top:3px; border-radius:4px; padding:0 5px; font-size:10.5px; font-weight:600; }
+.bt-main { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.15fr); gap:12px; align-items:start; }
+@media (max-width: 760px) { .bt-main { grid-template-columns: 1fr; } }
+.bt-mol { position:sticky; top:8px; background:var(--bt-card); border:1px solid var(--bt-border); border-radius:8px; padding:6px 8px; }
+.bt-mol svg { width:100%; height:auto; display:block; }
+.bt-cap { color:var(--bt-muted); font-size:12px; min-height:2.6em; }
+.bt-cap code { font-family:ui-monospace,monospace; color:var(--bt-fg); }
+.bt-list { max-height:520px; overflow:auto; border:1px solid var(--bt-border); border-radius:8px; }
+.bt-row { display:grid; grid-template-columns: 96px 1fr; gap:8px; align-items:center; padding:4px 8px;
+  border-bottom:1px solid var(--bt-border); cursor:pointer; }
+.bt-row:last-child { border-bottom:0; }
+.bt-row:hover { background:var(--bt-soft); }
+.bt-row.sel { background:var(--bt-sel); }
+.bt-row.hit { box-shadow: inset 4px 0 0 var(--bt-hit); }
+.bt-thumb { background:#fff; border:1px solid var(--bt-border); border-radius:6px; overflow:hidden; }
+.bt-thumb svg { width:100%; height:auto; display:block; }
+.bt-info b { font-size:13px; }
+.bt-env { font:11.5px ui-monospace,monospace; color:var(--bt-muted); word-break:break-all; }
+.bt-badge { display:inline-block; margin:2px 4px 0 0; border-radius:4px; padding:0 5px; font-size:10.5px; font-weight:600; }
 .bt-badge.warn { background:#fff0f6; color:#c2255c; }
 .bt-badge.ok { background:#ebfbee; color:#2b8a3e; }
-.bt-flag { font-size:10.5px; color:var(--bt-hit); font-weight:600; }
-.bt-gallery { margin-top:14px; }
+.bt-badge.hit { background:var(--bt-hit); color:#fff; }
+.bt-gallery { margin-top:12px; }
 .bt-gallery h4 { margin:0 0 6px; font-size:13px; }
+.bt-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:8px; }
+.bt-tile { background:#fff; color:#1f2328; border:1px solid var(--bt-border); border-radius:8px; padding:4px 6px 6px; }
 .bt-tile.mine { border:2px solid var(--bt-accent); }
+.bt-tile svg { width:100%; height:auto; display:block; }
+.bt-head { display:flex; justify-content:space-between; font-size:11px; color:#6b7280; }
+.bt-tenv { font:11px ui-monospace,monospace; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .bt-muted { color:var(--bt-muted); }
 .bt-hint { color:var(--bt-muted); font-size:11.5px; margin-top:6px; }
 `;
+
+const CENTER = [0.55, 0.62, 0.95];
+const ENV = [1.0, 0.78, 0.35];
 
 function el(tag, attrs = {}, html = "") {
   const e = Object.assign(document.createElement(tag), attrs);
@@ -52,13 +68,51 @@ function seg(options, current, onPick) {
 
 const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
-function render({ model, el: host }) {
+function highlight(tiles) {
+  if (!tiles.length) return null;
+  const atoms = new Set(), bonds = new Set(), atomColors = {}, bondColors = {};
+  for (const t of tiles)
+    for (const w of t.where) {
+      w.atoms.forEach((a) => { atoms.add(a); if (!(a in atomColors)) atomColors[a] = ENV; });
+      w.bonds.forEach((b) => { bonds.add(b); bondColors[b] = ENV; });
+    }
+  for (const t of tiles) for (const w of t.where) atomColors[w.center] = CENTER;
+  return { atoms: [...atoms], bonds: [...bonds], atomColors, bondColors };
+}
+
+async function render({ model, el: host }) {
   const root = el("div", { className: "bt-root" });
   if (isDark(host)) root.classList.add("dark");
   root.appendChild(el("style", {}, CSS));
   host.appendChild(root);
+  root.appendChild(el("div", { className: "bt-muted" }, "loading RDKit.js…"));
+  const RDKit = await loadRDKit();
   const get = (k) => model.get(k);
   const set = (obj) => { for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
+  let hover = null; // uid under the mouse
+
+  function active() {
+    const tiles = get("tiles");
+    if (hover != null) return tiles.filter((t) => t.uid === hover);
+    const sel = get("selected");
+    return sel >= 0 ? tiles.filter((t) => t.bit === sel) : [];
+  }
+
+  function drawMol() {
+    const box = root.querySelector(".bt-mol");
+    if (!box) return;
+    const dark = root.classList.contains("dark");
+    const act = active();
+    box.innerHTML = drawSvg(RDKit, get("smiles"), 360, 270, highlight(act), dark);
+    const cap = el("div", { className: "bt-cap" });
+    if (!act.length) cap.innerHTML = "Hover or click a bit on the right to see where it comes from.";
+    else {
+      const envs = act.map((t) => `<code>${esc(t.env)}</code>${t.count > 1 ? ` ×${t.count}` : ""}`).join(" and ");
+      cap.innerHTML = `<b>bit ${act[0].bit}</b> · ${envs}` +
+        (act.length > 1 ? ` <span style="color:var(--bt-hit);font-weight:600">— two different environments, one bit</span>` : "");
+    }
+    box.appendChild(cap);
+  }
 
   function draw() {
     root.querySelectorAll(":scope > :not(style)").forEach((n) => n.remove());
@@ -75,52 +129,55 @@ function render({ model, el: host }) {
       seg([[256, "256"], [1024, "1024"], [2048, "2048"], [8192, "8192"]], get("n_bits"), (v) => set({ n_bits: v })),
       el("span", { className: "bt-lbl", textContent: "bits" }),
     );
-    root.appendChild(bar);
-
     const bits = new Set(tiles.map((t) => t.bit));
     const hits = new Set(tiles.filter((t) => t.collides).map((t) => t.bit));
-    root.appendChild(el("div", { className: "bt-summary" },
-      `<b>${tiles.length}</b> distinct environments → <b>${bits.size}</b> bits on` +
-      (hits.size ? ` · <span style="color:var(--bt-hit);font-weight:600">${hits.size} bit${hits.size > 1 ? "s hold" : " holds"} two environments of this molecule (red frames)</span>` : " · no collisions inside this molecule")));
+    bar.appendChild(el("span", { className: "bt-lbl" },
+      `· ${tiles.length} environments → ${bits.size} bits` +
+      (hits.size ? ` · <span style="color:var(--bt-hit);font-weight:600">${hits.size} collision${hits.size > 1 ? "s" : ""} inside this molecule</span>` : "")));
+    root.appendChild(bar);
 
-    const grid = el("div", { className: "bt-grid" });
+    const main = el("div", { className: "bt-main" });
+    main.appendChild(el("div", { className: "bt-mol" }));
+    const list = el("div", { className: "bt-list" });
     for (const t of tiles) {
-      const card = el("div", { className: "bt-tile" + (t.collides ? " hit" : "") + (t.bit === sel ? " sel" : "") });
-      let badge = "";
+      const row = el("div", { className: "bt-row" + (t.bit === sel ? " sel" : "") + (t.collides ? " hit" : "") });
+      let badges = "";
+      if (t.collides) badges += `<span class="bt-badge hit">same bit as another row</span>`;
       if (t.n_envs != null) {
         const others = t.n_envs - 1;
-        badge = others > 0
+        badges += others > 0
           ? `<span class="bt-badge warn">shared with ${others} other substructure${others > 1 ? "s" : ""}</span>`
           : `<span class="bt-badge ok">unique in dataset</span>`;
       }
-      card.innerHTML =
-        `<div class="bt-head"><span>bit ${t.bit}</span><span>r${t.radius}${t.count > 1 ? ` · ×${t.count}` : ""}</span></div>` +
-        t.svg +
-        `<div class="bt-env" title="${esc(t.env)}">${esc(t.env)}</div>` +
-        (t.collides ? `<div class="bt-flag">⚠ same bit as another tile</div>` : "") + badge;
-      if (hasRef) card.addEventListener("click", () => set({ selected: t.bit === sel ? -1 : t.bit }));
-      grid.appendChild(card);
+      row.innerHTML = `<div class="bt-thumb">${t.svg}</div>` +
+        `<div class="bt-info"><b>bit ${t.bit}</b> <span class="bt-muted">r${t.radius}${t.count > 1 ? ` · ×${t.count} atoms` : ""}</span>` +
+        `<div class="bt-env">${esc(t.env)}</div>${badges}</div>`;
+      row.addEventListener("mouseenter", () => { hover = t.uid; drawMol(); });
+      row.addEventListener("mouseleave", () => { hover = null; drawMol(); });
+      row.addEventListener("click", () => { hover = null; set({ selected: t.bit === sel ? -1 : t.bit }); });
+      list.appendChild(row);
     }
-    root.appendChild(grid);
+    main.appendChild(list);
+    root.appendChild(main);
     root.appendChild(el("div", { className: "bt-hint" },
-      "Drawn with RDKit's DrawMorganEnv: blue = centre atom, yellow = aromatic atoms, grey = aliphatic ring atoms, " +
-      "light grey = neighbours outside the environment (shown only to mark where it attaches). " +
-      "×n = the same identifier from n atoms with identical environments." + (hasRef ? " Click a tile to see everything else that sets its bit." : "")));
+      "Each row is one distinct environment, drawn with RDKit's DrawMorganEnv (blue: centre atom, yellow: aromatic, " +
+      "grey: aliphatic ring, light grey: where it attaches). Red edge: two rows share a bit." +
+      (hasRef ? " Click a row to see every other substructure in the dataset that sets the same bit." : "")));
+    drawMol();
 
     const gal = get("gallery");
     if (sel >= 0 && gal.length) {
       const box = el("div", { className: "bt-gallery" });
       const n = tiles.find((t) => t.bit === sel)?.n_envs ?? gal.length;
       box.appendChild(el("h4", {},
-        `Bit ${sel} across the reference set: ${n} different environment${n > 1 ? "s" : ""}` +
+        `Bit ${sel} across the dataset: ${n} different environment${n > 1 ? "s" : ""}` +
         (gal.length < n ? ` <span class="bt-muted" style="font-weight:400">(first ${gal.length} shown)</span>` : "") +
         ` <span class="bt-muted" style="font-weight:400">· blue frame = from this molecule</span>`));
       const g = el("div", { className: "bt-grid" });
       for (const e of gal) {
         const c = el("div", { className: "bt-tile" + (e.mine ? " mine" : "") });
-        c.style.cursor = "default";
         c.innerHTML = `<div class="bt-head"><span>r${e.radius}</span><span>in ${e.count} mols</span></div>` + e.svg +
-          `<div class="bt-env" title="${esc(e.env)}">${esc(e.env)}</div><div class="bt-muted" style="font-size:10.5px">e.g. ${esc(e.id)}</div>`;
+          `<div class="bt-tenv" title="${esc(e.env)}">${esc(e.env)}</div><div class="bt-head"><span>e.g. ${esc(e.id)}</span></div>`;
         g.appendChild(c);
       }
       box.appendChild(g);
@@ -129,7 +186,7 @@ function render({ model, el: host }) {
   }
 
   draw();
-  for (const k of ["tiles", "selected", "gallery", "radius", "n_bits", "label"]) model.on(`change:${k}`, draw);
+  for (const k of ["tiles", "selected", "gallery", "radius", "n_bits", "label", "smiles"]) model.on(`change:${k}`, draw);
 }
 
 export default { render };

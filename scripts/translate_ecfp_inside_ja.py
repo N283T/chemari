@@ -589,17 +589,19 @@ r(
     **{int(_envs.sum()):,}** distinct ECFP4 environments for 2048 bits, about **{_envs[_envs > 0].mean():.0f}
     per bit**, and every bit is shared.
 
-    Below, a molecule's fingerprint is drawn bit by bit with RDKit's `DrawMorganEnv` (blue: centre atom,
-    yellow: aromatic, grey: aliphatic ring, light grey: where the environment attaches). **Red frames**
-    are collisions inside the molecule; the **badge** counts other substructures that share the bit
-    across the dataset — click a tile to see them.""",
+    Below, the molecule sits on the left and its bits on the right, each drawn with RDKit's
+    `DrawMorganEnv` (blue: centre atom, yellow: aromatic, grey: aliphatic ring, light grey: where the
+    environment attaches). **Hover a bit** to light up where it comes from. A **red edge** marks a
+    collision inside the molecule; the **badge** counts other substructures that share the bit across
+    the dataset — click a row to see them.""",
     """    データセット全体では collision は避けられません: {train.height:,} 個の training 分子には distinct な ECFP4
     環境が **{int(_envs.sum()):,}** 種類あり、2048 bit に対して **1 bit あたり約 {_envs[_envs > 0].mean():.0f} 種類**、
     すべての bit が共有されています。
 
-    下では、1 つの分子の fingerprint を RDKit の `DrawMorganEnv` で bit ごとに描いています (青: 中心原子、
-    黄: 芳香族、灰: 脂肪族環、薄い灰: 環境がつながる先)。**赤枠** は分子の中での collision、**バッジ** は
-    データセット全体でその bit を共有している他の部分構造の数です — タイルをクリックすると、それらが見られます。""",
+    下では、左に分子、右にその bit を並べています。各 bit は RDKit の `DrawMorganEnv` で描いています (青: 中心原子、
+    黄: 芳香族、灰: 脂肪族環、薄い灰: 環境がつながる先)。**Bit にカーソルを乗せる** と、それが分子のどこから来た
+    かが光ります。**赤い縁** は分子の中での collision、**バッジ** はデータセット全体でその bit を共有している他の
+    部分構造の数です — 行をクリックすると、それらが見られます。""",
 )
 r(
     """    Things to look for:

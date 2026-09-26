@@ -378,10 +378,11 @@ def _(census_for, mo, train):
     **{int(_envs.sum()):,}** distinct ECFP4 environments for 2048 bits, about **{_envs[_envs > 0].mean():.0f}
     per bit**, and every bit is shared.
 
-    Below, a molecule's fingerprint is drawn bit by bit with RDKit's `DrawMorganEnv` (blue: centre atom,
-    yellow: aromatic, grey: aliphatic ring, light grey: where the environment attaches). **Red frames**
-    are collisions inside the molecule; the **badge** counts other substructures that share the bit
-    across the dataset — click a tile to see them.
+    Below, the molecule sits on the left and its bits on the right, each drawn with RDKit's
+    `DrawMorganEnv` (blue: centre atom, yellow: aromatic, grey: aliphatic ring, light grey: where the
+    environment attaches). **Hover a bit** to light up where it comes from. A **red edge** marks a
+    collision inside the molecule; the **badge** counts other substructures that share the bit across
+    the dataset — click a row to see them.
     """
     )
     return
