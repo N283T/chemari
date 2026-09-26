@@ -50,7 +50,7 @@ def _(mo):
     1. **The algorithm**, from atoms to bits, one step at a time, with a from-scratch implementation
        you can read
     2. **Collisions** — how often folding merges unrelated substructures
-    3. **Substructures and bits** — which bits a functional group sets, and what else lives in them
+    3. **What a bit looks like** — a fingerprint drawn bit by bit, and what else shares each bit
     4. **Blind spots** — counts, stereochemistry, ring size
     5. **Similarity** — what "Tanimoto > 0.4" does and does not promise
     6. **ECFP inside a model** — LightGBM feature importance and per-atom attributions, and why
@@ -87,8 +87,8 @@ def _():
     from molwidgets import (
         ECFPStepper,
         MolGrid,
+        MorganBitTiles,
         MorganExplorer,
-        SubstructureBits,
         census_for,
         ecfp_trace,
         fingerprint_matrix,
@@ -101,8 +101,8 @@ def _():
         Chem,
         ECFPStepper,
         MolGrid,
+        MorganBitTiles,
         MorganExplorer,
-        SubstructureBits,
         alt,
         census_for,
         ecfp_module,
@@ -462,53 +462,70 @@ def _(MorganExplorer, mo, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 3 · Substructures and bits
+    ## 3 · What a bit looks like
 
-    Chemists think in functional groups; the fingerprint thinks in bits. Type a SMARTS pattern (or
-    pick a preset) to see which bits a group sets across the PXR training set:
+    RDKit can draw the environment behind any bit (`Draw.DrawMorganBit` / `DrawMorganBits`). Below, a
+    whole molecule's fingerprint is laid out that way: one tile per distinct identifier, labelled with
+    the bit it folds onto. The **blue** atom is the centre, **yellow** atoms are aromatic, **grey** ones
+    are in an aliphatic ring, and the **light-grey** stubs are neighbours *outside* the environment,
+    drawn only to show where it attaches.
 
-    * **inside** bits describe environments that lie entirely within the pattern — the group's own
-      bits, identical in every molecule that contains it;
-    * **context** bits are centred on the pattern but reach its neighbours, so they change from
-      molecule to molecule;
-    * **share from pattern** tells you, of all molecules with that bit on, how many owe it to this
-      pattern. The rest is other substructures folded into the same bit.
+    Two kinds of sharing are visible:
 
-    Hover a row to see the environment in the example molecules.
+    * **inside the molecule** — two different environments of this molecule fold onto the same bit
+      (red frame);
+    * **across the dataset** — the badge says how many *other* substructures in the PXR training set
+      land on the same bit. Click a tile to see them, drawn the same way.
     """)
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    TILE_EXAMPLES = {
+        "ibuprofen (start here)": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+        "paracetamol": "CC(=O)Nc1ccc(O)cc1",
+        "OADMET-0002810 · potent PXR agonist": "CC(C)(C)NS(=O)(=O)C1(CNc2cc(Br)ccc2C#N)CCC1",
+        "OADMET-0006254 · its pyridine analogue": "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",
+    }
+    tile_pick = mo.ui.dropdown(TILE_EXAMPLES, value="ibuprofen (start here)", label="molecule")
+    tile_smiles = mo.ui.text(placeholder="…or paste a SMILES", label="")
+    mo.hstack([tile_pick, tile_smiles], justify="start", gap=1)
+    return tile_pick, tile_smiles
+
+
 @app.cell
-def _(SubstructureBits, mo, train):
-    smarts_bits = mo.ui.anywidget(
-        SubstructureBits(
-            train["smiles"].to_list(),
-            ids=train["id"].to_list(),
-            y=train["pEC50"].to_numpy(),
-            y_label="pEC50",
-            smarts="C(=O)[OX2H1]",
+def _(Chem, MorganBitTiles, mo, tile_pick, tile_smiles, train):
+    _smi = tile_smiles.value.strip() or tile_pick.value
+    if Chem.MolFromSmiles(_smi) is None:
+        bit_tiles = mo.md(f"`{_smi}` is not a valid SMILES.").callout(kind="warn")
+    else:
+        bit_tiles = mo.ui.anywidget(
+            MorganBitTiles(_smi, reference=train["smiles"].to_list(), ids=train["id"].to_list())
         )
-    )
-    smarts_bits
+    bit_tiles
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Things to try:
+    Things to look for:
 
-    * **Carboxylic acid at 2048 bits.** The acid sets only four bits of its own, because two of its
-      environments collide *inside the same group*: the carbonyl carbon (`[C;D3;H0]`) and the hydroxyl
-      oxygen (`[O;D1;H1]`) both land on bit 807. Switch to 8192 bits and they separate; the `OC` bit's
-      share from the pattern also jumps, because far fewer unrelated environments share it.
-    * **Sulfonamide vs carboxylic acid.** Both set the bit for a terminal oxygen (`[O;D1;H0]`). That one
-      is not a folding accident: radius-0 invariants ignore bond order, so an S=O oxygen and a C=O
-      oxygen get the same identifier. Only the radius-1 bits (`O=S` vs `O=C`) tell them apart.
-    * **Pyridine N.** `[nX2]` has exactly one bit of its own, the bare aromatic nitrogen; everything
-      more specific is *context* and depends on the ring's substituents. Keep this in mind for §6,
-      where a single CH → N swap changes only a handful of bits.
+    * **Bit 807 appears twice in ibuprofen.** At 2048 bits the acid's carbonyl carbon (`[C;D3;H0]`) and
+      its hydroxyl oxygen (`[O;D1;H1]`) are two different identifiers that fold onto the same bit. These
+      are radius-0 identifiers, which do not depend on the rest of the molecule, so this is universal:
+      **at 2048 bits every hydroxyl oxygen shares a bit with every carbon that has three connections
+      and no H** (a C=O carbon, for example). Paracetamol shows the same red pair, from its amide
+      carbon and its phenol OH. Switch to 8192 bits and the red frames disappear.
+    * **Repeats collapse.** Ibuprofen's three methyl carbons and four aromatic CH carbons each give a
+      single tile (×3, ×4): a bit records that an environment occurs, not how often.
+    * **Common bits are crowded.** Click an aromatic-carbon tile: the bits of very common environments
+      are shared with a dozen other substructures across the dataset. A model that learns "bit 1380
+      matters" learns it for all of them at once.
+    * **Radius 0 ignores bond order.** In paracetamol, the carbonyl oxygen tile (`[O;D1;H0]`) is the
+      same identifier as a sulfonyl oxygen or any other terminal oxygen without H. Only the radius-1
+      tile (`O=C`) tells them apart.
     """)
     return
 

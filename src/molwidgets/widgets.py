@@ -340,83 +340,88 @@ class ECFPStepper(anywidget.AnyWidget):
         self.svg = drawer.GetDrawingText().replace("</svg>", hits + "</svg>")
 
 
-DEFAULT_PRESETS = [
-    ("pyridine N", "[nX2]"),
-    ("sulfonamide", "S(=O)(=O)N"),
-    ("carboxylic acid", "C(=O)[OX2H1]"),
-    ("CF3", "C(F)(F)F"),
-    ("aryl chloride", "c[Cl]"),
-]
+def _env_svg(mol: Chem.Mol, center: int, radius: int, size: tuple[int, int] = (160, 130)) -> str:
+    """RDKit's own bit depiction (Draw.DrawMorganEnv) as an SVG string."""
+    from rdkit.Chem import Draw
+
+    svg = Draw.DrawMorganEnv(mol, center, radius, molSize=size, useSVG=True)
+    return svg if isinstance(svg, str) else svg.data
 
 
-class SubstructureBits(anywidget.AnyWidget):
-    """Type a SMARTS pattern and see which Morgan bits it sets across a reference set.
+class MorganBitTiles(anywidget.AnyWidget):
+    """A molecule's Morgan fingerprint as a grid of bit pictures, like RDKit's DrawMorganBits.
 
-    For each bit the widget reports whether the environment lies *inside* the pattern or
-    reaches into its *context*, how many matching molecules set it through the pattern, how
-    many molecules have the bit on at all (the rest owe it to other substructures folded into
-    the same bit), how many distinct environments share the bit, and the mean activity with
-    the bit on minus off.
+    Each tile is one distinct identifier drawn with ``Draw.DrawMorganEnv`` (blue: centre atom,
+    yellow: aromatic atoms, grey: ring atoms, light grey: neighbours outside the environment),
+    labelled with the bit it folds onto. Tiles that fold onto the same bit are framed in red.
+    With a reference set, each tile also shows how many other substructures share its bit, and
+    clicking a tile draws them.
     """
 
-    _esm = _bundle("subbits.js")
+    _esm = _bundle("tiles.js")
 
-    smarts = traitlets.Unicode("[nX2]").tag(sync=True)
     radius = traitlets.Int(2).tag(sync=True)
     n_bits = traitlets.Int(2048).tag(sync=True)
-    presets = traitlets.List().tag(sync=True)
-    result = traitlets.Dict().tag(sync=True)
-    y_label = traitlets.Unicode("y").tag(sync=True)
+    label = traitlets.Unicode("").tag(sync=True)
+    tiles = traitlets.List().tag(sync=True)
+    selected = traitlets.Int(-1).tag(sync=True)  # bit
+    gallery = traitlets.List().tag(sync=True)
 
     def __init__(
         self,
-        reference: list[str],
+        smiles: str,
+        reference: list[str] | None = None,
         ids: list[str] | None = None,
-        y: Any = None,
-        presets: list[tuple[str, str]] | None = None,
-        max_context_bits: int = 15,
+        max_gallery: int = 16,
         **kwargs,
     ):
-        self._reference = list(reference)
-        self._ids = (
-            [str(i) for i in ids] if ids is not None else [str(i) for i in range(len(reference))]
-        )
-        self._y = None if y is None else np.asarray(y, dtype=float)
-        self._max_context = max_context_bits
-        super().__init__(presets=[list(p) for p in (presets or DEFAULT_PRESETS)], **kwargs)
-        self.observe(self._refresh, names=["smarts", "radius", "n_bits"])
+        self._smiles = smiles
+        self._mol = Chem.MolFromSmiles(smiles)
+        self._reference = list(reference) if reference is not None else None
+        self._ids = [str(i) for i in ids] if ids is not None else None
+        self._max_gallery = max_gallery
+        super().__init__(**kwargs)
+        self.observe(self._refresh, names=["radius", "n_bits"])
+        self.observe(self._refresh_gallery, names=["selected"])
         self._refresh()
 
-    def _refresh(self, _change=None) -> None:
-        from .chem import substructure_bits
+    def _census(self) -> BitCensus | None:
+        if self._reference is None:
+            return None
+        return census_for(self._reference, self.radius, self.n_bits)
 
-        res = substructure_bits(self.smarts, self._reference, self.radius, self.n_bits)
-        census = census_for(self._reference, self.radius, self.n_bits)
-        n_envs = census.n_envs
-        inside = [b for b in res["bits"] if b["kind"] == "inside"]
-        context = [b for b in res["bits"] if b["kind"] == "context"][: self._max_context]
-        bits = []
-        for b in inside + context:
-            on = census.on[:, b["bit"]].astype(bool)
-            delta = None
-            if self._y is not None and on.any() and (~on).any():
-                delta = float(np.nanmean(self._y[on]) - np.nanmean(self._y[~on]))
-            bits.append(
-                {**b, "n_on": int(on.sum()), "n_envs": int(n_envs[b["bit"]]), "delta": delta}
+    def _refresh(self, _change=None) -> None:
+        from .chem import molecule_bit_tiles
+
+        census = self._census()
+        tiles = []
+        for t in molecule_bit_tiles(self._smiles, self.radius, self.n_bits):
+            row = {**t, "svg": _env_svg(self._mol, t["center"], t["radius"])}
+            if census is not None:
+                row["n_envs"] = int(census.n_envs[t["bit"]])
+                row["n_on"] = int(census.on[:, t["bit"]].sum())
+            tiles.append(row)
+        self.tiles = tiles
+        self.selected = -1
+        self._refresh_gallery()
+
+    def _refresh_gallery(self, _change=None) -> None:
+        census = self._census()
+        if census is None or self.selected < 0 or self._reference is None:
+            self.gallery = []
+            return
+        mine = {t["uid"] for t in self.tiles if t["bit"] == self.selected}
+        rows = []
+        for ex in census.examples.get(self.selected, [])[: self._max_gallery]:
+            parent = Chem.MolFromSmiles(self._reference[ex["mol_index"]])
+            rows.append(
+                {
+                    "svg": _env_svg(parent, ex["center"], ex["radius"]),
+                    "env": ex["smiles"],
+                    "radius": ex["radius"],
+                    "count": ex["count"],
+                    "id": self._ids[ex["mol_index"]] if self._ids else str(ex["mol_index"]),
+                    "mine": ex["uid"] in mine,
+                }
             )
-        examples = [
-            {
-                "id": self._ids[ex["index"]],
-                "smiles": ex["smiles"],
-                "match": ex["match"],
-                "bits": {str(k): v for k, v in ex["bits"].items()},
-            }
-            for ex in res["examples"]
-        ]
-        self.result = {
-            "valid": res["valid"],
-            "n_match": res["n_match"],
-            "n_total": len(self._reference),
-            "bits": bits,
-            "examples": examples,
-        }
+        self.gallery = rows

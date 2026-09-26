@@ -85,21 +85,23 @@ def test_stepper_renders_click_targets():
     assert "<svg" in w.svg
 
 
-def test_substructure_bits_inside_and_context():
-    from molwidgets import substructure_bits
+def test_bit_tiles_merge_symmetry_and_flag_collisions():
+    from molwidgets import molecule_bit_tiles
 
-    res = substructure_bits("C(F)(F)F", ["FC(F)(F)c1ccccc1", "CCO", "OC(F)(F)F"], 2, 2048)
-    assert res["valid"] and res["n_match"] == 2
-    kinds = {b["kind"] for b in res["bits"]}
-    assert kinds == {"inside", "context"}
-    assert not substructure_bits("C(((", ["CCO"])["valid"]
+    acid = "CC(C)Cc1ccc(cc1)C(C)C(=O)O"  # ibuprofen
+    tiles = molecule_bit_tiles(acid, 2, 2048)
+    methyl = [t for t in tiles if t["env"] == "[C;D1;H3]"]
+    assert len(methyl) == 1 and methyl[0]["count"] == 3  # symmetric atoms, one identifier
+    assert {t["env"] for t in tiles if t["bit"] == 807} == {"[C;D3;H0]", "[O;D1;H1]"}
+    assert all(t["collides"] for t in tiles if t["bit"] == 807)
+    assert not any(t["collides"] for t in molecule_bit_tiles(acid, 2, 8192) if t["radius"] == 0)
 
 
-def test_substructure_widget_reports_dataset_stats():
-    from molwidgets import SubstructureBits
+def test_bit_tiles_widget_gallery():
+    from molwidgets import MorganBitTiles
 
-    w = SubstructureBits(["FC(F)(F)c1ccccc1", "CCO", "OC(F)(F)F"], y=[5.0, 3.0, 4.0])
-    w.smarts = "C(F)(F)F"
-    assert w.result["n_match"] == 2
-    b = w.result["bits"][0]
-    assert {"n_on", "n_envs", "delta"} <= set(b)
+    ref = ["CC(=O)O", "CCO", "c1ccccc1O"]
+    w = MorganBitTiles("CC(=O)O", reference=ref, ids=["a", "b", "c"])
+    assert w.tiles and "<svg" in w.tiles[0]["svg"]
+    w.selected = w.tiles[0]["bit"]
+    assert w.gallery and any(g["mine"] for g in w.gallery)

@@ -50,7 +50,7 @@ def _(mo):
 
     1. **アルゴリズム** — 原子から bit まで 1 ステップずつ、ゼロから書いた読める実装と一緒に
     2. **Collision** — fold が無関係な部分構造をどのくらい混ぜてしまうか
-    3. **部分構造と bit** — 官能基がどの bit を立てるか、その bit に他に何が住んでいるか
+    3. **Bit の姿** — fingerprint を bit ごとに描き、各 bit を他に何が共有しているかを見る
     4. **盲点** — 数 (count)、立体化学、環サイズ
     5. **類似度** — 「Tanimoto > 0.4」が約束すること、しないこと
     6. **モデルの中の ECFP** — LightGBM の feature importance と原子ごとの寄与、そして collision が
@@ -87,8 +87,8 @@ def _():
     from molwidgets import (
         ECFPStepper,
         MolGrid,
+        MorganBitTiles,
         MorganExplorer,
-        SubstructureBits,
         census_for,
         ecfp_trace,
         fingerprint_matrix,
@@ -101,8 +101,8 @@ def _():
         Chem,
         ECFPStepper,
         MolGrid,
+        MorganBitTiles,
         MorganExplorer,
-        SubstructureBits,
         alt,
         census_for,
         ecfp_module,
@@ -452,52 +452,66 @@ def _(MorganExplorer, mo, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 3 · 部分構造と bit
+    ## 3 · Bit の姿
 
-    化学者は官能基で考え、fingerprint は bit で考えます。SMARTS パターンを入力する (またはプリセットを選ぶ) と、
-    その官能基が PXR の training set 全体でどの bit を立てているかが見られます:
+    RDKit では、どの bit についてもその背後にある環境を描けます (`Draw.DrawMorganBit` / `DrawMorganBits`)。
+    下では、1 つの分子の fingerprint 全体をその方法で並べています。Distinct な identifier ごとに 1 枚のタイルで、
+    fold 先の bit 番号が付いています。**青** い原子が中心、**黄色** は芳香族原子、**灰色** は脂肪族環の原子、
+    **薄い灰色** の短い線は環境の *外側* にある隣接原子で、どこにつながっているかを示すためだけに描かれています。
 
-    * **inside** の bit は、環境がパターンの中に完全に収まっているもの — その官能基自身の bit で、それを含む
-      どの分子でも同じです。
-    * **context** の bit は、パターン上の原子を中心にしつつ隣の原子まで届くもので、分子ごとに変わります。
-    * **share from pattern** は、その bit が立っている分子のうち、このパターンのおかげで立っている分子の
-      割合です。残りは、同じ bit に fold された別の部分構造によるものです。
+    2 種類の共有が見えます:
 
-    行にカーソルを乗せると、例の分子の中でその環境がハイライトされます。
+    * **分子の中で** — この分子の異なる 2 つの環境が同じ bit に fold されている (赤枠)。
+    * **データセット全体で** — バッジは、PXR の training set で同じ bit に落ちる *他の* 部分構造の数です。
+      タイルをクリックすると、それらが同じ描き方で表示されます。
     """)
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    TILE_EXAMPLES = {
+        "ibuprofen (ここから)": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+        "paracetamol": "CC(=O)Nc1ccc(O)cc1",
+        "OADMET-0002810 · 強活性の PXR agonist": "CC(C)(C)NS(=O)(=O)C1(CNc2cc(Br)ccc2C#N)CCC1",
+        "OADMET-0006254 · その pyridine analogue": "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",
+    }
+    tile_pick = mo.ui.dropdown(TILE_EXAMPLES, value="ibuprofen (ここから)", label="分子")
+    tile_smiles = mo.ui.text(placeholder="…または SMILES を貼り付け", label="")
+    mo.hstack([tile_pick, tile_smiles], justify="start", gap=1)
+    return tile_pick, tile_smiles
+
+
 @app.cell
-def _(SubstructureBits, mo, train):
-    smarts_bits = mo.ui.anywidget(
-        SubstructureBits(
-            train["smiles"].to_list(),
-            ids=train["id"].to_list(),
-            y=train["pEC50"].to_numpy(),
-            y_label="pEC50",
-            smarts="C(=O)[OX2H1]",
+def _(Chem, MorganBitTiles, mo, tile_pick, tile_smiles, train):
+    _smi = tile_smiles.value.strip() or tile_pick.value
+    if Chem.MolFromSmiles(_smi) is None:
+        bit_tiles = mo.md(f"`{_smi}` は正しい SMILES ではありません。").callout(kind="warn")
+    else:
+        bit_tiles = mo.ui.anywidget(
+            MorganBitTiles(_smi, reference=train["smiles"].to_list(), ids=train["id"].to_list())
         )
-    )
-    smarts_bits
+    bit_tiles
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    試してみてほしいこと:
+    注目してほしい点:
 
-    * **2048 bit でのカルボン酸.** カルボン酸自身の bit は 4 つしかありません。2 つの環境が *同じ官能基の中で*
-      衝突しているからです: カルボニル炭素 (`[C;D3;H0]`) とヒドロキシ酸素 (`[O;D1;H1]`) が、どちらも bit 807 に
-      落ちています。8192 bit に切り替えると 2 つは分かれ、`OC` の bit の share from pattern も跳ね上がります。
-      同じ bit を共有する無関係な環境がずっと少なくなるからです。
-    * **スルホンアミドとカルボン酸.** どちらも末端酸素 (`[O;D1;H0]`) の bit を立てます。こちらは fold の偶然では
-      ありません。Radius 0 の invariant は結合次数を見ないので、S=O の酸素と C=O の酸素は同じ identifier に
-      なります。区別できるのは radius 1 の bit (`O=S` と `O=C`) だけです。
-    * **Pyridine の N.** `[nX2]` 自身の bit は、むき出しの芳香族窒素を表す 1 つだけです。それより具体的な bit は
-      すべて *context* で、環の置換基によって変わります。原子 1 つの CH → N 置換でわずかな bit しか変わらない
-      §6 の例を見るとき、このことを思い出してください。
+    * **Ibuprofen では bit 807 が 2 回出てくる.** 2048 bit では、カルボン酸のカルボニル炭素 (`[C;D3;H0]`) と
+      ヒドロキシ酸素 (`[O;D1;H1]`) という異なる 2 つの identifier が同じ bit に fold されます。これは radius 0 の
+      identifier で分子の残りの部分に依存しないので、どの分子でも起きます: **2048 bit では、すべてのヒドロキシ
+      酸素が、結合相手が 3 つで H を持たないすべての炭素 (たとえば C=O の炭素) と bit を共有しています**。
+      Paracetamol でも、アミドの炭素とフェノールの OH で同じ赤いペアが出ます。8192 bit にすると赤枠は消えます。
+    * **繰り返しはまとめられる.** Ibuprofen の 3 つのメチル炭素と 4 つの芳香族 CH 炭素は、それぞれ 1 枚の
+      タイル (×3、×4) になります。Bit が記録するのは環境が「ある」ことで、何回あるかではありません。
+    * **よくある bit は混んでいる.** 芳香族炭素のタイルをクリックしてみてください。ごくありふれた環境の bit は、
+      データセット全体で十数種類の他の部分構造と共有されています。「bit 1380 が効く」と学んだモデルは、
+      それらすべてについて同時にそう学んでいることになります。
+    * **Radius 0 は結合次数を見ない.** Paracetamol のカルボニル酸素のタイル (`[O;D1;H0]`) は、スルホニルの酸素や、
+      H を持たない他のどの末端酸素とも同じ identifier です。区別できるのは radius 1 のタイル (`O=C`) だけです。
     """)
     return
 

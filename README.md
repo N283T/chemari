@@ -16,9 +16,9 @@ it with two custom [anywidget](https://anywidget.dev) components.
   - `ECFPStepper`: step through the ECFP algorithm iteration by iteration, with per-atom
     identifiers, the hashed "recipe" for each atom, duplicate removal, and the growing feature set
     shown both as identifiers and as a folded bit vector
-  - `SubstructureBits`: type a SMARTS pattern and see which bits it sets across a dataset, whether
-    each lies inside the pattern or reaches its context, and how much of each bit belongs to other
-    substructures
+  - `MorganBitTiles`: a molecule's fingerprint drawn bit by bit like RDKit's `DrawMorganBits`,
+    with in-molecule collisions framed and, per bit, every other substructure in a dataset that
+    folds onto it
   - `MorganExplorer`: bit-by-bit view of a Morgan fingerprint for one molecule or a pair, with the
     atom environments behind each bit, dataset statistics per bit, and a gallery of the different
     substructures that collide in a selected bit; optionally per-bit model contributions

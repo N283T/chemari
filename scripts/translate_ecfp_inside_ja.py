@@ -45,7 +45,7 @@ r(
     1. **The algorithm**, from atoms to bits, one step at a time, with a from-scratch implementation
        you can read
     2. **Collisions** — how often folding merges unrelated substructures
-    3. **Substructures and bits** — which bits a functional group sets, and what else lives in them
+    3. **What a bit looks like** — a fingerprint drawn bit by bit, and what else shares each bit
     4. **Blind spots** — counts, stereochemistry, ring size
     5. **Similarity** — what "Tanimoto > 0.4" does and does not promise
     6. **ECFP inside a model** — LightGBM feature importance and per-atom attributions, and why
@@ -73,7 +73,7 @@ r(
 
     1. **アルゴリズム** — 原子から bit まで 1 ステップずつ、ゼロから書いた読める実装と一緒に
     2. **Collision** — fold が無関係な部分構造をどのくらい混ぜてしまうか
-    3. **部分構造と bit** — 官能基がどの bit を立てるか、その bit に他に何が住んでいるか
+    3. **Bit の姿** — fingerprint を bit ごとに描き、各 bit を他に何が共有しているかを見る
     4. **盲点** — 数 (count)、立体化学、環サイズ
     5. **類似度** — 「Tanimoto > 0.4」が約束すること、しないこと
     6. **モデルの中の ECFP** — LightGBM の feature importance と原子ごとの寄与、そして collision が
@@ -302,57 +302,78 @@ r('label="most crowded bit"', 'label="最も混んでいる bit"')
 r('label="bits shared by ≥ 2 environments"', 'label="2 種類以上の環境が同居する bit"')
 
 r(
-    """    ## 3 · Substructures and bits
+    """    ## 3 · What a bit looks like
 
-    Chemists think in functional groups; the fingerprint thinks in bits. Type a SMARTS pattern (or
-    pick a preset) to see which bits a group sets across the PXR training set:
+    RDKit can draw the environment behind any bit (`Draw.DrawMorganBit` / `DrawMorganBits`). Below, a
+    whole molecule's fingerprint is laid out that way: one tile per distinct identifier, labelled with
+    the bit it folds onto. The **blue** atom is the centre, **yellow** atoms are aromatic, **grey** ones
+    are in an aliphatic ring, and the **light-grey** stubs are neighbours *outside* the environment,
+    drawn only to show where it attaches.
 
-    * **inside** bits describe environments that lie entirely within the pattern — the group's own
-      bits, identical in every molecule that contains it;
-    * **context** bits are centred on the pattern but reach its neighbours, so they change from
-      molecule to molecule;
-    * **share from pattern** tells you, of all molecules with that bit on, how many owe it to this
-      pattern. The rest is other substructures folded into the same bit.
+    Two kinds of sharing are visible:
 
-    Hover a row to see the environment in the example molecules.""",
-    """    ## 3 · 部分構造と bit
+    * **inside the molecule** — two different environments of this molecule fold onto the same bit
+      (red frame);
+    * **across the dataset** — the badge says how many *other* substructures in the PXR training set
+      land on the same bit. Click a tile to see them, drawn the same way.""",
+    """    ## 3 · Bit の姿
 
-    化学者は官能基で考え、fingerprint は bit で考えます。SMARTS パターンを入力する (またはプリセットを選ぶ) と、
-    その官能基が PXR の training set 全体でどの bit を立てているかが見られます:
+    RDKit では、どの bit についてもその背後にある環境を描けます (`Draw.DrawMorganBit` / `DrawMorganBits`)。
+    下では、1 つの分子の fingerprint 全体をその方法で並べています。Distinct な identifier ごとに 1 枚のタイルで、
+    fold 先の bit 番号が付いています。**青** い原子が中心、**黄色** は芳香族原子、**灰色** は脂肪族環の原子、
+    **薄い灰色** の短い線は環境の *外側* にある隣接原子で、どこにつながっているかを示すためだけに描かれています。
 
-    * **inside** の bit は、環境がパターンの中に完全に収まっているもの — その官能基自身の bit で、それを含む
-      どの分子でも同じです。
-    * **context** の bit は、パターン上の原子を中心にしつつ隣の原子まで届くもので、分子ごとに変わります。
-    * **share from pattern** は、その bit が立っている分子のうち、このパターンのおかげで立っている分子の
-      割合です。残りは、同じ bit に fold された別の部分構造によるものです。
+    2 種類の共有が見えます:
 
-    行にカーソルを乗せると、例の分子の中でその環境がハイライトされます。""",
+    * **分子の中で** — この分子の異なる 2 つの環境が同じ bit に fold されている (赤枠)。
+    * **データセット全体で** — バッジは、PXR の training set で同じ bit に落ちる *他の* 部分構造の数です。
+      タイルをクリックすると、それらが同じ描き方で表示されます。""",
 )
 r(
-    """    Things to try:
+    """        "ibuprofen (start here)": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+        "paracetamol": "CC(=O)Nc1ccc(O)cc1",
+        "OADMET-0002810 · potent PXR agonist": "CC(C)(C)NS(=O)(=O)C1(CNc2cc(Br)ccc2C#N)CCC1",
+        "OADMET-0006254 · its pyridine analogue": "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",""",
+    """        "ibuprofen (ここから)": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+        "paracetamol": "CC(=O)Nc1ccc(O)cc1",
+        "OADMET-0002810 · 強活性の PXR agonist": "CC(C)(C)NS(=O)(=O)C1(CNc2cc(Br)ccc2C#N)CCC1",
+        "OADMET-0006254 · その pyridine analogue": "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",""",
+)
+r(
+    'TILE_EXAMPLES, value="ibuprofen (start here)", label="molecule"',
+    'TILE_EXAMPLES, value="ibuprofen (ここから)", label="分子"',
+)
+r(
+    """    Things to look for:
 
-    * **Carboxylic acid at 2048 bits.** The acid sets only four bits of its own, because two of its
-      environments collide *inside the same group*: the carbonyl carbon (`[C;D3;H0]`) and the hydroxyl
-      oxygen (`[O;D1;H1]`) both land on bit 807. Switch to 8192 bits and they separate; the `OC` bit's
-      share from the pattern also jumps, because far fewer unrelated environments share it.
-    * **Sulfonamide vs carboxylic acid.** Both set the bit for a terminal oxygen (`[O;D1;H0]`). That one
-      is not a folding accident: radius-0 invariants ignore bond order, so an S=O oxygen and a C=O
-      oxygen get the same identifier. Only the radius-1 bits (`O=S` vs `O=C`) tell them apart.
-    * **Pyridine N.** `[nX2]` has exactly one bit of its own, the bare aromatic nitrogen; everything
-      more specific is *context* and depends on the ring's substituents. Keep this in mind for §6,
-      where a single CH → N swap changes only a handful of bits.""",
-    """    試してみてほしいこと:
+    * **Bit 807 appears twice in ibuprofen.** At 2048 bits the acid's carbonyl carbon (`[C;D3;H0]`) and
+      its hydroxyl oxygen (`[O;D1;H1]`) are two different identifiers that fold onto the same bit. These
+      are radius-0 identifiers, which do not depend on the rest of the molecule, so this is universal:
+      **at 2048 bits every hydroxyl oxygen shares a bit with every carbon that has three connections
+      and no H** (a C=O carbon, for example). Paracetamol shows the same red pair, from its amide
+      carbon and its phenol OH. Switch to 8192 bits and the red frames disappear.
+    * **Repeats collapse.** Ibuprofen's three methyl carbons and four aromatic CH carbons each give a
+      single tile (×3, ×4): a bit records that an environment occurs, not how often.
+    * **Common bits are crowded.** Click an aromatic-carbon tile: the bits of very common environments
+      are shared with a dozen other substructures across the dataset. A model that learns "bit 1380
+      matters" learns it for all of them at once.
+    * **Radius 0 ignores bond order.** In paracetamol, the carbonyl oxygen tile (`[O;D1;H0]`) is the
+      same identifier as a sulfonyl oxygen or any other terminal oxygen without H. Only the radius-1
+      tile (`O=C`) tells them apart.""",
+    """    注目してほしい点:
 
-    * **2048 bit でのカルボン酸.** カルボン酸自身の bit は 4 つしかありません。2 つの環境が *同じ官能基の中で*
-      衝突しているからです: カルボニル炭素 (`[C;D3;H0]`) とヒドロキシ酸素 (`[O;D1;H1]`) が、どちらも bit 807 に
-      落ちています。8192 bit に切り替えると 2 つは分かれ、`OC` の bit の share from pattern も跳ね上がります。
-      同じ bit を共有する無関係な環境がずっと少なくなるからです。
-    * **スルホンアミドとカルボン酸.** どちらも末端酸素 (`[O;D1;H0]`) の bit を立てます。こちらは fold の偶然では
-      ありません。Radius 0 の invariant は結合次数を見ないので、S=O の酸素と C=O の酸素は同じ identifier に
-      なります。区別できるのは radius 1 の bit (`O=S` と `O=C`) だけです。
-    * **Pyridine の N.** `[nX2]` 自身の bit は、むき出しの芳香族窒素を表す 1 つだけです。それより具体的な bit は
-      すべて *context* で、環の置換基によって変わります。原子 1 つの CH → N 置換でわずかな bit しか変わらない
-      §6 の例を見るとき、このことを思い出してください。""",
+    * **Ibuprofen では bit 807 が 2 回出てくる.** 2048 bit では、カルボン酸のカルボニル炭素 (`[C;D3;H0]`) と
+      ヒドロキシ酸素 (`[O;D1;H1]`) という異なる 2 つの identifier が同じ bit に fold されます。これは radius 0 の
+      identifier で分子の残りの部分に依存しないので、どの分子でも起きます: **2048 bit では、すべてのヒドロキシ
+      酸素が、結合相手が 3 つで H を持たないすべての炭素 (たとえば C=O の炭素) と bit を共有しています**。
+      Paracetamol でも、アミドの炭素とフェノールの OH で同じ赤いペアが出ます。8192 bit にすると赤枠は消えます。
+    * **繰り返しはまとめられる.** Ibuprofen の 3 つのメチル炭素と 4 つの芳香族 CH 炭素は、それぞれ 1 枚の
+      タイル (×3、×4) になります。Bit が記録するのは環境が「ある」ことで、何回あるかではありません。
+    * **よくある bit は混んでいる.** 芳香族炭素のタイルをクリックしてみてください。ごくありふれた環境の bit は、
+      データセット全体で十数種類の他の部分構造と共有されています。「bit 1380 が効く」と学んだモデルは、
+      それらすべてについて同時にそう学んでいることになります。
+    * **Radius 0 は結合次数を見ない.** Paracetamol のカルボニル酸素のタイル (`[O;D1;H0]`) は、スルホニルの酸素や、
+      H を持たない他のどの末端酸素とも同じ identifier です。区別できるのは radius 1 のタイル (`O=C`) だけです。""",
 )
 r(
     """    ## 4 · Blind spots
