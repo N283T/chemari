@@ -77,6 +77,34 @@ function hlFor(bitEntry) {
   return { atoms: [...atoms], bonds: [...bonds], atomColors, bondColors };
 }
 
+// Model attribution: split each bit's contribution evenly over the environments that set it,
+// then over the atoms of each environment (as in Riniker & Landrum's similarity maps).
+function atomWeights(m, contrib) {
+  const w = {};
+  for (const b of m.bits) {
+    const v = contrib?.[b.bit];
+    if (!v) continue;
+    for (const env of b.envs) {
+      const per = v / b.envs.length / env.atoms.length;
+      for (const a of env.atoms) w[a] = (w[a] || 0) + per;
+    }
+  }
+  return w;
+}
+
+function heatFor(weights, scale) {
+  if (!weights || !scale) return null;
+  const atoms = [], atomColors = {};
+  for (const [k, v] of Object.entries(weights)) {
+    const t = Math.min(1, Math.abs(v) / scale);
+    if (t < 0.04) continue;
+    const c = v > 0 ? [0.84, 0.2, 0.2] : [0.2, 0.42, 0.9];
+    atoms.push(Number(k));
+    atomColors[k] = c.map((x) => 1 - t * (1 - x));
+  }
+  return { atoms, bonds: [], atomColors, bondColors: {} };
+}
+
 async function render({ model, el: host }) {
   const root = el("div", { className: "me-root" });
   if (isDark(host)) root.classList.add("dark");
@@ -86,8 +114,8 @@ async function render({ model, el: host }) {
   const RDKit = await loadRDKit();
 
   let filter = "all";
-  let sortKey = "status";
-  let sortDesc = false;
+  let sortKey = model.get("contributions")?.length ? "cA" : "status";
+  let sortDesc = sortKey === "cA";
   let hover = null;
   const get = (k) => model.get(k);
 
@@ -104,8 +132,11 @@ async function render({ model, el: host }) {
       }
     });
     const two = mols.length === 2;
+    const contribs = contribActive() ? get("contributions") : [];
     return [...byBit.values()].map((r) => {
       const s = stats[r.bit] || {};
+      const cA = r.in.A ? contribs[0]?.[r.bit] ?? 0 : null;
+      const cB = r.in.B ? contribs[1]?.[r.bit] ?? 0 : null;
       const first = (r.in.A || r.in.B).envs;
       const status = two ? (r.in.A && r.in.B ? "shared" : r.in.A ? "only A" : "only B") : "on";
       const delta = s.mean_on != null && s.mean_off != null ? s.mean_on - s.mean_off : null;
@@ -119,8 +150,22 @@ async function render({ model, el: host }) {
         n_on: s.n_on ?? null,
         n_envs: s.n_envs ?? null,
         delta,
+        cA,
+        cB,
       };
     });
+  }
+
+  function contribActive() {
+    const c = get("contributions");
+    return c && c.length > 0 && get("contrib_radius") === get("radius") && get("contrib_n_bits") === get("n_bits");
+  }
+
+  function heatmaps(mols) {
+    if (!contribActive()) return mols.map(() => null);
+    const ws = mols.map((m, i) => atomWeights(m, get("contributions")[i]));
+    const scale = Math.max(1e-9, ...ws.flatMap((w) => Object.values(w).map(Math.abs)));
+    return ws.map((w) => heatFor(w, scale));
   }
 
   function sorted(list) {
@@ -167,18 +212,22 @@ async function render({ model, el: host }) {
 
     const main = el("div", { className: "me-main" });
     const left = el("div", { className: "me-mols" });
+    const heats = heatmaps(mols);
     mols.forEach((m, i) => {
       const tag = i === 0 ? "A" : "B";
       const entry = active != null ? m.bits.find((b) => b.bit === active) : null;
+      const hl = active != null ? hlFor(entry) : heats[i];
       const card = el("div", { className: "me-mol" });
       const dot = mols.length === 2 ? `<span class="dot" style="background:${COLORS[tag]}"></span>${tag} · ` : "";
       const extra = m.label ? ` <span class="me-muted" style="font-weight:400">${m.label}</span>` : "";
-      card.innerHTML = `<h4>${dot}${m.id}${extra}</h4>` + drawSvg(RDKit, m.smiles, 320, 200, hlFor(entry), dark);
+      card.innerHTML = `<h4>${dot}${m.id}${extra}</h4>` + drawSvg(RDKit, m.smiles, 320, 200, hl, dark);
       const cap = el("div", { className: "me-cap" });
       if (active != null)
         cap.innerHTML = entry
           ? `bit ${active}: ${entry.envs.length} environment${entry.envs.length > 1 ? "s" : ""} — <code>${entry.envs.map((e) => e.smiles).join(" | ")}</code>`
           : `bit ${active} is <b>off</b> in this molecule`;
+      else if (heats[i])
+        cap.innerHTML = `${m.bits.length} bits on · atom colours = ${get("contrib_label")} of the bits covering each atom: <span style="color:#d63333">red raises</span>, <span style="color:#3366e6">blue lowers</span> the prediction`;
       else cap.textContent = `${m.bits.length} bits on — click a row to highlight`;
       card.appendChild(cap);
       left.appendChild(card);
@@ -199,6 +248,17 @@ async function render({ model, el: host }) {
     const hasStats = all.some((r) => r.n_on != null);
     const cols = [["bit", "bit"], ["status", mols.length === 2 ? "in" : "r"], ["env", "environment(s)"]];
     if (hasStats) cols.push(["n_on", "# mols"], ["n_envs", "# envs"], ["delta", `Δ ${get("y_label")}`]);
+    const showC = contribActive();
+    if (showC) {
+      cols.push(["cA", mols.length === 2 ? `${get("contrib_label")} A` : get("contrib_label")]);
+      if (mols.length === 2) cols.push(["cB", `${get("contrib_label")} B`]);
+    }
+    const cMax = Math.max(1e-9, ...all.flatMap((r) => [Math.abs(r.cA ?? 0), Math.abs(r.cB ?? 0)]));
+    const cCell = (v) => {
+      if (v == null) return "<td>–</td>";
+      const w = (Math.abs(v) / cMax) * 27;
+      return `<td><span class="me-bar2"><i style="left:${v < 0 ? 27 - w : 27}px;width:${w}px;background:${v < 0 ? "#3366e6" : "#d63333"}"></i></span> ${(v > 0 ? "+" : "") + v.toFixed(3)}</td>`;
+    };
     const wrap = el("div", { className: "me-table-wrap" });
     const table = el("table", { className: "me-table" });
     const thead = el("tr");
@@ -222,6 +282,7 @@ async function render({ model, el: host }) {
         const bar = d == null ? "" : `<span class="me-bar2"><i style="left:${d < 0 ? 27 - w : 27}px;width:${w}px;background:${d < 0 ? "#3b82f6" : "#e8590c"}"></i></span>`;
         html += `<td>${r.n_on ?? "–"}</td><td>${r.n_envs ?? "–"}</td><td>${bar} ${d == null ? "–" : (d > 0 ? "+" : "") + d.toFixed(2)}</td>`;
       }
+      if (showC) html += cCell(r.cA) + (mols.length === 2 ? cCell(r.cB) : "");
       tr.innerHTML = html;
       if (warn) tr.title = "Several different substructures in this molecule set this bit";
       tr.addEventListener("mouseenter", () => { hover = r.bit; redrawMols(); });
@@ -261,16 +322,17 @@ async function render({ model, el: host }) {
     const dark = root.classList.contains("dark");
     const sel = get("selected_bit");
     const active = hover ?? (sel >= 0 ? sel : null);
+    const heats = heatmaps(mols);
     root.querySelectorAll(".me-mol").forEach((card, i) => {
       const m = mols[i];
       const entry = active != null ? m.bits.find((b) => b.bit === active) : null;
       const svg = card.querySelector("svg");
-      if (svg) svg.outerHTML = drawSvg(RDKit, m.smiles, 320, 200, hlFor(entry), dark);
+      if (svg) svg.outerHTML = drawSvg(RDKit, m.smiles, 320, 200, active != null ? hlFor(entry) : heats[i], dark);
     });
   }
 
   draw();
-  for (const k of ["payload", "bit_stats", "selected_bit", "bit_examples", "radius", "n_bits"]) model.on(`change:${k}`, draw);
+  for (const k of ["payload", "bit_stats", "selected_bit", "bit_examples", "radius", "n_bits", "contributions"]) model.on(`change:${k}`, draw);
 }
 
 export default { render };

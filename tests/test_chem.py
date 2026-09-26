@@ -53,3 +53,32 @@ def test_explorer_pair_payload_and_examples():
     bit = w.payload[0]["bits"][0]["bit"]
     w.selected_bit = bit
     assert w.bit_examples and all("parent_smiles" in e for e in w.bit_examples)
+
+
+def test_ecfp_trace_matches_rdkit_feature_count():
+    from rdkit import Chem
+    from rdkit.Chem import rdFingerprintGenerator
+
+    from molwidgets import ecfp_trace
+
+    for smi in ["CC(=O)Nc1ccc(O)cc1", "C1CCNCC1", "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1"]:
+        for r in (1, 2, 3):
+            gen = rdFingerprintGenerator.GetMorganGenerator(radius=r)
+            rd = gen.GetSparseCountFingerprint(Chem.MolFromSmiles(smi)).GetNonzeroElements()
+            assert len(ecfp_trace(smi, r).identifiers()) == len(rd)
+
+
+def test_ecfp_trace_symmetric_atoms_share_identifiers():
+    from molwidgets import ecfp_trace
+
+    layer0 = ecfp_trace("c1ccccc1", 1).steps[0]
+    assert len({s.identifier for s in layer0}) == 1
+
+
+def test_stepper_renders_click_targets():
+    from molwidgets import ECFPStepper
+
+    w = ECFPStepper("CCO", max_radius=2)
+    assert w.svg.count('class="es-hit"') == 3
+    w.atom, w.radius = 1, 2
+    assert "<svg" in w.svg

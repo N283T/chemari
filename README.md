@@ -6,12 +6,18 @@ it with two custom [anywidget](https://anywidget.dev) components.
 
 - `notebooks/pxr_fingerprints.py` — the notebook
 - `notebooks/pxr_fingerprints_ja.py` — Japanese edition (same analysis, Japanese prose)
+- `notebooks/ecfp_inside.py` — *Inside ECFP4*, a hands-on tutorial on the Morgan/ECFP algorithm,
+  folding and collisions, blind spots, and LightGBM importance / TreeSHAP maps on fingerprint bits
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
+  - `ECFPStepper`: step through the ECFP algorithm iteration by iteration, with per-atom
+    identifiers, the hashed "recipe" for each atom, duplicate removal and a folding grid
   - `MorganExplorer`: bit-by-bit view of a Morgan fingerprint for one molecule or a pair, with the
     atom environments behind each bit, dataset statistics per bit, and a gallery of the different
-    substructures that collide in a selected bit
+    substructures that collide in a selected bit; optionally per-bit model contributions
+    (e.g. LightGBM TreeSHAP) and a per-atom attribution map
+- `src/molwidgets/ecfp.py` — a readable re-implementation of ECFP used by the tutorial
 
 Molecules are drawn in the browser with RDKit.js; standardization, fingerprints, bit environments
 and collision statistics are computed with RDKit in Python.

@@ -8,14 +8,17 @@ from .chem import (
     standardize_smiles,
     tanimoto_matrix,
 )
-from .widgets import MolGrid, MorganExplorer, census_for
+from .ecfp import ecfp_trace
+from .widgets import ECFPStepper, MolGrid, MorganExplorer, census_for
 
 __all__ = [
     "BitCensus",
+    "ECFPStepper",
     "MolGrid",
     "MorganExplorer",
     "bit_census",
     "census_for",
+    "ecfp_trace",
     "fingerprint_matrix",
     "morgan_bits",
     "standardize_smiles",
