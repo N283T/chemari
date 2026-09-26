@@ -16,13 +16,13 @@ dev = [
     "marimo>=0.25",
     "polars>=1.30",
     "pandas>=2.3",
-    "scikit-learn>=1.7",
     "altair>=5.5",
     "numpy>=2",
     "pytest>=8",
     "ruff>=0.12",
     "ty",
     "lightgbm>=4.7.0",
+    "scipy>=1.14",
 ]
 
 [build-system]
