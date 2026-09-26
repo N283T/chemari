@@ -176,22 +176,97 @@ def _id_colour(identifier: int) -> tuple[float, float, float]:
     return colorsys.hls_to_rgb(hue, 0.72, 0.75)
 
 
+_BOND_NAMES = {2: "single", 3: "aromatic", 4: "double", 6: "triple"}  # bond order x 2
+_INVARIANT_TEXT = ("Z", "degree", "H", "charge", "isotope", "ring")
+
+
+def _iteration_labels(radius: int, n: int) -> list[str]:
+    """a, b, c … for iteration 0; A, B … for 1; A', B' … for 2; A'' … for 3.
+
+    ASCII primes, because RDKit's drawing font has no U+2032.
+    """
+    import string
+
+    letters = string.ascii_lowercase if radius == 0 else string.ascii_uppercase
+    primes = "" if radius <= 1 else "'" * (radius - 1)
+    return [(letters[i] if i < 26 else f"{letters[i % 26]}{i // 26}") + primes for i in range(n)]
+
+
+def _readable_steps(mol: Chem.Mol, trace) -> list[list[dict]]:
+    """Add human-readable labels, environment SMILES and explanations to an ECFP trace."""
+
+    def env_text(step) -> str:
+        atom = mol.GetAtomWithIdx(step.atom)
+        if not step.bonds:
+            h = atom.GetTotalNumHs()
+            text = atom.GetSymbol() + (f"H{h if h > 1 else ''}" if h else "")
+            return text + (" (ring)" if atom.IsInRing() else "")
+        return Chem.MolFragmentToSmiles(
+            mol, atomsToUse=step.atoms, bondsToUse=step.bonds, rootedAtAtom=step.atom
+        )
+
+    out: list[list[dict]] = []
+    prev_label: dict[int, str] = {}
+    for r, layer in enumerate(trace.steps):
+        order: list[int] = []
+        for s in layer:  # label identifiers in order of first appearance
+            if s.identifier not in order:
+                order.append(s.identifier)
+        label_of = dict(zip(order, _iteration_labels(r, len(order))))
+        rows = []
+        for s in layer:
+            d = dict(s.__dict__)
+            d["label"] = label_of[s.identifier]
+            d["env"] = env_text(s)
+            atom = mol.GetAtomWithIdx(s.atom)
+            if r == 0:
+                values = [*s.recipe[:5], "yes" if s.recipe[5] else "no"]
+                parts = ", ".join(f"{n} {v}" for n, v in zip(_INVARIANT_TEXT, values))
+                d["recipe_text"] = f"{d['label']} = hash({atom.GetSymbol()}: {parts})"
+            else:
+                own = prev_label[s.recipe[1]]
+                nbrs = ", ".join(
+                    f"{_BOND_NAMES.get(bo, bo)}→{prev_label[i]}" for bo, i in s.recipe[2]
+                )
+                d["recipe_text"] = f"{d['label']} = hash({own} | {nbrs})"
+            if s.status == "new":
+                d["why"] = "A new environment: its identifier joins the fingerprint."
+            elif s.status == "duplicate":
+                d["why"] = (
+                    f"Covers exactly the same bonds as atom {s.duplicate_of}'s environment, "
+                    "which is already in the fingerprint, so it is dropped."
+                )
+            else:
+                d["why"] = (
+                    "The environment did not grow (it already covers everything), so it is dropped."
+                )
+            rows.append(d)
+        out.append(rows)
+        prev_label = label_of
+    return out
+
+
 class ECFPStepper(anywidget.AnyWidget):
     """Step through the ECFP/Morgan algorithm for one molecule.
 
-    Pick an iteration to see every atom's identifier (equal colours = equal identifiers),
-    click an atom to see what was hashed to build its identifier and whether the environment
-    was kept, and fold the collected identifiers into a bit vector to watch collisions appear.
+    In guided mode, "next" walks atom by atom through every iteration, showing what was hashed
+    (as readable labels: a, b… for iteration 0, A, B… for iteration 1, A'… for 2), which
+    substructure the identifier describes, whether the environment is kept, and the growing
+    set of features. Explore mode lets you jump between iterations and click atoms. With
+    ``show_fold=True`` the collected identifiers are also folded into a small bit vector.
     Identifiers come from :func:`molwidgets.ecfp.ecfp_trace` (same features as RDKit, different
     hash function).
     """
 
     _esm = _bundle("stepper.js")
 
-    radius = traitlets.Int(1).tag(sync=True)
-    atom = traitlets.Int(-1).tag(sync=True)
+    radius = traitlets.Int(0).tag(sync=True)
+    atom = traitlets.Int(0).tag(sync=True)
+    guided = traitlets.Bool(True).tag(sync=True)
+    show_fold = traitlets.Bool(False).tag(sync=True)
     n_bits = traitlets.Int(64).tag(sync=True)
     steps = traitlets.List().tag(sync=True)
+    colours = traitlets.Dict().tag(sync=True)
     svg = traitlets.Unicode("").tag(sync=True)
     invariant_names = traitlets.List(traitlets.Unicode()).tag(sync=True)
 
@@ -200,8 +275,17 @@ class ECFPStepper(anywidget.AnyWidget):
 
         self._mol = Chem.MolFromSmiles(smiles)
         trace = ecfp_trace(smiles, max_radius)
-        steps = [[s.__dict__ for s in layer] for layer in trace.steps]
-        super().__init__(steps=steps, invariant_names=list(INVARIANT_NAMES), **kwargs)
+        steps = _readable_steps(self._mol, trace)
+        colours = {
+            str(d["identifier"]): "rgb({:.0f},{:.0f},{:.0f})".format(
+                *(255 * c for c in _id_colour(d["identifier"]))
+            )
+            for layer in steps
+            for d in layer
+        }
+        super().__init__(
+            steps=steps, colours=colours, invariant_names=list(INVARIANT_NAMES), **kwargs
+        )
         self.observe(self._render, names=["radius", "atom"])
         self._render()
 
@@ -211,7 +295,7 @@ class ECFPStepper(anywidget.AnyWidget):
         mol = Chem.Mol(self._mol)
         layer = self.steps[min(self.radius, len(self.steps) - 1)]
         for s in layer:
-            mol.GetAtomWithIdx(s["atom"]).SetProp("atomNote", f"{s['identifier']:08x}"[:3])
+            mol.GetAtomWithIdx(s["atom"]).SetProp("atomNote", s["label"])
         colours = {s["atom"]: _id_colour(s["identifier"]) for s in layer}
         atoms = list(colours)
         bond_colours: dict[int, tuple[float, float, float]] = {}
@@ -231,8 +315,11 @@ class ECFPStepper(anywidget.AnyWidget):
             radii = {a: (0.42 if a == self.atom else 0.32) for a in atoms}
         drawer = rdMolDraw2D.MolDraw2DSVG(460, 340)
         opts = drawer.drawOptions()
-        opts.annotationFontScale = 0.6
-        opts.fixedBondLength = 34
+        opts.annotationFontScale = 0.85
+        # Small teaching molecules should fill the panel; large ones keep a sane bond length.
+        opts.fixedBondLength = (
+            70 if mol.GetNumAtoms() <= 8 else 45 if mol.GetNumAtoms() <= 16 else 34
+        )
         opts.padding = 0.08
         rdMolDraw2D.PrepareAndDrawMolecule(
             drawer,

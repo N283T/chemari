@@ -168,8 +168,9 @@ def _(mo):
     まったく同じ結合の集合を表すものは除きます。こうした重複は捨てられ、環境がそれ以上広がらなくなった
     原子 (届く範囲をすでに全部覆っている) も捨てられます。結果は整数の *集合*、つまり unfold された ECFP です。
 
-    分子を選んで 1 ステップずつ進めてみてください。対称な原子が同じ色のままであること、原子をクリックすると
-    何が hash されたかが見えること、radius を切り替えると環境が広がり重複が消えていくことを確かめられます。
+    まずは一番小さくて面白い分子、**isobutane** (CH(CH₃)₃) から始めます。**next ▶** を押すと、1 原子ずつ
+    アルゴリズムを追えます。Identifier は 32-bit の数字の代わりに短いラベルで表示します: iteration 0 は
+    *a, b, …*、iteration 1 は *A, B, …*、iteration 2 は *A', B', …* です。
     """)
     return
 
@@ -177,13 +178,14 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     EXAMPLES = {
+        "isobutane (ここから)": "CC(C)C",
         "paracetamol (小さく、対称な環)": "CC(=O)Nc1ccc(O)cc1",
         "OADMET-0002810 · 強活性の PXR agonist (pEC50 5.95)": "CC(C)(C)NS(=O)(=O)C1(CNc2cc(Br)ccc2C#N)CCC1",
         "OADMET-0006254 · その pyridine analogue (pEC50 2.06)": "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",
         "cyclohexylamine": "NC1CCCCC1",
         "cycloheptylamine": "NC1CCCCCC1",
     }
-    example_pick = mo.ui.dropdown(EXAMPLES, value="paracetamol (小さく、対称な環)", label="分子")
+    example_pick = mo.ui.dropdown(EXAMPLES, value="isobutane (ここから)", label="分子")
     custom_smiles = mo.ui.text(placeholder="…または SMILES を貼り付け", label="", full_width=False)
     mo.hstack([example_pick, custom_smiles], justify="start", gap=1)
     return custom_smiles, example_pick
@@ -195,7 +197,7 @@ def _(Chem, ECFPStepper, custom_smiles, example_pick, mo):
     if Chem.MolFromSmiles(_smi) is None:
         stepper = mo.md(f"`{_smi}` は正しい SMILES ではありません。").callout(kind="warn")
     else:
-        stepper = mo.ui.anywidget(ECFPStepper(_smi, max_radius=3, radius=1, n_bits=64))
+        stepper = mo.ui.anywidget(ECFPStepper(_smi, max_radius=2))
     stepper
     return (stepper,)
 
@@ -203,16 +205,25 @@ def _(Chem, ECFPStepper, custom_smiles, example_pick, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    注目してほしい点:
+    Isobutane で起きること:
 
-    * **Iteration 0 はおおまか.** Paracetamol では、4 つの芳香族 CH 炭素がすべて同じ identifier を持ちます。
-      ECFP の出発点は *化学的な意味を持たない* ラベルで、pharmacophore の情報はなく、元素レベルの数だけです。
-    * **対称性は残る.** 対称な位置にある原子はどの radius でも同じ identifier を持つので、特徴としては 1 つに
-      なります。Fingerprint が記録するのは環境が「ある」ことで、いくつの原子がそれを共有しているかではありません。
-    * **重複は実際に起きる.** Radius が大きくなると、隣り合う原子が同じ結合集合を覆うようになり、片方だけが
-      残ります。小さな分子は 1〜2 回の iteration で成長が止まります。
-    * **情報が失われるのは fold のパネル.** 16 や 64 bit に切り替えると赤いマスが現れます。異なる環境が同じ bit に
-      落ちているのです。2048 bit でどのくらい起きるかは次の節で測ります。
+    * **ステップ 1–4 (iteration 0).** 3 つの CH₃ 炭素は invariant が同じなので、すべてラベル **a** になります。
+      中心の CH は **b**。この時点で特徴は 2 つです。Fingerprint は *a* が 3 回出てくることを記録しません。
+    * **ステップ 5–8 (iteration 1).** 各 CH₃ は **A** = hash(*a* | single→*b*)、つまり「CH についたメチル」に
+      なります。中心は **B** = hash(*b* | single→*a* ×3)、「メチルを 3 つ持つ CH」で、これだけでもう分子全体です。
+      特徴は 4 つになります。
+    * **ステップ 9–12 (iteration 2).** メチルの環境は中心を越えて 3 本の結合すべてを覆うようになります。これは
+      *B* がすでに覆っている結合とまったく同じなので、**duplicate** として捨てられます。中心はもう広がれないので
+      **no growth** です。新しい特徴は増えず、isobutane の ECFP 特徴は **radius 1 以上なら常に 4 つ** です。
+
+    次は **paracetamol** や PXR の化合物を選ぶか、好きな SMILES を貼り付けて、**explore** に切り替えて
+    iteration の間を行き来してみてください。見てほしい点:
+
+    * **Iteration 0 はおおまか.** Paracetamol では、4 つの芳香族 CH 炭素が同じラベルを共有します。ECFP の出発点は
+      *化学的な意味を持たない* ラベルで、pharmacophore の情報はなく、元素レベルの数だけです。
+    * **対称性は残る.** 対称な原子はどの radius でも同じ identifier を持ち、1 回だけ数えられます。
+    * **重複はよく起きる.** Radius が大きくなると、隣り合う原子が同じ結合を覆うようになり、片方だけが残ります。
+      小さな分子は 1〜2 回の iteration で成長が止まります。
 
     ### アルゴリズム全体は 1 画面に収まる
 
@@ -278,7 +289,33 @@ def _(mo):
     これは collision の処理を持たない hash table です。同じ bit に落ちた無関係な 2 つの環境は、二度と区別
     できなくなります。
 
-    それはどのくらい起きるのか? 答えは誕生日問題です。*k* 個の distinct な特徴を持つ分子を *n* bit に
+    下では、paracetamol の ECFP4 特徴を小さな bit vector に fold しています。マス 1 つが 1 bit で、赤いマスは
+    2 つ以上の特徴を抱えています (カーソルを乗せると中身が見えます)。16、64、2048 bit を試してみてください。
+    """)
+    return
+
+
+@app.cell
+def _(ECFPStepper, mo):
+    fold_demo = mo.ui.anywidget(
+        ECFPStepper(
+            "CC(=O)Nc1ccc(O)cc1",
+            max_radius=2,
+            guided=False,
+            radius=2,
+            atom=-1,
+            show_fold=True,
+            n_bits=16,
+        )
+    )
+    fold_demo
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Collision はどのくらい起きるのか? 答えは誕生日問題です。*k* 個の distinct な特徴を持つ分子を *n* bit に
     fold したとき、collision が 1 つも起きない確率は
 
     $$P(\text{no collision}) = \prod_{i=0}^{k-1}\left(1 - \frac{i}{n}\right) \approx e^{-k(k-1)/2n}.$$

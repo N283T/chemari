@@ -79,6 +79,7 @@ def test_stepper_renders_click_targets():
     from molwidgets import ECFPStepper
 
     w = ECFPStepper("CCO", max_radius=2)
+    assert w.steps[1][1]["recipe_text"].startswith("B = hash(b |")
     assert w.svg.count('class="es-hit"') == 3
     w.atom, w.radius = 1, 2
     assert "<svg" in w.svg

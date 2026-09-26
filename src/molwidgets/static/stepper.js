@@ -1,43 +1,52 @@
-// ECFPStepper: walk through the Morgan/ECFP algorithm one iteration at a time.
-// The molecule SVG is rendered in Python (RDKit) because it carries per-atom notes.
+// ECFPStepper: walk through the Morgan/ECFP algorithm one atom and one iteration at a time.
+// The molecule SVG is rendered in Python (RDKit) because it carries per-atom labels.
 
 const CSS = `
 .es-root { font: 13px/1.45 system-ui, sans-serif; color: var(--es-fg); --es-fg:#1f2328; --es-muted:#6b7280;
-  --es-border:#d0d7de; --es-card:#fff; --es-soft:#f6f8fa; --es-new:#2f9e44; --es-dup:#e8590c; --es-hit:#d6336c; }
+  --es-border:#d0d7de; --es-card:#fff; --es-soft:#f6f8fa; --es-new:#2f9e44; --es-dup:#e8590c; --es-hit:#d6336c;
+  --es-accent:#1c7ed6; }
 .es-root.dark { --es-fg:#e6e6e6; --es-muted:#9aa4b2; --es-border:#3a3f47; --es-card:#1c1f24; --es-soft:#24282e; }
-.es-bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:8px; }
+.es-bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
+.es-btn { font:inherit; color:var(--es-fg); background:var(--es-soft); border:1px solid var(--es-border);
+  border-radius:6px; padding:3px 10px; cursor:pointer; }
+.es-btn.primary { background:var(--es-accent); border-color:var(--es-accent); color:#fff; font-weight:600; }
+.es-btn:disabled { opacity:.4; cursor:default; }
 .es-seg { display:inline-flex; border:1px solid var(--es-border); border-radius:6px; overflow:hidden; }
 .es-seg button { font:inherit; color:var(--es-fg); background:var(--es-soft); border:0; padding:3px 10px; cursor:pointer; }
 .es-seg button + button { border-left:1px solid var(--es-border); }
 .es-seg button.on { background:var(--es-fg); color:var(--es-card); }
 .es-lbl { color:var(--es-muted); }
-.es-main { display:grid; grid-template-columns: minmax(280px, 1.1fr) minmax(280px, 1fr); gap:12px; }
+.es-pos { color:var(--es-muted); font-variant-numeric:tabular-nums; }
+.es-main { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.1fr); gap:12px; }
 @media (max-width: 760px) { .es-main { grid-template-columns: 1fr; } }
 .es-mol { background:#fff; border:1px solid var(--es-border); border-radius:8px; padding:4px; }
-.es-mol svg { width:100%; height:auto; display:block; cursor:pointer; }
+.es-mol svg { width:100%; height:auto; display:block; }
 .es-panel { display:flex; flex-direction:column; gap:8px; }
 .es-box { background:var(--es-soft); border-radius:8px; padding:8px 10px; }
-.es-box h4 { margin:0 0 4px; font-size:13px; }
-.es-box code { font-family:ui-monospace,monospace; font-size:12px; }
-.es-recipe { font-family:ui-monospace,monospace; font-size:12px; white-space:pre-wrap; word-break:break-all; }
-.es-tag { display:inline-block; border-radius:4px; padding:0 6px; color:#fff; font-size:11px; font-weight:600; }
-.es-table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; font-size:12px; }
-.es-table th, .es-table td { padding:2px 6px; text-align:right; border-bottom:1px solid var(--es-border); }
-.es-table th:first-child, .es-table td:first-child { text-align:left; }
-.es-table tr.cur td { font-weight:700; }
+.es-box h4 { margin:0 0 6px; font-size:13px; }
+.es-recipe { font-family:ui-monospace,monospace; font-size:14px; background:var(--es-card); border:1px solid var(--es-border);
+  border-radius:6px; padding:6px 8px; margin:4px 0; word-break:break-word; }
+.es-env { font-family:ui-monospace,monospace; }
+.es-tag { display:inline-block; border-radius:4px; padding:0 6px; color:#fff; font-size:11px; font-weight:600; margin-right:6px; }
+.es-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.es-chip { display:inline-flex; align-items:center; gap:6px; background:var(--es-card); border:1px solid var(--es-border);
+  border-radius:999px; padding:2px 10px 2px 3px; font-size:12px; }
+.es-chip .dot { min-width:20px; height:20px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:11px; color:#1f2328; padding:0 4px; }
+.es-chip.fresh { border-color:var(--es-new); box-shadow:0 0 0 2px rgba(47,158,68,.3); }
 .es-fold { margin-top:10px; }
 .es-fold-grid { display:grid; gap:2px; }
-.es-cell { aspect-ratio:1; border-radius:2px; background:var(--es-soft); border:1px solid var(--es-border); cursor:pointer; }
+.es-cell { aspect-ratio:1; border-radius:2px; background:var(--es-soft); border:1px solid var(--es-border); }
 .es-cell.on { background:#74c0fc; border-color:#4dabf7; }
 .es-cell.hit { background:var(--es-hit); border-color:var(--es-hit); }
-.es-cell.sel { outline:2px solid var(--es-fg); }
 .es-muted { color:var(--es-muted); }
+.es-hint { color:var(--es-muted); font-size:11.5px; margin-top:4px; }
 `;
 
 const STATUS = {
-  new: ["new feature", "var(--es-new)"],
-  duplicate: ["dropped: duplicate environment", "var(--es-dup)"],
-  "no growth": ["dropped: environment stopped growing", "var(--es-muted)"],
+  new: ["kept", "var(--es-new)"],
+  duplicate: ["dropped: duplicate", "var(--es-dup)"],
+  "no growth": ["dropped: no growth", "var(--es-muted)"],
 };
 
 function el(tag, attrs = {}, html = "") {
@@ -57,22 +66,33 @@ function seg(options, current, onPick) {
   return wrap;
 }
 
-const hex = (n) => (n >>> 0).toString(16).padStart(8, "0");
+const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 function render({ model, el: host }) {
   const root = el("div", { className: "es-root" });
   if (isDark(host)) root.classList.add("dark");
   root.appendChild(el("style", {}, CSS));
   host.appendChild(root);
-  let foldPick = null; // selected bit in the fold grid
 
   const get = (k) => model.get(k);
   const set = (obj) => { for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
 
-  function features(uptoRadius) {
-    const out = [];
-    get("steps").slice(0, uptoRadius + 1).forEach((layer) => layer.forEach((s) => { if (s.status === "new") out.push(s); }));
-    return out;
+  // Guided tour: every (iteration, atom) in order.
+  const tour = [];
+  get("steps").forEach((layer, r) => layer.forEach((s) => tour.push([r, s.atom])));
+  let guided = get("guided");
+  let pos = Math.max(0, tour.findIndex(([r, a]) => r === get("radius") && a === get("atom")));
+
+  const goto = (p) => {
+    pos = Math.max(0, Math.min(tour.length - 1, p));
+    set({ radius: tour[pos][0], atom: tour[pos][1] });
+  };
+
+  // Steps visited so far: the tour prefix in guided mode, whole iterations in explore mode.
+  function visited() {
+    const steps = get("steps");
+    if (guided) return tour.slice(0, pos + 1).map(([r, a]) => steps[r][a]);
+    return steps.slice(0, get("radius") + 1).flat();
   }
 
   function draw() {
@@ -80,98 +100,123 @@ function render({ model, el: host }) {
     const steps = get("steps");
     const r = get("radius");
     const atom = get("atom");
-    const nBits = get("n_bits");
     const maxR = steps.length - 1;
 
+    // --- controls
     const bar = el("div", { className: "es-bar" });
-    bar.append(
-      el("span", { className: "es-lbl", textContent: "iteration (radius)" }),
-      seg([...Array(maxR + 1).keys()].map((i) => [i, String(i)]), r, (v) => { foldPick = null; set({ radius: v }); }),
-      el("span", { className: "es-lbl", textContent: "fold to" }),
-      seg([[16, "16"], [64, "64"], [256, "256"], [1024, "1024"], [2048, "2048"]], nBits, (v) => { foldPick = null; set({ n_bits: v }); }),
-      el("span", { className: "es-lbl", textContent: "bits" }),
-    );
+    bar.appendChild(seg([[true, "guided"], [false, "explore"]], guided, (v) => {
+      guided = v;
+      if (guided) goto(pos); else draw();
+    }));
+    if (guided) {
+      const prev = el("button", { className: "es-btn", textContent: "◀ back" });
+      const next = el("button", { className: "es-btn primary", textContent: "next ▶" });
+      const nextIt = el("button", { className: "es-btn", textContent: "next iteration ⏭" });
+      const restart = el("button", { className: "es-btn", textContent: "↺ restart", title: "back to the first step" });
+      prev.disabled = pos === 0;
+      next.disabled = pos === tour.length - 1;
+      nextIt.disabled = r === maxR;
+      prev.onclick = () => goto(pos - 1);
+      next.onclick = () => goto(pos + 1);
+      nextIt.onclick = () => goto(tour.findIndex(([rr]) => rr === r + 1));
+      restart.onclick = () => goto(0);
+      bar.append(prev, next, nextIt, restart, el("span", { className: "es-pos", textContent: `step ${pos + 1} / ${tour.length}` }));
+    } else {
+      bar.append(
+        el("span", { className: "es-lbl", textContent: "iteration" }),
+        seg([...Array(maxR + 1).keys()].map((i) => [i, String(i)]), r, (v) => set({ radius: v })),
+        el("span", { className: "es-lbl", textContent: "· click an atom" }),
+      );
+    }
     root.appendChild(bar);
 
+    // --- molecule
     const main = el("div", { className: "es-main" });
     const left = el("div");
     const mol = el("div", { className: "es-mol" }, get("svg"));
-    mol.title = "click an atom";
     mol.addEventListener("click", (ev) => {
       const target = ev.target.closest(".es-hit");
       if (!target) return;
-      const m = String(target.getAttribute("data-atom")).match(/(\d+)/);
-      if (m) { foldPick = null; set({ atom: Number(m[1]) === atom ? -1 : Number(m[1]) }); }
+      const a = Number(target.getAttribute("data-atom"));
+      if (guided) goto(tour.findIndex(([rr, aa]) => rr === r && aa === a));
+      else set({ atom: a === atom ? -1 : a });
     });
     left.appendChild(mol);
-    left.appendChild(el("div", { className: "es-muted", style: "font-size:11.5px;margin-top:4px" },
-      "Atoms with the same colour carry the same identifier at this iteration. Numbers are the first hex digits of each identifier. Click an atom to see how its identifier was built."));
+    left.appendChild(el("div", { className: "es-hint" },
+      `Labels show each atom's identifier at iteration ${r}; the same label (and colour) means the same identifier. ` +
+      "Lower-case letters are iteration 0, capitals iteration 1, primes (A', A'') iterations 2 and 3."));
     main.appendChild(left);
 
+    // --- explanation of the current atom
     const panel = el("div", { className: "es-panel" });
-    // --- selected atom recipe
     const box = el("div", { className: "es-box" });
     if (atom >= 0) {
       const s = steps[r][atom];
-      const [label, color] = STATUS[s.status];
-      let recipe;
-      if (r === 0) {
-        recipe = get("invariant_names").map((n, k) => `${n.padEnd(14)} ${s.recipe[k]}`).join("\n");
-      } else {
-        const prev = steps[r - 1][atom].identifier;
-        const nb = s.recipe[2].map(([bo, id]) => `  (bond ${bo / 2}, ${hex(id)})`).join("\n");
-        recipe = `iteration      ${r}\nown id (r=${r - 1})  ${hex(prev)}\nneighbours\n${nb}`;
-      }
-      box.innerHTML = `<h4>atom ${atom} · radius ${r} → id <code>${hex(s.identifier)}</code></h4>` +
-        `<div class="es-recipe">${recipe}</div>` +
-        `<div style="margin-top:6px"><span class="es-tag" style="background:${color}">${label}</span>` +
-        (s.duplicate_of != null ? ` <span class="es-muted">same bonds as atom ${s.duplicate_of}'s environment</span>` : "") +
-        `</div><div class="es-muted" style="margin-top:4px">${s.atoms.length} atom${s.atoms.length === 1 ? "" : "s"}, ${s.bonds.length} bond${s.bonds.length === 1 ? "" : "s"} in this environment · bit ${s.identifier % nBits} of ${nBits}</div>`;
+      const [tag, colour] = STATUS[s.status];
+      const intro = r === 0
+        ? "Iteration 0 describes the atom on its own, from six numbers:"
+        : `Iteration ${r} combines this atom's label from iteration ${r - 1} with its neighbours' labels and bond types:`;
+      box.innerHTML =
+        `<h4>Iteration ${r} · atom ${atom}</h4>` +
+        `<div class="es-muted">${intro}</div>` +
+        `<div class="es-recipe">${esc(s.recipe_text)}</div>` +
+        `<div>This identifier describes <span class="es-env">${esc(s.env)}</span> ` +
+        `<span class="es-muted">(${s.atoms.length} atom${s.atoms.length === 1 ? "" : "s"}, ${s.bonds.length} bond${s.bonds.length === 1 ? "" : "s"})</span></div>` +
+        `<div style="margin-top:6px"><span class="es-tag" style="background:${colour}">${tag}</span>${esc(s.why)}</div>`;
     } else {
-      box.innerHTML = r === 0
-        ? `<h4>Iteration 0: atom invariants</h4>Every atom is hashed from six numbers: ${get("invariant_names").join(", ")}. Click an atom.`
-        : `<h4>Iteration ${r}</h4>Each atom's new id = hash(its id from iteration ${r - 1}, its neighbours' ids and bond orders). Click an atom.`;
+      box.innerHTML = `<h4>Iteration ${r}</h4><div class="es-muted">Click an atom to see how its identifier was built.</div>`;
     }
     panel.appendChild(box);
 
-    // --- per-iteration summary
-    const t = el("table", { className: "es-table" });
-    t.innerHTML = "<tr><th>radius</th><th>new identifiers</th><th>dropped: duplicate</th><th>dropped: no growth</th><th>distinct so far</th></tr>";
-    const seenIds = new Set();
-    steps.forEach((layer, i) => {
-      const c = { duplicate: 0, "no growth": 0 };
-      let fresh = 0;
-      layer.forEach((s) => {
-        if (s.status === "new") {
-          if (!seenIds.has(s.identifier)) fresh++;
-          seenIds.add(s.identifier);
-        } else c[s.status]++;
-      });
-      const tr = el("tr", { className: i === r ? "cur" : "" });
-      tr.innerHTML = `<td>${i}</td><td>${fresh}</td><td>${c.duplicate}</td><td>${c["no growth"]}</td><td>${seenIds.size}</td>`;
-      t.appendChild(tr);
-    });
-    const tb = el("div", { className: "es-box" });
-    tb.appendChild(el("h4", {}, "What each iteration adds (symmetric atoms share an identifier)"));
-    tb.appendChild(t);
-    panel.appendChild(tb);
+    // --- the fingerprint collected so far
+    const kept = new Map();
+    let dropped = 0;
+    for (const s of visited()) {
+      if (s.status !== "new") { dropped++; continue; }
+      if (!kept.has(s.identifier)) kept.set(s.identifier, { ...s, atomsWith: 0 });
+      kept.get(s.identifier).atomsWith++;
+    }
+    const current = atom >= 0 ? steps[r][atom] : null;
+    const colours = get("colours");
+    const fp = el("div", { className: "es-box" });
+    fp.appendChild(el("h4", {}, `The fingerprint so far: ${kept.size} feature${kept.size === 1 ? "" : "s"}` +
+      (dropped ? ` <span class="es-muted" style="font-weight:400">· ${dropped} environment${dropped === 1 ? "" : "s"} dropped</span>` : "")));
+    const chips = el("div", { className: "es-chips" });
+    for (const f of kept.values()) {
+      const fresh = current && current.status === "new" && f.identifier === current.identifier;
+      const c = el("span", { className: "es-chip" + (fresh ? " fresh" : "") });
+      c.innerHTML = `<span class="dot" style="background:${colours[f.identifier] || "#ddd"}">${esc(f.label)}</span>` +
+        `<span class="es-env">${esc(f.env)}</span>` + (f.atomsWith > 1 ? `<span class="es-muted">×${f.atomsWith} atoms</span>` : "");
+      chips.appendChild(c);
+    }
+    fp.appendChild(chips);
+    fp.appendChild(el("div", { className: "es-hint" },
+      "Each identifier is counted once, however many atoms share it. This set of identifiers is the unfolded ECFP."));
+    panel.appendChild(fp);
     main.appendChild(panel);
     root.appendChild(main);
 
-    // --- fold grid
-    const feats = features(r);
+    if (get("show_fold")) drawFold(kept);
+  }
+
+  function drawFold(kept) {
+    const nBits = get("n_bits");
     const byBit = new Map();
-    for (const f of feats) {
+    for (const f of kept.values()) {
       const b = f.identifier % nBits;
       if (!byBit.has(b)) byBit.set(b, []);
       byBit.get(b).push(f);
     }
-    const distinct = new Set(feats.map((f) => f.identifier)).size;
-    const collided = [...byBit.values()].filter((v) => new Set(v.map((f) => f.identifier)).size > 1).length;
+    const collided = [...byBit.values()].filter((v) => v.length > 1).length;
     const fold = el("div", { className: "es-fold" });
-    fold.appendChild(el("div", {},
-      `<b>Folding.</b> ${distinct} distinct identifiers (radius ≤ ${r}) → ${byBit.size} bits set out of ${nBits}. ` +
-      (collided ? `<span style="color:var(--es-hit);font-weight:600">${collided} bit${collided > 1 ? "s hold" : " holds"} more than one identifier</span> (red): the fingerprint can no longer tell those environments apart.` : "No collisions in this molecule at this size.")));
+    const bar = el("div", { className: "es-bar" });
+    bar.append(
+      el("span", {}, `<b>Fold</b> ${kept.size} features into`),
+      seg([[16, "16"], [64, "64"], [256, "256"], [1024, "1024"], [2048, "2048"]], nBits, (v) => set({ n_bits: v })),
+      el("span", {}, `bits → ${byBit.size} bits set` +
+        (collided ? ` · <span style="color:var(--es-hit);font-weight:600">${collided} bit${collided > 1 ? "s hold" : " holds"} more than one feature</span>` : " · no collisions")),
+    );
+    fold.appendChild(bar);
     const cols = nBits <= 64 ? 16 : nBits <= 256 ? 32 : 64;
     const grid = el("div", { className: "es-fold-grid" });
     grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
@@ -180,21 +225,17 @@ function render({ model, el: host }) {
       const fs = byBit.get(b);
       const cell = el("div", { className: "es-cell" });
       if (fs) {
-        const hit = new Set(fs.map((f) => f.identifier)).size > 1;
-        cell.classList.add(hit ? "hit" : "on");
-        cell.title = `bit ${b}: ` + fs.map((f) => `atom ${f.atom} r${f.radius} (${hex(f.identifier)})`).join(", ");
-        if (foldPick === b) cell.classList.add("sel");
-        cell.addEventListener("click", () => { foldPick = b; set({ atom: fs[0].atom, radius: fs[0].radius }); });
+        cell.classList.add(fs.length > 1 ? "hit" : "on");
+        cell.title = `bit ${b}: ` + fs.map((f) => `${f.label} ${f.env}`).join(" | ");
       }
       grid.appendChild(cell);
     }
     fold.appendChild(grid);
-    if (nBits > 256) fold.appendChild(el("div", { className: "es-muted", style: "font-size:11.5px" }, "Hover a cell for its environments; click to jump to one."));
     root.appendChild(fold);
   }
 
   draw();
-  for (const k of ["svg", "steps", "radius", "atom", "n_bits"]) model.on(`change:${k}`, draw);
+  for (const k of ["svg", "steps", "radius", "atom", "n_bits", "show_fold"]) model.on(`change:${k}`, draw);
 }
 
 export default { render };

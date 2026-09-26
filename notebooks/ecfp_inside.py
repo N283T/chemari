@@ -170,8 +170,9 @@ def _(mo):
     are dropped, as are atoms whose environment stopped growing (it already covers everything it can
     reach). The result is a *set* of integers: the unfolded ECFP.
 
-    Choose a molecule and step through it. Watch symmetric atoms keep the same colour, click an atom
-    to see exactly what was hashed, and switch radius to see environments grow and duplicates vanish.
+    Start with the smallest interesting molecule, **isobutane** (CH(CH₃)₃), and press **next ▶** to walk
+    through the algorithm one atom at a time. Instead of 32-bit numbers, identifiers are shown as short
+    labels: *a, b, …* for iteration 0, *A, B, …* for iteration 1, *A', B', …* for iteration 2.
     """)
     return
 
@@ -179,15 +180,14 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     EXAMPLES = {
+        "isobutane (start here)": "CC(C)C",
         "paracetamol (small, symmetric ring)": "CC(=O)Nc1ccc(O)cc1",
         "OADMET-0002810 · potent PXR agonist (pEC50 5.95)": "CC(C)(C)NS(=O)(=O)C1(CNc2cc(Br)ccc2C#N)CCC1",
         "OADMET-0006254 · its pyridine analogue (pEC50 2.06)": "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",
         "cyclohexylamine": "NC1CCCCC1",
         "cycloheptylamine": "NC1CCCCCC1",
     }
-    example_pick = mo.ui.dropdown(
-        EXAMPLES, value="paracetamol (small, symmetric ring)", label="molecule"
-    )
+    example_pick = mo.ui.dropdown(EXAMPLES, value="isobutane (start here)", label="molecule")
     custom_smiles = mo.ui.text(placeholder="…or paste a SMILES", label="", full_width=False)
     mo.hstack([example_pick, custom_smiles], justify="start", gap=1)
     return custom_smiles, example_pick
@@ -199,7 +199,7 @@ def _(Chem, ECFPStepper, custom_smiles, example_pick, mo):
     if Chem.MolFromSmiles(_smi) is None:
         stepper = mo.md(f"`{_smi}` is not a valid SMILES.").callout(kind="warn")
     else:
-        stepper = mo.ui.anywidget(ECFPStepper(_smi, max_radius=3, radius=1, n_bits=64))
+        stepper = mo.ui.anywidget(ECFPStepper(_smi, max_radius=2))
     stepper
     return (stepper,)
 
@@ -207,17 +207,27 @@ def _(Chem, ECFPStepper, custom_smiles, example_pick, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Things to notice:
+    What happens in isobutane:
 
-    * **Iteration 0 is coarse.** In paracetamol, the four aromatic CH carbons share one identifier. ECFP
+    * **Steps 1–4, iteration 0.** The three CH₃ carbons have identical invariants, so all get label
+      **a**; the central CH gets **b**. Two features so far — the fingerprint does not record that
+      *a* occurs three times.
+    * **Steps 5–8, iteration 1.** Each CH₃ becomes **A** = hash(*a* | single→*b*): "a methyl on a CH".
+      The centre becomes **B** = hash(*b* | single→*a* ×3): "a CH carrying three methyls", which is
+      already the whole molecule. Four features.
+    * **Steps 9–12, iteration 2.** Each methyl's environment now reaches across the centre and covers
+      all three bonds — exactly the bonds *B* already covers, so it is dropped as a **duplicate**. The
+      centre cannot grow any further (**no growth**). Nothing new is added: isobutane has **4 ECFP
+      features at any radius ≥ 1**.
+
+    Now pick **paracetamol** or one of the PXR compounds (or paste any SMILES), and switch to
+    **explore** to jump between iterations. Things to look for:
+
+    * **Iteration 0 is coarse.** In paracetamol, the four aromatic CH carbons share one label. ECFP
       starts from *chemistry-free* labels: nothing about pharmacophores, just element-level counts.
-    * **Symmetry survives.** Atoms related by symmetry keep equal identifiers at every radius, so
-      they contribute a single feature: the fingerprint records that an environment occurs, not how
-      many atoms share it.
-    * **Duplicates are real.** At higher radius, neighbouring atoms often end up covering the same bonds;
-      only one of them is kept. Small molecules stop growing after one or two iterations.
-    * **The fold panel is where information is lost.** Switch to 16 or 64 bits and red cells appear:
-      different environments land on the same bit. We will measure how often that happens at 2048.
+    * **Symmetry survives.** Symmetric atoms keep equal identifiers at every radius and count once.
+    * **Duplicates are common.** At higher radius, neighbouring atoms often end up covering the same
+      bonds; only one of them is kept. Small molecules stop growing after one or two iterations.
 
     ### The whole algorithm fits on one screen
 
@@ -284,7 +294,33 @@ def _(mo):
     bit with `identifier % n_bits`. That is a hash table with no collision handling. Two unrelated
     environments that land on the same bit become indistinguishable, forever.
 
-    How likely is that? It is the birthday problem. A molecule with *k* distinct features folded into
+    Below, paracetamol's ECFP4 features are folded into a tiny bit vector. Each square is a bit; red
+    squares hold more than one feature (hover to see which). Try 16, 64 and 2048 bits.
+    """)
+    return
+
+
+@app.cell
+def _(ECFPStepper, mo):
+    fold_demo = mo.ui.anywidget(
+        ECFPStepper(
+            "CC(=O)Nc1ccc(O)cc1",
+            max_radius=2,
+            guided=False,
+            radius=2,
+            atom=-1,
+            show_fold=True,
+            n_bits=16,
+        )
+    )
+    fold_demo
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    How likely are collisions? It is the birthday problem. A molecule with *k* distinct features folded into
     *n* bits avoids every collision with probability
 
     $$P(\text{no collision}) = \prod_{i=0}^{k-1}\left(1 - \frac{i}{n}\right) \approx e^{-k(k-1)/2n}.$$
