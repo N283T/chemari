@@ -8,6 +8,8 @@ it with two custom [anywidget](https://anywidget.dev) components.
 - `notebooks/pxr_fingerprints_ja.py` — Japanese edition (same analysis, Japanese prose)
 - `notebooks/ecfp_inside.py` — *Inside ECFP4*, a hands-on tutorial on the Morgan/ECFP algorithm,
   folding and collisions, blind spots, and LightGBM importance / TreeSHAP maps on fingerprint bits
+- `notebooks/ecfp_inside_ja.py` — Japanese edition of the tutorial
+- `scripts/translate_*_ja.py` — regenerate the Japanese editions after editing the English notebooks
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
@@ -57,5 +59,10 @@ explorer = mo.ui.anywidget(
 ```bash
 uv run pytest
 uv run ruff format . && uv run ruff check --fix .
-uv run marimo check notebooks/pxr_fingerprints.py
+uv run marimo check notebooks/*.py
+
+# after editing an English notebook, regenerate its Japanese edition
+uv run python scripts/translate_pxr_fingerprints_ja.py
+uv run python scripts/translate_ecfp_inside_ja.py
+uv run ruff format notebooks
 ```

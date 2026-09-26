@@ -7,6 +7,7 @@
 #     "numpy>=2",
 #     "altair>=5.5",
 #     "lightgbm>=4.5",
+#     "scikit-learn>=1.7",  # required by lightgbm's sklearn API
 #     "scipy>=1.14",
 #     "rdkit>=2025.9",
 # ]
