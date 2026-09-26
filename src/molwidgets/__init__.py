@@ -10,7 +10,7 @@ from .chem import (
     tanimoto_matrix,
 )
 from .ecfp import ecfp_trace
-from .widgets import ECFPStepper, MolGrid, MorganBitTiles, MorganExplorer, census_for
+from .widgets import ECFPStepper, MolGrid, MorganBitTiles, MorganExplorer, bit_gallery, census_for
 
 __all__ = [
     "BitCensus",
@@ -19,6 +19,7 @@ __all__ = [
     "MorganBitTiles",
     "MorganExplorer",
     "bit_census",
+    "bit_gallery",
     "census_for",
     "ecfp_trace",
     "fingerprint_matrix",

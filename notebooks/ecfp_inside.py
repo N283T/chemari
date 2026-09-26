@@ -47,15 +47,12 @@ def _(mo):
     Yet few people could say what bit 1380 of that vector *means*, or how many different
     substructures share it. This notebook opens the box:
 
-    1. **The algorithm**, from atoms to bits, one step at a time, with a from-scratch implementation
-       you can read
-    2. **Collisions** — how often folding merges unrelated substructures
-    3. **What a bit looks like** — a fingerprint drawn bit by bit, and what else shares each bit
-    4. **Blind spots** — counts, stereochemistry, ring size
-    5. **Similarity** — what "Tanimoto > 0.4" does and does not promise
-    6. **ECFP inside a model** — LightGBM feature importance and per-atom attributions, and why
-       collisions make them hard to read
-    7. **A cheat sheet** of strengths, weaknesses and sensible defaults
+    1. **The algorithm** — from atoms to bits, one step at a time
+    2. **Collisions** — what folding does, drawn bit by bit
+    3. **Blind spots** — counts, stereochemistry, ring size
+    4. **Similarity** — what "Tanimoto > 0.4" does and does not promise
+    5. **ECFP inside a model** — feature importance and per-atom attributions
+    6. **A cheat sheet** of strengths, weaknesses and sensible defaults
 
     Examples come from the OpenADMET PXR induction dataset. The interactive pieces are custom
     [anywidget](https://anywidget.dev) components from the `molwidgets` package written for this notebook.
@@ -86,9 +83,9 @@ def _():
 
     from molwidgets import (
         ECFPStepper,
-        MolGrid,
         MorganBitTiles,
         MorganExplorer,
+        bit_gallery,
         census_for,
         ecfp_trace,
         fingerprint_matrix,
@@ -100,10 +97,10 @@ def _():
     return (
         Chem,
         ECFPStepper,
-        MolGrid,
         MorganBitTiles,
         MorganExplorer,
         alt,
+        bit_gallery,
         census_for,
         ecfp_module,
         ecfp_trace,
@@ -157,31 +154,21 @@ def _(mo):
     mo.md(r"""
     ## 1 · The algorithm: from atoms to bits
 
-    ECFP builds a molecule's description from the inside out.
+    ECFP builds a molecule's description from the inside out, in four moves:
 
-    **Iteration 0 — atom invariants.** Each heavy atom gets an integer identifier by hashing a small
-    tuple of properties. RDKit uses six: atomic number, degree (including Hs), total hydrogen count,
-    formal charge, isotope and whether the atom is in a ring. Two carbons with the same six numbers get
-    the same identifier, wherever they sit in the molecule.
+    1. **Atom invariants (iteration 0).** Each heavy atom is hashed from six numbers: atomic number,
+       degree (including Hs), hydrogen count, formal charge, isotope and ring membership.
+    2. **Grow (iteration *r*).** Each atom's new identifier is the hash of its previous identifier and
+       the sorted *(bond order, neighbour identifier)* pairs. Radius 1 sees the neighbours, radius 2
+       their neighbours, and so on.
+    3. **Collect.** Every identifier is a feature, unless it covers exactly the same bonds as one
+       already collected (**duplicate**) or its environment stopped growing (**no growth**). The result
+       is a *set* of integers: the unfolded ECFP.
+    4. **Fold.** Each identifier switches on bit `identifier % n_bits` — a hash table with no collision
+       handling.
 
-    **Iteration *r*.** Each atom's new identifier is the hash of its own previous identifier plus the
-    sorted list of *(bond order, neighbour identifier)* pairs. After one iteration an identifier
-    describes the atom and its neighbours (a radius-1 environment); after two, the neighbours'
-    neighbours; and so on.
-
-    **Collecting features.** Every identifier produced along the way is a feature — *unless* it
-    describes exactly the same set of bonds as an environment already collected. Those duplicates
-    are dropped, as are atoms whose environment stopped growing (it already covers everything it can
-    reach). The result is a *set* of integers: the unfolded ECFP.
-
-    **Folding.** Machine-learning libraries want a fixed-length vector, so each identifier switches on
-    bit `identifier % n_bits`. That is a hash table with no collision handling: two unrelated
-    environments that land on the same bit become indistinguishable, forever.
-
-    Start with the smallest interesting molecule, **isobutane** (CH(CH₃)₃), and press **next ▶** to walk
-    through the algorithm one atom at a time. Instead of 32-bit numbers, identifiers are shown as short
-    labels: *a, b, …* for iteration 0, *A, B, …* for iteration 1, *A', B', …* for iteration 2.
-    Under the feature set, the same features are folded into a 64-bit vector — what a model sees.
+    Start with **isobutane** and press **next ▶**. Identifiers are shown as short labels (*a, b* for
+    iteration 0, *A, B* for 1, *A', B'* for 2); the bit vector under the feature set is what a model sees.
     """)
     return
 
@@ -216,53 +203,16 @@ def _(Chem, ECFPStepper, custom_smiles, example_pick, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    What happens in isobutane:
+    **In isobutane**, steps 1–4 give the three methyls label **a** and the centre **b**: two features,
+    because the fingerprint does not record that *a* occurs three times. Steps 5–8 add **A** = hash(*a* |
+    single→*b*), "a methyl on a CH", and **B**, "a CH with three methyls", which is already the whole
+    molecule. Steps 9–12 add nothing: each methyl's radius-2 environment covers the same bonds as *B*
+    (**duplicate**) and the centre cannot grow (**no growth**). Four features, four bits.
 
-    * **Steps 1–4, iteration 0.** The three CH₃ carbons have identical invariants, so all get label
-      **a**; the central CH gets **b**. Two features so far — the fingerprint does not record that
-      *a* occurs three times.
-    * **Steps 5–8, iteration 1.** Each CH₃ becomes **A** = hash(*a* | single→*b*): "a methyl on a CH".
-      The centre becomes **B** = hash(*b* | single→*a* ×3): "a CH carrying three methyls", which is
-      already the whole molecule. Four features, four bits.
-    * **Steps 9–12, iteration 2.** Each methyl's environment now reaches across the centre and covers
-      all three bonds — exactly the bonds *B* already covers, so it is dropped as a **duplicate**. The
-      centre cannot grow any further (**no growth**). Nothing new is added: isobutane has **4 ECFP
-      features at any radius ≥ 1**.
-
-    Now pick **paracetamol** or one of the PXR compounds (or paste any SMILES), and switch to
-    **explore** to jump between iterations. Things to look for:
-
-    * **Iteration 0 is coarse.** In paracetamol, the four aromatic CH carbons share one label. ECFP
-      starts from *chemistry-free* labels: nothing about pharmacophores, just element-level counts.
-    * **Symmetry survives.** Symmetric atoms keep equal identifiers at every radius and count once.
-    * **Duplicates are common.** At higher radius, neighbouring atoms often end up covering the same
-      bonds; only one of them is kept. Small molecules stop growing after one or two iterations.
-    * **Folding loses information.** Paracetamol already has one red-framed bit at 64 bits: two
-      different features the model can no longer tell apart. Switch the vector to 16 bits and watch
-      more appear.
-
-    ### The whole algorithm fits on one screen
-
-    The stepper is driven by the function below: a plain-Python ECFP written for readability. It uses
-    `blake2b` instead of RDKit's internal hash, so identifiers are different numbers, but the logic
-    — invariants, neighbour ordering, duplicate removal — follows RDKit.
+    Then pick **paracetamol** and switch to **explore**. The four aromatic CH carbons share one label at
+    iteration 0 — ECFP starts from chemistry-free labels — and one bit is already framed in red at 64 bits:
+    two different features the model can no longer tell apart.
     """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(ecfp_module, inspect, mo):
-    mo.accordion(
-        {
-            "Show the implementation (`molwidgets/ecfp.py`)": mo.md(
-                "```python\n"
-                + inspect.getsource(ecfp_module.atom_invariant)
-                + "\n\n"
-                + inspect.getsource(ecfp_module.ecfp_trace)
-                + "```"
-            )
-        }
-    )
     return
 
 
@@ -282,33 +232,46 @@ def _(Chem, ecfp_trace, rdFingerprintGenerator, train):
 
 
 @app.cell(hide_code=True)
-def _(mo, train, validation):
-    mo.md(
-        f"""
-    **Check against RDKit.** For every one of the {train.height:,} training molecules, the readable
-    implementation yields the same number of distinct features as RDKit's
-    `GetSparseCountFingerprint`: **{validation[1]:,} / {train.height:,}** at radius 1 and
-    **{validation[2]:,} / {train.height:,}** at radius 2. (When two atoms cover identical bonds, *which*
-    one is kept depends on the ordering of hash values, so the chosen centre atom can differ; the
-    features themselves do not.)
+def _(ecfp_module, inspect, mo, train, validation):
+    mo.accordion(
+        {
+            "Under the hood: the whole algorithm in ~40 lines, checked against RDKit": mo.vstack(
+                [
+                    mo.md(
+                        f"""
+    The stepper runs on a plain-Python ECFP (`molwidgets.ecfp`). It uses `blake2b` instead of RDKit's
+    internal hash, so identifiers are different numbers, but the invariants, neighbour ordering and
+    duplicate removal follow RDKit: for **{validation[1]:,} / {train.height:,}** training molecules at
+    radius 1 and **{validation[2]:,} / {train.height:,}** at radius 2 it yields exactly as many distinct
+    features as RDKit's `GetSparseCountFingerprint`.
     """
-    ).callout(kind="success")
+                    ),
+                    mo.md(
+                        "```python\n"
+                        + inspect.getsource(ecfp_module.atom_invariant)
+                        + "\n\n"
+                        + inspect.getsource(ecfp_module.ecfp_trace)
+                        + "```"
+                    ),
+                ]
+            )
+        }
+    )
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 2 · How often do bits collide?
+    ## 2 · Collisions
 
-    Folding is where information is lost, so how likely is a collision? It is the birthday problem.
-    A molecule with *k* distinct features folded into *n* bits avoids every collision with probability
+    Folding is where information is lost. For a single molecule it is the birthday problem: with *k*
+    distinct features in *n* bits, the chance of no collision is
 
     $$P(\text{no collision}) = \prod_{i=0}^{k-1}\left(1 - \frac{i}{n}\right) \approx e^{-k(k-1)/2n}.$$
 
-    A drug-like molecule has ~40–60 ECFP4 features. With *k* = 50 and *n* = 2048 that is
-    $e^{-0.6} \approx 0.55$: **nearly half of all molecules have at least one collision inside
-    themselves**, before we even compare molecules.
+    A typical molecule has ~50 ECFP4 features, so at 2048 bits roughly **half of all molecules collide
+    with themselves**. The formula and the PXR training set agree closely:
     """)
     return
 
@@ -407,76 +370,20 @@ def _(alt, fold_pick, fold_sizes, mo, n_features, np, pl, unfolded):
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### Across a dataset, every bit is shared
+def _(census_for, mo, train):
+    _envs = census_for(train["smiles"].to_list(), 2, 2048).n_envs
+    mo.md(
+        f"""
+    Across a dataset, collisions are universal: the {train.height:,} training molecules contain
+    **{int(_envs.sum()):,}** distinct ECFP4 environments for 2048 bits, about **{_envs[_envs > 0].mean():.0f}
+    per bit**, and every bit is shared.
 
-    Inside one molecule collisions are occasional. Across a whole dataset they are universal: the
-    training set contains tens of thousands of distinct environments and 2048 bits to put them in.
-    The explorer below shows, for any molecule, which environments set each bit and **how many
-    different substructures from the whole training set land on that bit (# envs)**. Click a row to
-    see them side by side.
-    """)
-    return
-
-
-@app.cell
-def _(census_for, mo, np, train):
-    _c = census_for(train["smiles"].to_list(), 2, 2048)
-    _envs = _c.n_envs
-    mo.hstack(
-        [
-            mo.stat(
-                f"{int(_envs.sum()):,}", label="distinct ECFP4 environments in 4,139 molecules"
-            ),
-            mo.stat(f"{_envs[_envs > 0].mean():.1f}", label="environments per bit at 2048 bits"),
-            mo.stat(f"{int(_envs.max())}", label="most crowded bit"),
-            mo.stat(f"{(_envs > 1).mean():.0%}", label="bits shared by ≥ 2 environments"),
-        ],
-        widths="equal",
+    Below, a molecule's fingerprint is drawn bit by bit with RDKit's `DrawMorganEnv` (blue: centre atom,
+    yellow: aromatic, grey: aliphatic ring, light grey: where the environment attaches). **Red frames**
+    are collisions inside the molecule; the **badge** counts other substructures that share the bit
+    across the dataset — click a tile to see them.
+    """
     )
-    return
-
-
-@app.cell
-def _(MorganExplorer, mo, train):
-    _i = train["pEC50"].arg_max()
-    fold_explorer = mo.ui.anywidget(
-        MorganExplorer(
-            [
-                {
-                    "id": train["id"][_i],
-                    "smiles": train["smiles"][_i],
-                    "label": f"pEC50 {train['pEC50'][_i]:.2f}",
-                }
-            ],
-            reference=train["smiles"].to_list(),
-            y=train["pEC50"].to_numpy(),
-            y_label="pEC50",
-        )
-    )
-    fold_explorer
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## 3 · What a bit looks like
-
-    RDKit can draw the environment behind any bit (`Draw.DrawMorganBit` / `DrawMorganBits`). Below, a
-    whole molecule's fingerprint is laid out that way: one tile per distinct identifier, labelled with
-    the bit it folds onto. The **blue** atom is the centre, **yellow** atoms are aromatic, **grey** ones
-    are in an aliphatic ring, and the **light-grey** stubs are neighbours *outside* the environment,
-    drawn only to show where it attaches.
-
-    Two kinds of sharing are visible:
-
-    * **inside the molecule** — two different environments of this molecule fold onto the same bit
-      (red frame);
-    * **across the dataset** — the badge says how many *other* substructures in the PXR training set
-      land on the same bit. Click a tile to see them, drawn the same way.
-    """)
     return
 
 
@@ -512,20 +419,13 @@ def _(mo):
     mo.md(r"""
     Things to look for:
 
-    * **Bit 807 appears twice in ibuprofen.** At 2048 bits the acid's carbonyl carbon (`[C;D3;H0]`) and
-      its hydroxyl oxygen (`[O;D1;H1]`) are two different identifiers that fold onto the same bit. These
-      are radius-0 identifiers, which do not depend on the rest of the molecule, so this is universal:
-      **at 2048 bits every hydroxyl oxygen shares a bit with every carbon that has three connections
-      and no H** (a C=O carbon, for example). Paracetamol shows the same red pair, from its amide
-      carbon and its phenol OH. Switch to 8192 bits and the red frames disappear.
-    * **Repeats collapse.** Ibuprofen's three methyl carbons and four aromatic CH carbons each give a
-      single tile (×3, ×4): a bit records that an environment occurs, not how often.
-    * **Common bits are crowded.** Click an aromatic-carbon tile: the bits of very common environments
-      are shared with a dozen other substructures across the dataset. A model that learns "bit 1380
-      matters" learns it for all of them at once.
-    * **Radius 0 ignores bond order.** In paracetamol, the carbonyl oxygen tile (`[O;D1;H0]`) is the
-      same identifier as a sulfonyl oxygen or any other terminal oxygen without H. Only the radius-1
-      tile (`O=C`) tells them apart.
+    * **Bit 807 appears twice in ibuprofen**: the acid's carbonyl carbon (`[C;D3;H0]`) and its hydroxyl
+      oxygen (`[O;D1;H1]`). Radius-0 identifiers do not depend on the rest of the molecule, so at 2048
+      bits *every* hydroxyl oxygen shares a bit with *every* carbon that has three connections and no H.
+      Click it to see the other substructures in that bit; switch to 8192 bits and the red frames vanish.
+    * **Repeats collapse.** Three methyls and four aromatic CH carbons give one tile each (×3, ×4).
+    * **Radius 0 ignores bond order.** In paracetamol, the carbonyl oxygen `[O;D1;H0]` is the same
+      identifier as a sulfonyl oxygen; only the radius-1 tile `O=C` tells them apart.
     """)
     return
 
@@ -533,7 +433,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 4 · Blind spots
+    ## 3 · Blind spots
 
     Folding loses information by accident. Some information is never collected in the first place.
     Each row below is a pair of *different* molecules; compare their Tanimoto similarity under four
@@ -556,7 +456,7 @@ def _(Chem, pl, rdFingerprintGenerator):
             "Cc1c(OCC(F)(F)F)ccnc1CS(=O)c1nc2ccccc2[nH]1",
         ),
         "biphenyl vs terphenyl": ("c1ccc(-c2ccccc2)cc1", "c1ccc(-c2ccc(-c3ccccc3)cc2)cc1"),
-        "benzene → pyridine (PXR pair from §6)": (
+        "benzene → pyridine (PXR pair from §5)": (
             "CC(C)(C)NS(=O)(=O)C1(CNc2cc(Br)ccc2C#N)CCC1",
             "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",
         ),
@@ -615,7 +515,7 @@ def _(mo):
       aromatic carbon), which helps scaffold hopping but can hide changes that matter. Check the
       benzene → pyridine pair: one aromatic CH becomes an N.
 
-    ## 5 · Similarity: what "Tanimoto > 0.4" promises
+    ## 4 · Similarity: what "Tanimoto > 0.4" promises
 
     Tanimoto similarity on ECFP4 is the share of set bits two molecules have in common. It is the
     workhorse of analogue searching, and it is how the PXR test set was built. Below, every test
@@ -694,7 +594,7 @@ def _(alt, fingerprint_matrix, mo, np, pl, tanimoto_matrix, test, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 6 · ECFP inside a model
+    ## 5 · ECFP inside a model
 
     Let's train the model most people would train first — **LightGBM on 2048-bit ECFP4**, the same
     baseline OpenADMET's challenge tutorial uses — and then ask it what it learned. Two standard tools:
@@ -800,7 +700,8 @@ def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
     favourite features are each a mixture of about
     **{np.median(top_bits["# environments in bit"]):.0f}** unrelated environments. "Bit {top_bits["bit"][0]}
     is the most important feature" is not an explanation: it is a pointer to a bag of substructures.
-    Switch to 8192 bits above and the bags shrink to a few members each — while the accuracy barely moves.
+    Switch to 8192 bits above and the bags shrink to a few members each — while the accuracy barely
+    moves. Pick a bit below to see what is inside it.
     """
                     ),
                 ]
@@ -814,62 +715,25 @@ def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
 
 @app.cell(hide_code=True)
 def _(mo, top_bits):
-    top_bit_table = mo.ui.table(
-        top_bits,
-        selection="single",
-        initial_selection=[0],
-        page_size=5,
-        label="Pick a top bit to see what is inside it",
+    top_bit_pick = mo.ui.dropdown(
+        {f"#{r} · bit {b}": int(b) for r, b in zip(top_bits["rank"], top_bits["bit"])},
+        value=f"#1 · bit {top_bits['bit'][0]}",
+        label="look inside a top bit",
     )
-    top_bit_table
-    return (top_bit_table,)
+    top_bit_pick
+    return (top_bit_pick,)
 
 
-@app.cell
-def _(Chem, MolGrid, N_BITS, census_for, mo, pl, top_bit_table, train):
-    from molwidgets.chem import env_atoms_bonds
-
-    _bit = (
-        int(top_bit_table.value["bit"][0])
-        if len(top_bit_table.value)
-        else int(top_bit_table.data["bit"][0])
-    )
-    _smiles = train["smiles"].to_list()
-    _ids = train["id"].to_list()
-    _examples = census_for(_smiles, 2, N_BITS).examples.get(_bit, [])
-    _rows, _hl = [], {}
-    for _k, _ex in enumerate(_examples):
-        _key = f"{_k + 1}. {_ids[_ex['mol_index']]}"
-        _atoms, _bonds = env_atoms_bonds(
-            Chem.MolFromSmiles(_smiles[_ex["mol_index"]]), _ex["center"], _ex["radius"]
+@app.cell(hide_code=True)
+def _(N_BITS, bit_gallery, mo, top_bit_pick, train):
+    mo.Html(
+        bit_gallery(
+            top_bit_pick.value,
+            train["smiles"].to_list(),
+            ids=train["id"].to_list(),
+            radius=2,
+            n_bits=N_BITS,
         )
-        _rows.append(
-            {
-                "env": _key,
-                "smiles": _smiles[_ex["mol_index"]],
-                "substructure": _ex["smiles"],
-                "radius": _ex["radius"],
-                "molecules": _ex["count"],
-            }
-        )
-        _hl[_key] = {"atoms": _atoms, "bonds": _bonds}
-    mo.vstack(
-        [
-            mo.md(
-                f"**Bit {_bit}** is set by **{len(_examples)}** distinct environments in the training set. "
-                "Each card shows one of them (highlighted) in an example molecule; *molecules* is how many "
-                "training compounds contain that environment."
-            ),
-            MolGrid(
-                pl.DataFrame(_rows),
-                id_col="env",
-                subset=["substructure", "radius", "molecules"],
-                highlights=_hl,
-                sort_by="molecules",
-                page_size=8,
-                cell_size=170,
-            ),
-        ]
     )
     return
 
@@ -887,8 +751,7 @@ def _(mo):
 
     Atom colours show the model's TreeSHAP attribution (red raises the predicted pEC50, blue lowers it).
     Click a bit to see its environments instead; the table's **SHAP** columns show each bit's
-    contribution for A and B. You can also pick another test compound and its nearest training
-    neighbour from the list.
+    contribution for A and B. The menu offers the other worst-predicted test compounds.
     """)
     return
 
@@ -914,35 +777,52 @@ def _(fingerprint_matrix, np, pl, pred_test, tanimoto_matrix, test, train):
         .with_columns((pl.col("predicted") - pl.col("test pEC50")).abs().round(2).alias("|error|"))
         .sort("|error|", descending=True)
     )
-    _default = (
-        cliff_pairs["test id"].to_list().index("OADMET-0006254")
-        if "OADMET-0006254" in cliff_pairs["test id"]
-        else 0
-    )
-    pair_default = int(np.int64(_default))
-    return cliff_pairs, pair_default
+    return (cliff_pairs,)
 
 
 @app.cell(hide_code=True)
-def _(cliff_pairs, mo, pair_default):
-    pair_table = mo.ui.table(
-        cliff_pairs,
-        selection="single",
-        initial_selection=[pair_default],
-        page_size=5,
-        label="Test compounds and their nearest training neighbour, largest model error first",
+def _(cliff_pairs, mo, pl):
+    _worst = cliff_pairs.head(8)
+    if "OADMET-0006254" not in _worst["test id"]:
+        _worst = pl.concat(
+            [cliff_pairs.filter(pl.col("test id") == "OADMET-0006254"), _worst.head(7)]
+        )
+    pair_pick = mo.ui.dropdown(
+        {
+            f"{r['test id']} (true {r['test pEC50']:.2f}, predicted {r['predicted']:.2f}) vs {r['NN id']}": r[
+                "test id"
+            ]
+            for r in _worst.iter_rows(named=True)
+        },
+        value=next(
+            k
+            for k in [
+                f"{r['test id']} (true {r['test pEC50']:.2f}, predicted {r['predicted']:.2f}) vs {r['NN id']}"
+                for r in _worst.iter_rows(named=True)
+            ]
+            if k.startswith("OADMET-0006254")
+        ),
+        label="pair (test compound vs its nearest training neighbour)",
     )
-    pair_table
-    return (pair_table,)
+    pair_pick
+    return (pair_pick,)
 
 
 @app.cell
-def _(MorganExplorer, N_BITS, data, fingerprint_matrix, mo, model, np, pair_table, pl, train):
-    _row = (
-        pair_table.value.row(0, named=True)
-        if len(pair_table.value)
-        else pair_table.data.row(0, named=True)
-    )
+def _(
+    MorganExplorer,
+    N_BITS,
+    cliff_pairs,
+    data,
+    fingerprint_matrix,
+    mo,
+    model,
+    np,
+    pair_pick,
+    pl,
+    train,
+):
+    _row = cliff_pairs.filter(pl.col("test id") == pair_pick.value).row(0, named=True)
     _smi = dict(zip(data["id"], data["smiles"]))
     _ids = [_row["test id"], _row["NN id"]]
     _X = fingerprint_matrix([_smi[i] for i in _ids], 2, N_BITS).astype(np.float32)
@@ -1016,7 +896,7 @@ def _(mo, pair_X, pair_contrib, pair_y):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 7 · Cheat sheet
+    ## 6 · Cheat sheet
 
     **Strengths**
 
@@ -1056,7 +936,7 @@ def _(mo):
       [post-challenge analysis](https://openadmet.ghost.io/dont-look-back-in-error-what-we-learned-predicting-pxr-induction-part-i/).
     * **References:** Rogers & Hahn, *J. Chem. Inf. Model.* 2010, 50, 742 (ECFP); Morgan, *J. Chem. Doc.* 1965, 5, 107;
       Riniker & Landrum, *J. Cheminform.* 2013, 5, 43 (similarity maps).
-    * **Widgets:** `ECFPStepper`, `MorganExplorer` and `MolGrid` are custom anywidget components written for
+    * **Widgets:** `ECFPStepper`, `MorganBitTiles` and `MorganExplorer` are custom anywidget components written for
       this notebook ([source](https://github.com/N283T/openadmet-marimo)); `molwidgets.ecfp` is the readable
       ECFP implementation shown above.
     * **Companion notebook:** *Similar, but not the same* digs into why fingerprint models struggle on this dataset.

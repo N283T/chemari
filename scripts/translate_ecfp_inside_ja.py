@@ -18,10 +18,9 @@ def r(old, new):
 
 
 r(
-    'app_title="Inside ECFP4: a hands-on guide to Morgan fingerprints"',
-    'app_title="ECFP4 の中身: Morgan fingerprint ハンズオンガイド"',
+    '''app_title="Inside ECFP4: a hands-on guide to Morgan fingerprints"''',
+    '''app_title="ECFP4 の中身: Morgan fingerprint ハンズオンガイド"''',
 )
-
 r(
     """    # Inside ECFP4
     ### A hands-on guide to Morgan fingerprints — what they encode, what they lose, and what that means for your model
@@ -42,15 +41,12 @@ r(
     Yet few people could say what bit 1380 of that vector *means*, or how many different
     substructures share it. This notebook opens the box:
 
-    1. **The algorithm**, from atoms to bits, one step at a time, with a from-scratch implementation
-       you can read
-    2. **Collisions** — how often folding merges unrelated substructures
-    3. **What a bit looks like** — a fingerprint drawn bit by bit, and what else shares each bit
-    4. **Blind spots** — counts, stereochemistry, ring size
-    5. **Similarity** — what "Tanimoto > 0.4" does and does not promise
-    6. **ECFP inside a model** — LightGBM feature importance and per-atom attributions, and why
-       collisions make them hard to read
-    7. **A cheat sheet** of strengths, weaknesses and sensible defaults
+    1. **The algorithm** — from atoms to bits, one step at a time
+    2. **Collisions** — what folding does, drawn bit by bit
+    3. **Blind spots** — counts, stereochemistry, ring size
+    4. **Similarity** — what "Tanimoto > 0.4" does and does not promise
+    5. **ECFP inside a model** — feature importance and per-atom attributions
+    6. **A cheat sheet** of strengths, weaknesses and sensible defaults
 
     Examples come from the OpenADMET PXR induction dataset. The interactive pieces are custom
     [anywidget](https://anywidget.dev) components from the `molwidgets` package written for this notebook.
@@ -71,14 +67,12 @@ r(
     それなのに、そのベクトルの bit 1380 が何を *意味するか*、そこに何種類の部分構造が同居しているかを
     答えられる人はほとんどいません。この notebook では、その箱を開けてみます:
 
-    1. **アルゴリズム** — 原子から bit まで 1 ステップずつ、ゼロから書いた読める実装と一緒に
-    2. **Collision** — fold が無関係な部分構造をどのくらい混ぜてしまうか
-    3. **Bit の姿** — fingerprint を bit ごとに描き、各 bit を他に何が共有しているかを見る
-    4. **盲点** — 数 (count)、立体化学、環サイズ
-    5. **類似度** — 「Tanimoto > 0.4」が約束すること、しないこと
-    6. **モデルの中の ECFP** — LightGBM の feature importance と原子ごとの寄与、そして collision が
-       それを読みにくくする理由
-    7. 長所・短所・おすすめ設定の **チートシート**
+    1. **アルゴリズム** — 原子から bit まで 1 ステップずつ
+    2. **Collision** — fold が何をするかを bit ごとに描いて見る
+    3. **盲点** — 数 (count)、立体化学、環サイズ
+    4. **類似度** — 「Tanimoto > 0.4」が約束すること、しないこと
+    5. **モデルの中の ECFP** — feature importance と原子ごとの寄与
+    6. 長所・短所・おすすめ設定の **チートシート**
 
     例には OpenADMET の PXR induction データセットを使います。インタラクティブな部品は、この notebook の
     ために作った [anywidget](https://anywidget.dev) ベースの自作パッケージ `molwidgets` です。
@@ -89,60 +83,6 @@ r(
     ECFP*n* の数字は *直径* を表し、**ECFP4 = Morgan radius 2**、ECFP6 = radius 3 です。**FCFP** は元素
     レベルの invariant の代わりに、薬理作用団的な原子の特徴 (donor, acceptor, aromatic, …) を使います。
     ///""",
-)
-
-r(
-    """    ## 1 · The algorithm: from atoms to bits
-
-    ECFP builds a molecule's description from the inside out.
-
-    **Iteration 0 — atom invariants.** Each heavy atom gets an integer identifier by hashing a small
-    tuple of properties. RDKit uses six: atomic number, degree (including Hs), total hydrogen count,
-    formal charge, isotope and whether the atom is in a ring. Two carbons with the same six numbers get
-    the same identifier, wherever they sit in the molecule.
-
-    **Iteration *r*.** Each atom's new identifier is the hash of its own previous identifier plus the
-    sorted list of *(bond order, neighbour identifier)* pairs. After one iteration an identifier
-    describes the atom and its neighbours (a radius-1 environment); after two, the neighbours'
-    neighbours; and so on.
-
-    **Collecting features.** Every identifier produced along the way is a feature — *unless* it
-    describes exactly the same set of bonds as an environment already collected. Those duplicates
-    are dropped, as are atoms whose environment stopped growing (it already covers everything it can
-    reach). The result is a *set* of integers: the unfolded ECFP.
-
-    **Folding.** Machine-learning libraries want a fixed-length vector, so each identifier switches on
-    bit `identifier % n_bits`. That is a hash table with no collision handling: two unrelated
-    environments that land on the same bit become indistinguishable, forever.
-
-    Start with the smallest interesting molecule, **isobutane** (CH(CH₃)₃), and press **next ▶** to walk
-    through the algorithm one atom at a time. Instead of 32-bit numbers, identifiers are shown as short
-    labels: *a, b, …* for iteration 0, *A, B, …* for iteration 1, *A', B', …* for iteration 2.
-    Under the feature set, the same features are folded into a 64-bit vector — what a model sees.""",
-    """    ## 1 · アルゴリズム: 原子から bit まで
-
-    ECFP は分子の記述を内側から外側へ組み立てていきます。
-
-    **Iteration 0 — atom invariants.** 各重原子は、いくつかの性質を並べた小さなタプルを hash して
-    整数の identifier を受け取ります。RDKit が使うのは 6 つ: 原子番号、次数 (H を含む)、水素の総数、形式電荷、
-    同位体、環に含まれるかどうか。この 6 つの数字が同じ炭素は、分子のどこにあっても同じ identifier になります。
-
-    **Iteration *r*.** 各原子の新しい identifier は、自分の 1 つ前の identifier と、*(結合次数, 隣接原子の
-    identifier)* のペアをソートしたリストをまとめて hash したものです。1 回目のあとの identifier は
-    原子とその隣 (radius 1 の環境) を、2 回目のあとは隣の隣までを表します。
-
-    **特徴の収集.** 途中で生まれた identifier はすべて特徴になります — *ただし*、すでに集めた環境と
-    まったく同じ結合の集合を表すものは除きます。こうした重複は捨てられ、環境がそれ以上広がらなくなった
-    原子 (届く範囲をすでに全部覆っている) も捨てられます。結果は整数の *集合*、つまり unfold された ECFP です。
-
-    **Folding.** 機械学習ライブラリは固定長のベクトルを求めるので、各 identifier は bit
-    `identifier % n_bits` を立てます。これは collision の処理を持たない hash table で、同じ bit に落ちた
-    無関係な 2 つの環境は二度と区別できなくなります。
-
-    まずは一番小さくて面白い分子、**isobutane** (CH(CH₃)₃) から始めます。**next ▶** を押すと、1 原子ずつ
-    アルゴリズムを追えます。Identifier は 32-bit の数字の代わりに短いラベルで表示します: iteration 0 は
-    *a, b, …*、iteration 1 は *A, B, …*、iteration 2 は *A', B', …* です。特徴の集合の下には、同じ特徴を
-    64 bit のベクトルに fold したもの — モデルが実際に見るもの — を表示しています。""",
 )
 r(
     """        "isobutane (start here)": "CC(C)C",
@@ -155,179 +95,42 @@ r(
         "OADMET-0006254 · その pyridine analogue (pEC50 2.06)": "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",""",
 )
 r(
-    'EXAMPLES, value="isobutane (start here)", label="molecule"',
-    'EXAMPLES, value="isobutane (ここから)", label="分子"',
-)
-r('placeholder="…or paste a SMILES"', 'placeholder="…または SMILES を貼り付け"')
-r(
-    'mo.md(f"`{_smi}` is not a valid SMILES.")',
-    'mo.md(f"`{_smi}` は正しい SMILES ではありません。")',
+    '''EXAMPLES, value="isobutane (start here)", label="molecule"''',
+    '''EXAMPLES, value="isobutane (ここから)", label="分子"''',
 )
 r(
-    """    What happens in isobutane:
-
-    * **Steps 1–4, iteration 0.** The three CH₃ carbons have identical invariants, so all get label
-      **a**; the central CH gets **b**. Two features so far — the fingerprint does not record that
-      *a* occurs three times.
-    * **Steps 5–8, iteration 1.** Each CH₃ becomes **A** = hash(*a* | single→*b*): "a methyl on a CH".
-      The centre becomes **B** = hash(*b* | single→*a* ×3): "a CH carrying three methyls", which is
-      already the whole molecule. Four features, four bits.
-    * **Steps 9–12, iteration 2.** Each methyl's environment now reaches across the centre and covers
-      all three bonds — exactly the bonds *B* already covers, so it is dropped as a **duplicate**. The
-      centre cannot grow any further (**no growth**). Nothing new is added: isobutane has **4 ECFP
-      features at any radius ≥ 1**.
-
-    Now pick **paracetamol** or one of the PXR compounds (or paste any SMILES), and switch to
-    **explore** to jump between iterations. Things to look for:
-
-    * **Iteration 0 is coarse.** In paracetamol, the four aromatic CH carbons share one label. ECFP
-      starts from *chemistry-free* labels: nothing about pharmacophores, just element-level counts.
-    * **Symmetry survives.** Symmetric atoms keep equal identifiers at every radius and count once.
-    * **Duplicates are common.** At higher radius, neighbouring atoms often end up covering the same
-      bonds; only one of them is kept. Small molecules stop growing after one or two iterations.
-    * **Folding loses information.** Paracetamol already has one red-framed bit at 64 bits: two
-      different features the model can no longer tell apart. Switch the vector to 16 bits and watch
-      more appear.
-
-    ### The whole algorithm fits on one screen
-
-    The stepper is driven by the function below: a plain-Python ECFP written for readability. It uses
-    `blake2b` instead of RDKit's internal hash, so identifiers are different numbers, but the logic
-    — invariants, neighbour ordering, duplicate removal — follows RDKit.""",
-    """    Isobutane で起きること:
-
-    * **ステップ 1–4 (iteration 0).** 3 つの CH₃ 炭素は invariant が同じなので、すべてラベル **a** になります。
-      中心の CH は **b**。この時点で特徴は 2 つです。Fingerprint は *a* が 3 回出てくることを記録しません。
-    * **ステップ 5–8 (iteration 1).** 各 CH₃ は **A** = hash(*a* | single→*b*)、つまり「CH についたメチル」に
-      なります。中心は **B** = hash(*b* | single→*a* ×3)、「メチルを 3 つ持つ CH」で、これだけでもう分子全体です。
-      特徴は 4 つ、bit も 4 つです。
-    * **ステップ 9–12 (iteration 2).** メチルの環境は中心を越えて 3 本の結合すべてを覆うようになります。これは
-      *B* がすでに覆っている結合とまったく同じなので、**duplicate** として捨てられます。中心はもう広がれないので
-      **no growth** です。新しい特徴は増えず、isobutane の ECFP 特徴は **radius 1 以上なら常に 4 つ** です。
-
-    次は **paracetamol** や PXR の化合物を選ぶか、好きな SMILES を貼り付けて、**explore** に切り替えて
-    iteration の間を行き来してみてください。見てほしい点:
-
-    * **Iteration 0 はおおまか.** Paracetamol では、4 つの芳香族 CH 炭素が同じラベルを共有します。ECFP の出発点は
-      *化学的な意味を持たない* ラベルで、pharmacophore の情報はなく、元素レベルの数だけです。
-    * **対称性は残る.** 対称な原子はどの radius でも同じ identifier を持ち、1 回だけ数えられます。
-    * **重複はよく起きる.** Radius が大きくなると、隣り合う原子が同じ結合を覆うようになり、片方だけが残ります。
-      小さな分子は 1〜2 回の iteration で成長が止まります。
-    * **Fold で情報が失われる.** Paracetamol は 64 bit でもすでに赤枠の bit が 1 つあります。モデルがもう
-      区別できない 2 つの特徴です。ベクトルを 16 bit にすると、さらに増えていくのが見えます。
-
-    ### アルゴリズム全体は 1 画面に収まる
-
-    Stepper を動かしているのは下の関数です。読みやすさを優先して素の Python で書いた ECFP で、RDKit 内部の
-    hash の代わりに `blake2b` を使っているので identifier の数値は異なりますが、ロジック — invariant、
-    隣接原子の並べ方、重複の除去 — は RDKit に従っています。""",
+    '''placeholder="…or paste a SMILES"''',
+    '''placeholder="…または SMILES を貼り付け"''',
 )
 r(
-    '"Show the implementation (`molwidgets/ecfp.py`)"',
-    '"実装を表示する (`molwidgets/ecfp.py`)"',
+    """mo.md(f"`{_smi}` is not a valid SMILES.")""",
+    """mo.md(f"`{_smi}` は正しい SMILES ではありません。")""",
 )
 r(
-    """    **Check against RDKit.** For every one of the {train.height:,} training molecules, the readable
-    implementation yields the same number of distinct features as RDKit's
-    `GetSparseCountFingerprint`: **{validation[1]:,} / {train.height:,}** at radius 1 and
-    **{validation[2]:,} / {train.height:,}** at radius 2. (When two atoms cover identical bonds, *which*
-    one is kept depends on the ordering of hash values, so the chosen centre atom can differ; the
-    features themselves do not.)""",
-    """    **RDKit との照合.** Training の {train.height:,} 分子すべてについて、この読める実装は RDKit の
-    `GetSparseCountFingerprint` と同じ数の distinct な特徴を出します: radius 1 で
-    **{validation[1]:,} / {train.height:,}**、radius 2 で **{validation[2]:,} / {train.height:,}**。
-    (2 つの原子がまったく同じ結合を覆うとき、*どちら* を残すかは hash 値の順序で決まるので、中心原子の選び方は
-    違うことがあります。特徴そのものは同じです。)""",
-)
-
-r(
-    r"""    ## 2 · How often do bits collide?
-
-    Folding is where information is lost, so how likely is a collision? It is the birthday problem.
-    A molecule with *k* distinct features folded into *n* bits avoids every collision with probability""",
-    r"""    ## 2 · Bit はどのくらい衝突するのか?
-
-    情報が失われるのは fold の段階です。では collision はどのくらい起きるのか? 答えは誕生日問題です。
-    *k* 個の distinct な特徴を持つ分子を *n* bit に fold したとき、collision が 1 つも起きない確率は""",
+    """share of molecules""",
+    """分子の割合""",
 )
 r(
-    r"""    A drug-like molecule has ~40–60 ECFP4 features. With *k* = 50 and *n* = 2048 that is
-    $e^{-0.6} \approx 0.55$: **nearly half of all molecules have at least one collision inside
-    themselves**, before we even compare molecules.""",
-    r"""    Drug-like な分子の ECFP4 特徴は 40〜60 個ほどです。*k* = 50、*n* = 2048 なら $e^{-0.6} \approx 0.55$。
-    つまり、分子同士を比べる前の段階で **ほぼ半数の分子が、自分自身の中で少なくとも 1 回 collision を
-    起こしています**。""",
-)
-r("share of molecules", "分子の割合")  # data column and its :Q encoding
-r(
-    '(_with_collision(n), "PXR training set"), (_theory(n), "birthday formula")',
-    '(_with_collision(n), "PXR training set"), (_theory(n), "誕生日問題の式")',
-)
-r('title="molecules with ≥ 1 internal collision"', 'title="分子内 collision が 1 回以上ある分子"')
-r(
-    'label="median distinct ECFP4 features per molecule"',
-    'label="1 分子あたりの distinct な ECFP4 特徴 (中央値)"',
+    """(_with_collision(n), "PXR training set"), (_theory(n), "birthday formula")""",
+    """(_with_collision(n), "PXR training set"), (_theory(n), "誕生日問題の式")""",
 )
 r(
-    'label=f"molecules with an internal collision at {fold_pick.value} bits"',
-    'label=f"{fold_pick.value} bit で分子内 collision がある分子"',
+    '''title="molecules with ≥ 1 internal collision"''',
+    '''title="分子内 collision が 1 回以上ある分子"''',
 )
 r(
-    """                        "The simple formula tracks the real data closely. Doubling the length roughly "
-                        "halves the collision rate; you need ~16k bits before collisions become rare.\"""",
-    """                        "単純な式が実データをよく再現しています。長さを 2 倍にすると collision 率は"
-                        "おおよそ半分になり、collision がまれになるには ~16k bit が必要です。\"""",
+    '''label="median distinct ECFP4 features per molecule"''',
+    '''label="1 分子あたりの distinct な ECFP4 特徴 (中央値)"''',
 )
 r(
-    """    ### Across a dataset, every bit is shared
-
-    Inside one molecule collisions are occasional. Across a whole dataset they are universal: the
-    training set contains tens of thousands of distinct environments and 2048 bits to put them in.
-    The explorer below shows, for any molecule, which environments set each bit and **how many
-    different substructures from the whole training set land on that bit (# envs)**. Click a row to
-    see them side by side.""",
-    """    ### データセット全体では、すべての bit が共有される
-
-    1 分子の中の collision はときどき起きる程度ですが、データセット全体では避けられません。Training set には
-    何万種類もの環境があり、入れる先は 2048 bit しかないからです。下の explorer では、各 bit をどの環境が
-    立てているかと、**training set 全体でその bit に落ちる異なる部分構造の数 (# envs)** が見られます。
-    行をクリックすると、それらが並んで表示されます。""",
+    '''label=f"molecules with an internal collision at {fold_pick.value} bits"''',
+    '''label=f"{fold_pick.value} bit で分子内 collision がある分子"''',
 )
 r(
-    'label="distinct ECFP4 environments in 4,139 molecules"',
-    'label="4,139 分子に現れる distinct な ECFP4 環境"',
-)
-r('label="environments per bit at 2048 bits"', 'label="2048 bit での 1 bit あたりの環境数"')
-r('label="most crowded bit"', 'label="最も混んでいる bit"')
-r('label="bits shared by ≥ 2 environments"', 'label="2 種類以上の環境が同居する bit"')
-
-r(
-    """    ## 3 · What a bit looks like
-
-    RDKit can draw the environment behind any bit (`Draw.DrawMorganBit` / `DrawMorganBits`). Below, a
-    whole molecule's fingerprint is laid out that way: one tile per distinct identifier, labelled with
-    the bit it folds onto. The **blue** atom is the centre, **yellow** atoms are aromatic, **grey** ones
-    are in an aliphatic ring, and the **light-grey** stubs are neighbours *outside* the environment,
-    drawn only to show where it attaches.
-
-    Two kinds of sharing are visible:
-
-    * **inside the molecule** — two different environments of this molecule fold onto the same bit
-      (red frame);
-    * **across the dataset** — the badge says how many *other* substructures in the PXR training set
-      land on the same bit. Click a tile to see them, drawn the same way.""",
-    """    ## 3 · Bit の姿
-
-    RDKit では、どの bit についてもその背後にある環境を描けます (`Draw.DrawMorganBit` / `DrawMorganBits`)。
-    下では、1 つの分子の fingerprint 全体をその方法で並べています。Distinct な identifier ごとに 1 枚のタイルで、
-    fold 先の bit 番号が付いています。**青** い原子が中心、**黄色** は芳香族原子、**灰色** は脂肪族環の原子、
-    **薄い灰色** の短い線は環境の *外側* にある隣接原子で、どこにつながっているかを示すためだけに描かれています。
-
-    2 種類の共有が見えます:
-
-    * **分子の中で** — この分子の異なる 2 つの環境が同じ bit に fold されている (赤枠)。
-    * **データセット全体で** — バッジは、PXR の training set で同じ bit に落ちる *他の* 部分構造の数です。
-      タイルをクリックすると、それらが同じ描き方で表示されます。""",
+    '''                        "The simple formula tracks the real data closely. Doubling the length roughly "
+                        "halves the collision rate; you need ~16k bits before collisions become rare."''',
+    '''                        "単純な式が実データをよく再現しています。長さを 2 倍にすると collision 率は"
+                        "おおよそ半分になり、collision がまれになるには ~16k bit が必要です。"''',
 )
 r(
     """        "ibuprofen (start here)": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
@@ -340,62 +143,48 @@ r(
         "OADMET-0006254 · その pyridine analogue": "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",""",
 )
 r(
-    'TILE_EXAMPLES, value="ibuprofen (start here)", label="molecule"',
-    'TILE_EXAMPLES, value="ibuprofen (ここから)", label="分子"',
+    '''TILE_EXAMPLES, value="ibuprofen (start here)", label="molecule"''',
+    '''TILE_EXAMPLES, value="ibuprofen (ここから)", label="分子"''',
 )
 r(
-    """    Things to look for:
-
-    * **Bit 807 appears twice in ibuprofen.** At 2048 bits the acid's carbonyl carbon (`[C;D3;H0]`) and
-      its hydroxyl oxygen (`[O;D1;H1]`) are two different identifiers that fold onto the same bit. These
-      are radius-0 identifiers, which do not depend on the rest of the molecule, so this is universal:
-      **at 2048 bits every hydroxyl oxygen shares a bit with every carbon that has three connections
-      and no H** (a C=O carbon, for example). Paracetamol shows the same red pair, from its amide
-      carbon and its phenol OH. Switch to 8192 bits and the red frames disappear.
-    * **Repeats collapse.** Ibuprofen's three methyl carbons and four aromatic CH carbons each give a
-      single tile (×3, ×4): a bit records that an environment occurs, not how often.
-    * **Common bits are crowded.** Click an aromatic-carbon tile: the bits of very common environments
-      are shared with a dozen other substructures across the dataset. A model that learns "bit 1380
-      matters" learns it for all of them at once.
-    * **Radius 0 ignores bond order.** In paracetamol, the carbonyl oxygen tile (`[O;D1;H0]`) is the
-      same identifier as a sulfonyl oxygen or any other terminal oxygen without H. Only the radius-1
-      tile (`O=C`) tells them apart.""",
-    """    注目してほしい点:
-
-    * **Ibuprofen では bit 807 が 2 回出てくる.** 2048 bit では、カルボン酸のカルボニル炭素 (`[C;D3;H0]`) と
-      ヒドロキシ酸素 (`[O;D1;H1]`) という異なる 2 つの identifier が同じ bit に fold されます。これは radius 0 の
-      identifier で分子の残りの部分に依存しないので、どの分子でも起きます: **2048 bit では、すべてのヒドロキシ
-      酸素が、結合相手が 3 つで H を持たないすべての炭素 (たとえば C=O の炭素) と bit を共有しています**。
-      Paracetamol でも、アミドの炭素とフェノールの OH で同じ赤いペアが出ます。8192 bit にすると赤枠は消えます。
-    * **繰り返しはまとめられる.** Ibuprofen の 3 つのメチル炭素と 4 つの芳香族 CH 炭素は、それぞれ 1 枚の
-      タイル (×3、×4) になります。Bit が記録するのは環境が「ある」ことで、何回あるかではありません。
-    * **よくある bit は混んでいる.** 芳香族炭素のタイルをクリックしてみてください。ごくありふれた環境の bit は、
-      データセット全体で十数種類の他の部分構造と共有されています。「bit 1380 が効く」と学んだモデルは、
-      それらすべてについて同時にそう学んでいることになります。
-    * **Radius 0 は結合次数を見ない.** Paracetamol のカルボニル酸素のタイル (`[O;D1;H0]`) は、スルホニルの酸素や、
-      H を持たない他のどの末端酸素とも同じ identifier です。区別できるのは radius 1 のタイル (`O=C`) だけです。""",
-)
-r(
-    """    ## 4 · Blind spots
+    """    ## 3 · Blind spots
 
     Folding loses information by accident. Some information is never collected in the first place.
     Each row below is a pair of *different* molecules; compare their Tanimoto similarity under four
     common settings.""",
-    """    ## 4 · 盲点
+    """    ## 3 · 盲点
 
     Folding は偶然によって情報を失います。一方で、そもそも最初から集められない情報もあります。
     下の各行は *異なる* 分子のペアです。よく使われる 4 つの設定での Tanimoto 類似度を比べてみてください。""",
 )
-r('"cyclohexyl- vs cycloheptylamine"', '"cyclohexyl- と cycloheptylamine"')
-r('"nonanoic vs palmitic acid"', '"nonanoic acid と palmitic acid"')
-r('"(R)- vs (S)-ibuprofen"', '"(R)- と (S)-ibuprofen"')
 r(
-    '"dexlansoprazole vs lansoprazole (stereo unspecified)"',
-    '"dexlansoprazole と lansoprazole (立体未指定)"',
+    '''"cyclohexyl- vs cycloheptylamine"''',
+    '''"cyclohexyl- と cycloheptylamine"''',
 )
-r('"biphenyl vs terphenyl"', '"biphenyl と terphenyl"')
-r('"benzene → pyridine (PXR pair from §6)"', '"benzene → pyridine (§6 の PXR ペア)"')
-r('"pair": name,', '"ペア": name,')
+r(
+    '''"nonanoic vs palmitic acid"''',
+    '''"nonanoic acid と palmitic acid"''',
+)
+r(
+    '''"(R)- vs (S)-ibuprofen"''',
+    '''"(R)- と (S)-ibuprofen"''',
+)
+r(
+    '''"dexlansoprazole vs lansoprazole (stereo unspecified)"''',
+    '''"dexlansoprazole と lansoprazole (立体未指定)"''',
+)
+r(
+    '''"biphenyl vs terphenyl"''',
+    '''"biphenyl と terphenyl"''',
+)
+r(
+    '''"benzene → pyridine (PXR pair from §5)"''',
+    '''"benzene → pyridine (§5 の PXR ペア)"''',
+)
+r(
+    """"pair": name,""",
+    """"ペア": name,""",
+)
 r(
     """    * **"How many" is invisible to bits.** Ring size and chain length beyond the radius produce the
       *same set* of environments, only repeated more often: Tanimoto 1.0 on bits, clearly below 1 on
@@ -409,7 +198,7 @@ r(
       aromatic carbon), which helps scaffold hopping but can hide changes that matter. Check the
       benzene → pyridine pair: one aromatic CH becomes an N.
 
-    ## 5 · Similarity: what "Tanimoto > 0.4" promises
+    ## 4 · Similarity: what "Tanimoto > 0.4" promises
 
     Tanimoto similarity on ECFP4 is the share of set bits two molecules have in common. It is the
     workhorse of analogue searching, and it is how the PXR test set was built. Below, every test
@@ -426,13 +215,16 @@ r(
       まとめるので scaffold hopping には役立ちますが、大事な変化を隠すこともあります。芳香族 CH が 1 つ N に
       変わる benzene → pyridine のペアを見てください。
 
-    ## 5 · 類似度: 「Tanimoto > 0.4」が約束すること
+    ## 4 · 類似度: 「Tanimoto > 0.4」が約束すること
 
     ECFP4 の Tanimoto 類似度は、2 つの分子が共通して立てている bit の割合です。アナログ探索の主力であり、
     PXR の test set もこれで作られました。下の図では、各 test 化合物を、最も近い **強活性** の training 化合物
     (pEC50 ≥ 6) との類似度と、自身の実測活性でプロットしています。""",
 )
-r("Tanimoto to nearest potent hit", "最も近い強活性ヒットとの Tanimoto")  # column + encodings
+r(
+    """Tanimoto to nearest potent hit""",
+    """最も近い強活性ヒットとの Tanimoto""",
+)
 r(
     """    The test compounds were chosen as ECFP4 neighbours (> 0.4) of **63** hits that were both potent
     and selective in the counter-screen; after re-measurement the launch post counts 46 such hits.
@@ -465,9 +257,8 @@ r(
     [post-challenge analysis](https://openadmet.ghost.io/dont-look-back-in-error-what-we-learned-predicting-pxr-induction-part-i/)
     でも、上位チーム全員にとって最も難しかった test 化合物は、まさにこうした activity cliff でした。""",
 )
-
 r(
-    """    ## 6 · ECFP inside a model
+    """    ## 5 · ECFP inside a model
 
     Let's train the model most people would train first — **LightGBM on 2048-bit ECFP4**, the same
     baseline OpenADMET's challenge tutorial uses — and then ask it what it learned. Two standard tools:
@@ -478,7 +269,7 @@ r(
       it gives a per-atom map, in the spirit of Riniker & Landrum's similarity maps.
 
     Choose the fold size and train. Watch what happens to the "top bits" as you change it.""",
-    """    ## 6 · モデルの中の ECFP
+    """    ## 5 · モデルの中の ECFP
 
     たいていの人が最初に作るモデル — OpenADMET のチャレンジ tutorial と同じ **2048-bit ECFP4 の LightGBM** —
     を学習させて、何を学んだのかを聞いてみます。定番の道具は 2 つです:
@@ -499,34 +290,39 @@ r(
         label="モデルの fold サイズ",""",
 )
 r(
-    'mo.status.spinner(f"Training LightGBM on {N_BITS}-bit ECFP4…")',
-    'mo.status.spinner(f"{N_BITS}-bit ECFP4 で LightGBM を学習中…")',
+    """mo.status.spinner(f"Training LightGBM on {N_BITS}-bit ECFP4…")""",
+    """mo.status.spinner(f"{N_BITS}-bit ECFP4 で LightGBM を学習中…")""",
 )
-r('title=f"top bits ({N_BITS})"', 'title=f"上位の bit ({N_BITS})"')
-r('title="distinct substructures sharing the bit"', 'title="その bit を共有する異なる部分構造の数"')
-r('legend=alt.Legend(title="share of gain")', 'legend=alt.Legend(title="gain の割合")')
-r('label="median substructures per top-15 bit"', 'label="上位 15 bit の部分構造数 (中央値)"')
+r(
+    '''title=f"top bits ({N_BITS})"''',
+    '''title=f"上位の bit ({N_BITS})"''',
+)
+r(
+    '''title="distinct substructures sharing the bit"''',
+    '''title="その bit を共有する異なる部分構造の数"''',
+)
+r(
+    """legend=alt.Legend(title="share of gain")""",
+    """legend=alt.Legend(title="gain の割合")""",
+)
+r(
+    '''label="median substructures per top-15 bit"''',
+    '''label="上位 15 bit の部分構造数 (中央値)"''',
+)
 r(
     """    Each bar is one of the 15 most important bits; its length is the number of **different**
     substructures from the training set that were folded into it. At {N_BITS} bits the model's
     favourite features are each a mixture of about
     **{np.median(top_bits["# environments in bit"]):.0f}** unrelated environments. "Bit {top_bits["bit"][0]}
     is the most important feature" is not an explanation: it is a pointer to a bag of substructures.
-    Switch to 8192 bits above and the bags shrink to a few members each — while the accuracy barely moves.""",
+    Switch to 8192 bits above and the bags shrink to a few members each — while the accuracy barely
+    moves. Pick a bit below to see what is inside it.""",
     """    各バーは重要度上位 15 の bit の 1 つで、長さはその bit に fold された training set の **異なる**
     部分構造の数です。{N_BITS} bit では、モデルのお気に入りの特徴はそれぞれ約
     **{np.median(top_bits["# environments in bit"]):.0f}** 種類の無関係な環境の混合物です。
     「bit {top_bits["bit"][0]} が最も重要な特徴」は説明になっていません。部分構造の詰め合わせを指さしているだけです。
-    上で 8192 bit に切り替えると、詰め合わせはそれぞれ数種類まで減ります — 精度はほとんど変わらないのに。""",
-)
-r('label="Pick a top bit to see what is inside it"', 'label="上位の bit を選ぶと中身が見られます"')
-r(
-    """                f"**Bit {_bit}** is set by **{len(_examples)}** distinct environments in the training set. "
-                "Each card shows one of them (highlighted) in an example molecule; *molecules* is how many "
-                "training compounds contain that environment.\"""",
-    """                f"**Bit {_bit}** は training set の中で **{len(_examples)}** 種類の異なる環境によって立てられています。"
-                "各カードはそのうち 1 つを例の分子の中でハイライトしたもので、*molecules* はその環境を含む "
-                "training 化合物の数です。\"""",
+    上で 8192 bit に切り替えると、詰め合わせはそれぞれ数種類まで減ります — 精度はほとんど変わらないのに。
+    下で bit を選ぶと、その中身が見られます。""",
 )
 r(
     """    ### Reading one prediction
@@ -539,8 +335,7 @@ r(
 
     Atom colours show the model's TreeSHAP attribution (red raises the predicted pEC50, blue lowers it).
     Click a bit to see its environments instead; the table's **SHAP** columns show each bit's
-    contribution for A and B. You can also pick another test compound and its nearest training
-    neighbour from the list.""",
+    contribution for A and B. The menu offers the other worst-predicted test compounds.""",
     """    ### 1 つの予測を読む
 
     ここからは分子単位で見ていきます。下のペアは、チャレンジ全体で 2 番目に難しかった test 化合物
@@ -551,23 +346,19 @@ r(
 
     原子の色はモデルの TreeSHAP attribution です (赤は予測 pEC50 を上げ、青は下げる)。Bit をクリックすると
     代わりにその環境が表示され、表の **SHAP** 列には A と B それぞれの bit ごとの寄与が出ます。リストから
-    別の test 化合物とその nearest neighbour を選ぶこともできます。""",
+    予測の外れが大きい他の test 化合物も選べます。""",
 )
 r(
-    'label="Test compounds and their nearest training neighbour, largest model error first"',
-    'label="Test 化合物と training の nearest neighbour (モデルの誤差が大きい順)"',
+    """"label": f"test · true {_y[_ids[0]]:.2f} · predicted {_pred[0]:.2f}",""",
+    """"label": f"test · 実測 {_y[_ids[0]]:.2f} · 予測 {_pred[0]:.2f}",""",
 )
 r(
-    '"label": f"test · true {_y[_ids[0]]:.2f} · predicted {_pred[0]:.2f}",',
-    '"label": f"test · 実測 {_y[_ids[0]]:.2f} · 予測 {_pred[0]:.2f}",',
+    """"label": f"train · true {_y[_ids[1]]:.2f} · predicted {_pred[1]:.2f}",""",
+    """"label": f"train · 実測 {_y[_ids[1]]:.2f} · 予測 {_pred[1]:.2f}",""",
 )
 r(
-    '"label": f"train · true {_y[_ids[1]]:.2f} · predicted {_pred[1]:.2f}",',
-    '"label": f"train · 実測 {_y[_ids[1]]:.2f} · 予測 {_pred[1]:.2f}",',
-)
-r(
-    'pair_note=f"baseline (mean prediction) {_contrib[0, -1]:.2f}",',
-    'pair_note=f"baseline (予測の平均) {_contrib[0, -1]:.2f}",',
+    """pair_note=f"baseline (mean prediction) {_contrib[0, -1]:.2f}",""",
+    """pair_note=f"baseline (予測の平均) {_contrib[0, -1]:.2f}",""",
 )
 r(
     """    **Where does the prediction gap come from?** The model predicts A − B = **{_gap:+.2f}**
@@ -608,7 +399,7 @@ r(
       比べてみてください。""",
 )
 r(
-    """    ## 7 · Cheat sheet
+    """    ## 6 · Cheat sheet
 
     **Strengths**
 
@@ -648,14 +439,14 @@ r(
       [post-challenge analysis](https://openadmet.ghost.io/dont-look-back-in-error-what-we-learned-predicting-pxr-induction-part-i/).
     * **References:** Rogers & Hahn, *J. Chem. Inf. Model.* 2010, 50, 742 (ECFP); Morgan, *J. Chem. Doc.* 1965, 5, 107;
       Riniker & Landrum, *J. Cheminform.* 2013, 5, 43 (similarity maps).
-    * **Widgets:** `ECFPStepper`, `MorganExplorer` and `MolGrid` are custom anywidget components written for
+    * **Widgets:** `ECFPStepper`, `MorganBitTiles` and `MorganExplorer` are custom anywidget components written for
       this notebook ([source](https://github.com/N283T/openadmet-marimo)); `molwidgets.ecfp` is the readable
       ECFP implementation shown above.
     * **Companion notebook:** *Similar, but not the same* digs into why fingerprint models struggle on this dataset.
     * **AI use:** Built together with Claude (Anthropic) as a coding assistant for the widgets and notebook
       scaffolding. The questions, analysis choices and interpretation come from my own PXR challenge work;
       every number is computed live in this notebook.""",
-    """    ## 7 · チートシート
+    """    ## 6 · チートシート
 
     **長所**
 
@@ -696,7 +487,7 @@ r(
       によります。
     * **参考文献:** Rogers & Hahn, *J. Chem. Inf. Model.* 2010, 50, 742 (ECFP); Morgan, *J. Chem. Doc.* 1965, 5, 107;
       Riniker & Landrum, *J. Cheminform.* 2013, 5, 43 (similarity maps)。
-    * **ウィジェット:** `ECFPStepper`、`MorganExplorer`、`MolGrid` は、この notebook のために作った anywidget
+    * **ウィジェット:** `ECFPStepper`、`MorganBitTiles`、`MorganExplorer` は、この notebook のために作った anywidget
       コンポーネントです ([ソース](https://github.com/N283T/openadmet-marimo))。`molwidgets.ecfp` が上で見せた
       読める ECFP 実装です。
     * **姉妹 notebook:** *似ているのに、同じじゃない* では、このデータセットで fingerprint モデルが苦戦する理由を
@@ -704,6 +495,144 @@ r(
     * **AI の利用:** ウィジェットと notebook の骨組みは、コーディングアシスタントとして Claude (Anthropic) と
       一緒に作りました。問いの設定、分析の選択、解釈は私自身の PXR チャレンジでの経験に基づいています。
       表示している数値はすべて、この notebook の中でその場で計算しています。""",
+)
+r(
+    """    ## 1 · The algorithm: from atoms to bits
+
+    ECFP builds a molecule's description from the inside out, in four moves:
+
+    1. **Atom invariants (iteration 0).** Each heavy atom is hashed from six numbers: atomic number,
+       degree (including Hs), hydrogen count, formal charge, isotope and ring membership.
+    2. **Grow (iteration *r*).** Each atom's new identifier is the hash of its previous identifier and
+       the sorted *(bond order, neighbour identifier)* pairs. Radius 1 sees the neighbours, radius 2
+       their neighbours, and so on.
+    3. **Collect.** Every identifier is a feature, unless it covers exactly the same bonds as one
+       already collected (**duplicate**) or its environment stopped growing (**no growth**). The result
+       is a *set* of integers: the unfolded ECFP.
+    4. **Fold.** Each identifier switches on bit `identifier % n_bits` — a hash table with no collision
+       handling.
+
+    Start with **isobutane** and press **next ▶**. Identifiers are shown as short labels (*a, b* for
+    iteration 0, *A, B* for 1, *A', B'* for 2); the bit vector under the feature set is what a model sees.""",
+    """    ## 1 · アルゴリズム: 原子から bit まで
+
+    ECFP は分子の記述を内側から外側へ、4 つの手順で組み立てます:
+
+    1. **Atom invariants (iteration 0).** 各重原子を 6 つの数字から hash します: 原子番号、次数 (H を含む)、
+       水素の数、形式電荷、同位体、環に含まれるかどうか。
+    2. **広げる (iteration *r*).** 各原子の新しい identifier は、1 つ前の identifier と、ソートした
+       *(結合次数, 隣接原子の identifier)* のペアをまとめて hash したものです。Radius 1 は隣を、radius 2 は
+       隣の隣までを見ます。
+    3. **集める.** Identifier はすべて特徴になります。ただし、すでに集めたものとまったく同じ結合を覆うもの
+       (**duplicate**) と、環境がそれ以上広がらなかったもの (**no growth**) は除きます。結果は整数の *集合*、
+       つまり unfold された ECFP です。
+    4. **Fold する.** 各 identifier は bit `identifier % n_bits` を立てます — collision の処理を持たない
+       hash table です。
+
+    まずは **isobutane** で **next ▶** を押してみてください。Identifier は短いラベルで表示します (iteration 0 は
+    *a, b*、1 は *A, B*、2 は *A', B'*)。特徴の集合の下にある bit vector が、モデルが実際に見るものです。""",
+)
+r(
+    """    **In isobutane**, steps 1–4 give the three methyls label **a** and the centre **b**: two features,
+    because the fingerprint does not record that *a* occurs three times. Steps 5–8 add **A** = hash(*a* |
+    single→*b*), "a methyl on a CH", and **B**, "a CH with three methyls", which is already the whole
+    molecule. Steps 9–12 add nothing: each methyl's radius-2 environment covers the same bonds as *B*
+    (**duplicate**) and the centre cannot grow (**no growth**). Four features, four bits.
+
+    Then pick **paracetamol** and switch to **explore**. The four aromatic CH carbons share one label at
+    iteration 0 — ECFP starts from chemistry-free labels — and one bit is already framed in red at 64 bits:
+    two different features the model can no longer tell apart.""",
+    """    **Isobutane では**、ステップ 1–4 で 3 つのメチルがラベル **a**、中心が **b** になります。特徴は 2 つです。
+    Fingerprint は *a* が 3 回出てくることを記録しないからです。ステップ 5–8 で **A** = hash(*a* | single→*b*)、
+    つまり「CH についたメチル」と、**B**「メチルを 3 つ持つ CH」(これでもう分子全体) が加わります。
+    ステップ 9–12 では何も増えません。各メチルの radius 2 の環境は *B* と同じ結合を覆うので **duplicate**、
+    中心はもう広がれないので **no growth** です。特徴 4 つ、bit 4 つ。
+
+    次は **paracetamol** を選んで **explore** に切り替えてください。4 つの芳香族 CH 炭素は iteration 0 で同じ
+    ラベルを共有します — ECFP の出発点は化学的な意味を持たないラベルです。そして 64 bit でもすでに赤枠の bit が
+    1 つあります。モデルがもう区別できない 2 つの特徴です。""",
+)
+r(
+    '''"Under the hood: the whole algorithm in ~40 lines, checked against RDKit"''',
+    '''"舞台裏: アルゴリズム全体を ~40 行で、RDKit と照合済み"''',
+)
+r(
+    """    The stepper runs on a plain-Python ECFP (`molwidgets.ecfp`). It uses `blake2b` instead of RDKit's
+    internal hash, so identifiers are different numbers, but the invariants, neighbour ordering and
+    duplicate removal follow RDKit: for **{validation[1]:,} / {train.height:,}** training molecules at
+    radius 1 and **{validation[2]:,} / {train.height:,}** at radius 2 it yields exactly as many distinct
+    features as RDKit's `GetSparseCountFingerprint`.""",
+    """    Stepper は素の Python で書いた ECFP (`molwidgets.ecfp`) で動いています。RDKit 内部の hash の代わりに
+    `blake2b` を使っているので identifier の数値は異なりますが、invariant、隣接原子の並べ方、重複の除去は
+    RDKit に従っています: training 分子のうち radius 1 で **{validation[1]:,} / {train.height:,}**、radius 2 で
+    **{validation[2]:,} / {train.height:,}** について、RDKit の `GetSparseCountFingerprint` とまったく同じ数の
+    distinct な特徴を出します。""",
+)
+r(
+    """    ## 2 · Collisions
+
+    Folding is where information is lost. For a single molecule it is the birthday problem: with *k*
+    distinct features in *n* bits, the chance of no collision is""",
+    """    ## 2 · Collision
+
+    情報が失われるのは fold の段階です。1 つの分子について言えば、これは誕生日問題です: *k* 個の distinct な
+    特徴を *n* bit に入れたとき、collision が 1 つも起きない確率は""",
+)
+r(
+    """    A typical molecule has ~50 ECFP4 features, so at 2048 bits roughly **half of all molecules collide
+    with themselves**. The formula and the PXR training set agree closely:""",
+    """    典型的な分子の ECFP4 特徴は ~50 個なので、2048 bit ではおよそ **半数の分子が自分自身の中で衝突します**。
+    式と PXR の training set はよく一致しています:""",
+)
+r(
+    """    Across a dataset, collisions are universal: the {train.height:,} training molecules contain
+    **{int(_envs.sum()):,}** distinct ECFP4 environments for 2048 bits, about **{_envs[_envs > 0].mean():.0f}
+    per bit**, and every bit is shared.
+
+    Below, a molecule's fingerprint is drawn bit by bit with RDKit's `DrawMorganEnv` (blue: centre atom,
+    yellow: aromatic, grey: aliphatic ring, light grey: where the environment attaches). **Red frames**
+    are collisions inside the molecule; the **badge** counts other substructures that share the bit
+    across the dataset — click a tile to see them.""",
+    """    データセット全体では collision は避けられません: {train.height:,} 個の training 分子には distinct な ECFP4
+    環境が **{int(_envs.sum()):,}** 種類あり、2048 bit に対して **1 bit あたり約 {_envs[_envs > 0].mean():.0f} 種類**、
+    すべての bit が共有されています。
+
+    下では、1 つの分子の fingerprint を RDKit の `DrawMorganEnv` で bit ごとに描いています (青: 中心原子、
+    黄: 芳香族、灰: 脂肪族環、薄い灰: 環境がつながる先)。**赤枠** は分子の中での collision、**バッジ** は
+    データセット全体でその bit を共有している他の部分構造の数です — タイルをクリックすると、それらが見られます。""",
+)
+r(
+    """    Things to look for:
+
+    * **Bit 807 appears twice in ibuprofen**: the acid's carbonyl carbon (`[C;D3;H0]`) and its hydroxyl
+      oxygen (`[O;D1;H1]`). Radius-0 identifiers do not depend on the rest of the molecule, so at 2048
+      bits *every* hydroxyl oxygen shares a bit with *every* carbon that has three connections and no H.
+      Click it to see the other substructures in that bit; switch to 8192 bits and the red frames vanish.
+    * **Repeats collapse.** Three methyls and four aromatic CH carbons give one tile each (×3, ×4).
+    * **Radius 0 ignores bond order.** In paracetamol, the carbonyl oxygen `[O;D1;H0]` is the same
+      identifier as a sulfonyl oxygen; only the radius-1 tile `O=C` tells them apart.""",
+    """    注目してほしい点:
+
+    * **Ibuprofen では bit 807 が 2 回出てくる**: カルボン酸のカルボニル炭素 (`[C;D3;H0]`) とヒドロキシ酸素
+      (`[O;D1;H1]`) です。Radius 0 の identifier は分子の残りに依存しないので、2048 bit では *すべての*
+      ヒドロキシ酸素が、結合相手が 3 つで H を持たない *すべての* 炭素と bit を共有しています。クリックすると
+      その bit の他の部分構造が見られます。8192 bit にすると赤枠は消えます。
+    * **繰り返しはまとめられる.** 3 つのメチルと 4 つの芳香族 CH 炭素は、それぞれ 1 枚のタイル (×3、×4) に
+      なります。
+    * **Radius 0 は結合次数を見ない.** Paracetamol のカルボニル酸素 `[O;D1;H0]` は、スルホニルの酸素と同じ
+      identifier です。区別できるのは radius 1 のタイル `O=C` だけです。""",
+)
+r(
+    '''label="look inside a top bit"''',
+    '''label="上位の bit の中身を見る"''',
+)
+r(
+    '''label="pair (test compound vs its nearest training neighbour)"''',
+    '''label="ペア (test 化合物とその training の nearest neighbour)"''',
+)
+r(
+    """(true {r['test pEC50']:.2f}, predicted {r['predicted']:.2f})""",
+    """(実測 {r['test pEC50']:.2f}, 予測 {r['predicted']:.2f})""",
 )
 
 # Replacements run in order, so later passages already contain translated column names.

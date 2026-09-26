@@ -48,14 +48,12 @@ def _(mo):
     それなのに、そのベクトルの bit 1380 が何を *意味するか*、そこに何種類の部分構造が同居しているかを
     答えられる人はほとんどいません。この notebook では、その箱を開けてみます:
 
-    1. **アルゴリズム** — 原子から bit まで 1 ステップずつ、ゼロから書いた読める実装と一緒に
-    2. **Collision** — fold が無関係な部分構造をどのくらい混ぜてしまうか
-    3. **Bit の姿** — fingerprint を bit ごとに描き、各 bit を他に何が共有しているかを見る
-    4. **盲点** — 数 (count)、立体化学、環サイズ
-    5. **類似度** — 「Tanimoto > 0.4」が約束すること、しないこと
-    6. **モデルの中の ECFP** — LightGBM の feature importance と原子ごとの寄与、そして collision が
-       それを読みにくくする理由
-    7. 長所・短所・おすすめ設定の **チートシート**
+    1. **アルゴリズム** — 原子から bit まで 1 ステップずつ
+    2. **Collision** — fold が何をするかを bit ごとに描いて見る
+    3. **盲点** — 数 (count)、立体化学、環サイズ
+    4. **類似度** — 「Tanimoto > 0.4」が約束すること、しないこと
+    5. **モデルの中の ECFP** — feature importance と原子ごとの寄与
+    6. 長所・短所・おすすめ設定の **チートシート**
 
     例には OpenADMET の PXR induction データセットを使います。インタラクティブな部品は、この notebook の
     ために作った [anywidget](https://anywidget.dev) ベースの自作パッケージ `molwidgets` です。
@@ -86,9 +84,9 @@ def _():
 
     from molwidgets import (
         ECFPStepper,
-        MolGrid,
         MorganBitTiles,
         MorganExplorer,
+        bit_gallery,
         census_for,
         ecfp_trace,
         fingerprint_matrix,
@@ -100,10 +98,10 @@ def _():
     return (
         Chem,
         ECFPStepper,
-        MolGrid,
         MorganBitTiles,
         MorganExplorer,
         alt,
+        bit_gallery,
         census_for,
         ecfp_module,
         ecfp_trace,
@@ -157,28 +155,21 @@ def _(mo):
     mo.md(r"""
     ## 1 · アルゴリズム: 原子から bit まで
 
-    ECFP は分子の記述を内側から外側へ組み立てていきます。
+    ECFP は分子の記述を内側から外側へ、4 つの手順で組み立てます:
 
-    **Iteration 0 — atom invariants.** 各重原子は、いくつかの性質を並べた小さなタプルを hash して
-    整数の identifier を受け取ります。RDKit が使うのは 6 つ: 原子番号、次数 (H を含む)、水素の総数、形式電荷、
-    同位体、環に含まれるかどうか。この 6 つの数字が同じ炭素は、分子のどこにあっても同じ identifier になります。
+    1. **Atom invariants (iteration 0).** 各重原子を 6 つの数字から hash します: 原子番号、次数 (H を含む)、
+       水素の数、形式電荷、同位体、環に含まれるかどうか。
+    2. **広げる (iteration *r*).** 各原子の新しい identifier は、1 つ前の identifier と、ソートした
+       *(結合次数, 隣接原子の identifier)* のペアをまとめて hash したものです。Radius 1 は隣を、radius 2 は
+       隣の隣までを見ます。
+    3. **集める.** Identifier はすべて特徴になります。ただし、すでに集めたものとまったく同じ結合を覆うもの
+       (**duplicate**) と、環境がそれ以上広がらなかったもの (**no growth**) は除きます。結果は整数の *集合*、
+       つまり unfold された ECFP です。
+    4. **Fold する.** 各 identifier は bit `identifier % n_bits` を立てます — collision の処理を持たない
+       hash table です。
 
-    **Iteration *r*.** 各原子の新しい identifier は、自分の 1 つ前の identifier と、*(結合次数, 隣接原子の
-    identifier)* のペアをソートしたリストをまとめて hash したものです。1 回目のあとの identifier は
-    原子とその隣 (radius 1 の環境) を、2 回目のあとは隣の隣までを表します。
-
-    **特徴の収集.** 途中で生まれた identifier はすべて特徴になります — *ただし*、すでに集めた環境と
-    まったく同じ結合の集合を表すものは除きます。こうした重複は捨てられ、環境がそれ以上広がらなくなった
-    原子 (届く範囲をすでに全部覆っている) も捨てられます。結果は整数の *集合*、つまり unfold された ECFP です。
-
-    **Folding.** 機械学習ライブラリは固定長のベクトルを求めるので、各 identifier は bit
-    `identifier % n_bits` を立てます。これは collision の処理を持たない hash table で、同じ bit に落ちた
-    無関係な 2 つの環境は二度と区別できなくなります。
-
-    まずは一番小さくて面白い分子、**isobutane** (CH(CH₃)₃) から始めます。**next ▶** を押すと、1 原子ずつ
-    アルゴリズムを追えます。Identifier は 32-bit の数字の代わりに短いラベルで表示します: iteration 0 は
-    *a, b, …*、iteration 1 は *A, B, …*、iteration 2 は *A', B', …* です。特徴の集合の下には、同じ特徴を
-    64 bit のベクトルに fold したもの — モデルが実際に見るもの — を表示しています。
+    まずは **isobutane** で **next ▶** を押してみてください。Identifier は短いラベルで表示します (iteration 0 は
+    *a, b*、1 は *A, B*、2 は *A', B'*)。特徴の集合の下にある bit vector が、モデルが実際に見るものです。
     """)
     return
 
@@ -213,50 +204,16 @@ def _(Chem, ECFPStepper, custom_smiles, example_pick, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Isobutane で起きること:
+    **Isobutane では**、ステップ 1–4 で 3 つのメチルがラベル **a**、中心が **b** になります。特徴は 2 つです。
+    Fingerprint は *a* が 3 回出てくることを記録しないからです。ステップ 5–8 で **A** = hash(*a* | single→*b*)、
+    つまり「CH についたメチル」と、**B**「メチルを 3 つ持つ CH」(これでもう分子全体) が加わります。
+    ステップ 9–12 では何も増えません。各メチルの radius 2 の環境は *B* と同じ結合を覆うので **duplicate**、
+    中心はもう広がれないので **no growth** です。特徴 4 つ、bit 4 つ。
 
-    * **ステップ 1–4 (iteration 0).** 3 つの CH₃ 炭素は invariant が同じなので、すべてラベル **a** になります。
-      中心の CH は **b**。この時点で特徴は 2 つです。Fingerprint は *a* が 3 回出てくることを記録しません。
-    * **ステップ 5–8 (iteration 1).** 各 CH₃ は **A** = hash(*a* | single→*b*)、つまり「CH についたメチル」に
-      なります。中心は **B** = hash(*b* | single→*a* ×3)、「メチルを 3 つ持つ CH」で、これだけでもう分子全体です。
-      特徴は 4 つ、bit も 4 つです。
-    * **ステップ 9–12 (iteration 2).** メチルの環境は中心を越えて 3 本の結合すべてを覆うようになります。これは
-      *B* がすでに覆っている結合とまったく同じなので、**duplicate** として捨てられます。中心はもう広がれないので
-      **no growth** です。新しい特徴は増えず、isobutane の ECFP 特徴は **radius 1 以上なら常に 4 つ** です。
-
-    次は **paracetamol** や PXR の化合物を選ぶか、好きな SMILES を貼り付けて、**explore** に切り替えて
-    iteration の間を行き来してみてください。見てほしい点:
-
-    * **Iteration 0 はおおまか.** Paracetamol では、4 つの芳香族 CH 炭素が同じラベルを共有します。ECFP の出発点は
-      *化学的な意味を持たない* ラベルで、pharmacophore の情報はなく、元素レベルの数だけです。
-    * **対称性は残る.** 対称な原子はどの radius でも同じ identifier を持ち、1 回だけ数えられます。
-    * **重複はよく起きる.** Radius が大きくなると、隣り合う原子が同じ結合を覆うようになり、片方だけが残ります。
-      小さな分子は 1〜2 回の iteration で成長が止まります。
-    * **Fold で情報が失われる.** Paracetamol は 64 bit でもすでに赤枠の bit が 1 つあります。モデルがもう
-      区別できない 2 つの特徴です。ベクトルを 16 bit にすると、さらに増えていくのが見えます。
-
-    ### アルゴリズム全体は 1 画面に収まる
-
-    Stepper を動かしているのは下の関数です。読みやすさを優先して素の Python で書いた ECFP で、RDKit 内部の
-    hash の代わりに `blake2b` を使っているので identifier の数値は異なりますが、ロジック — invariant、
-    隣接原子の並べ方、重複の除去 — は RDKit に従っています。
+    次は **paracetamol** を選んで **explore** に切り替えてください。4 つの芳香族 CH 炭素は iteration 0 で同じ
+    ラベルを共有します — ECFP の出発点は化学的な意味を持たないラベルです。そして 64 bit でもすでに赤枠の bit が
+    1 つあります。モデルがもう区別できない 2 つの特徴です。
     """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(ecfp_module, inspect, mo):
-    mo.accordion(
-        {
-            "実装を表示する (`molwidgets/ecfp.py`)": mo.md(
-                "```python\n"
-                + inspect.getsource(ecfp_module.atom_invariant)
-                + "\n\n"
-                + inspect.getsource(ecfp_module.ecfp_trace)
-                + "```"
-            )
-        }
-    )
     return
 
 
@@ -276,32 +233,46 @@ def _(Chem, ecfp_trace, rdFingerprintGenerator, train):
 
 
 @app.cell(hide_code=True)
-def _(mo, train, validation):
-    mo.md(
-        f"""
-    **RDKit との照合.** Training の {train.height:,} 分子すべてについて、この読める実装は RDKit の
-    `GetSparseCountFingerprint` と同じ数の distinct な特徴を出します: radius 1 で
-    **{validation[1]:,} / {train.height:,}**、radius 2 で **{validation[2]:,} / {train.height:,}**。
-    (2 つの原子がまったく同じ結合を覆うとき、*どちら* を残すかは hash 値の順序で決まるので、中心原子の選び方は
-    違うことがあります。特徴そのものは同じです。)
+def _(ecfp_module, inspect, mo, train, validation):
+    mo.accordion(
+        {
+            "舞台裏: アルゴリズム全体を ~40 行で、RDKit と照合済み": mo.vstack(
+                [
+                    mo.md(
+                        f"""
+    Stepper は素の Python で書いた ECFP (`molwidgets.ecfp`) で動いています。RDKit 内部の hash の代わりに
+    `blake2b` を使っているので identifier の数値は異なりますが、invariant、隣接原子の並べ方、重複の除去は
+    RDKit に従っています: training 分子のうち radius 1 で **{validation[1]:,} / {train.height:,}**、radius 2 で
+    **{validation[2]:,} / {train.height:,}** について、RDKit の `GetSparseCountFingerprint` とまったく同じ数の
+    distinct な特徴を出します。
     """
-    ).callout(kind="success")
+                    ),
+                    mo.md(
+                        "```python\n"
+                        + inspect.getsource(ecfp_module.atom_invariant)
+                        + "\n\n"
+                        + inspect.getsource(ecfp_module.ecfp_trace)
+                        + "```"
+                    ),
+                ]
+            )
+        }
+    )
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 2 · Bit はどのくらい衝突するのか?
+    ## 2 · Collision
 
-    情報が失われるのは fold の段階です。では collision はどのくらい起きるのか? 答えは誕生日問題です。
-    *k* 個の distinct な特徴を持つ分子を *n* bit に fold したとき、collision が 1 つも起きない確率は
+    情報が失われるのは fold の段階です。1 つの分子について言えば、これは誕生日問題です: *k* 個の distinct な
+    特徴を *n* bit に入れたとき、collision が 1 つも起きない確率は
 
     $$P(\text{no collision}) = \prod_{i=0}^{k-1}\left(1 - \frac{i}{n}\right) \approx e^{-k(k-1)/2n}.$$
 
-    Drug-like な分子の ECFP4 特徴は 40〜60 個ほどです。*k* = 50、*n* = 2048 なら $e^{-0.6} \approx 0.55$。
-    つまり、分子同士を比べる前の段階で **ほぼ半数の分子が、自分自身の中で少なくとも 1 回 collision を
-    起こしています**。
+    典型的な分子の ECFP4 特徴は ~50 個なので、2048 bit ではおよそ **半数の分子が自分自身の中で衝突します**。
+    式と PXR の training set はよく一致しています:
     """)
     return
 
@@ -400,71 +371,19 @@ def _(alt, fold_pick, fold_sizes, mo, n_features, np, pl, unfolded):
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### データセット全体では、すべての bit が共有される
+def _(census_for, mo, train):
+    _envs = census_for(train["smiles"].to_list(), 2, 2048).n_envs
+    mo.md(
+        f"""
+    データセット全体では collision は避けられません: {train.height:,} 個の training 分子には distinct な ECFP4
+    環境が **{int(_envs.sum()):,}** 種類あり、2048 bit に対して **1 bit あたり約 {_envs[_envs > 0].mean():.0f} 種類**、
+    すべての bit が共有されています。
 
-    1 分子の中の collision はときどき起きる程度ですが、データセット全体では避けられません。Training set には
-    何万種類もの環境があり、入れる先は 2048 bit しかないからです。下の explorer では、各 bit をどの環境が
-    立てているかと、**training set 全体でその bit に落ちる異なる部分構造の数 (# envs)** が見られます。
-    行をクリックすると、それらが並んで表示されます。
-    """)
-    return
-
-
-@app.cell
-def _(census_for, mo, np, train):
-    _c = census_for(train["smiles"].to_list(), 2, 2048)
-    _envs = _c.n_envs
-    mo.hstack(
-        [
-            mo.stat(f"{int(_envs.sum()):,}", label="4,139 分子に現れる distinct な ECFP4 環境"),
-            mo.stat(f"{_envs[_envs > 0].mean():.1f}", label="2048 bit での 1 bit あたりの環境数"),
-            mo.stat(f"{int(_envs.max())}", label="最も混んでいる bit"),
-            mo.stat(f"{(_envs > 1).mean():.0%}", label="2 種類以上の環境が同居する bit"),
-        ],
-        widths="equal",
+    下では、1 つの分子の fingerprint を RDKit の `DrawMorganEnv` で bit ごとに描いています (青: 中心原子、
+    黄: 芳香族、灰: 脂肪族環、薄い灰: 環境がつながる先)。**赤枠** は分子の中での collision、**バッジ** は
+    データセット全体でその bit を共有している他の部分構造の数です — タイルをクリックすると、それらが見られます。
+    """
     )
-    return
-
-
-@app.cell
-def _(MorganExplorer, mo, train):
-    _i = train["pEC50"].arg_max()
-    fold_explorer = mo.ui.anywidget(
-        MorganExplorer(
-            [
-                {
-                    "id": train["id"][_i],
-                    "smiles": train["smiles"][_i],
-                    "label": f"pEC50 {train['pEC50'][_i]:.2f}",
-                }
-            ],
-            reference=train["smiles"].to_list(),
-            y=train["pEC50"].to_numpy(),
-            y_label="pEC50",
-        )
-    )
-    fold_explorer
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## 3 · Bit の姿
-
-    RDKit では、どの bit についてもその背後にある環境を描けます (`Draw.DrawMorganBit` / `DrawMorganBits`)。
-    下では、1 つの分子の fingerprint 全体をその方法で並べています。Distinct な identifier ごとに 1 枚のタイルで、
-    fold 先の bit 番号が付いています。**青** い原子が中心、**黄色** は芳香族原子、**灰色** は脂肪族環の原子、
-    **薄い灰色** の短い線は環境の *外側* にある隣接原子で、どこにつながっているかを示すためだけに描かれています。
-
-    2 種類の共有が見えます:
-
-    * **分子の中で** — この分子の異なる 2 つの環境が同じ bit に fold されている (赤枠)。
-    * **データセット全体で** — バッジは、PXR の training set で同じ bit に落ちる *他の* 部分構造の数です。
-      タイルをクリックすると、それらが同じ描き方で表示されます。
-    """)
     return
 
 
@@ -500,18 +419,14 @@ def _(mo):
     mo.md(r"""
     注目してほしい点:
 
-    * **Ibuprofen では bit 807 が 2 回出てくる.** 2048 bit では、カルボン酸のカルボニル炭素 (`[C;D3;H0]`) と
-      ヒドロキシ酸素 (`[O;D1;H1]`) という異なる 2 つの identifier が同じ bit に fold されます。これは radius 0 の
-      identifier で分子の残りの部分に依存しないので、どの分子でも起きます: **2048 bit では、すべてのヒドロキシ
-      酸素が、結合相手が 3 つで H を持たないすべての炭素 (たとえば C=O の炭素) と bit を共有しています**。
-      Paracetamol でも、アミドの炭素とフェノールの OH で同じ赤いペアが出ます。8192 bit にすると赤枠は消えます。
-    * **繰り返しはまとめられる.** Ibuprofen の 3 つのメチル炭素と 4 つの芳香族 CH 炭素は、それぞれ 1 枚の
-      タイル (×3、×4) になります。Bit が記録するのは環境が「ある」ことで、何回あるかではありません。
-    * **よくある bit は混んでいる.** 芳香族炭素のタイルをクリックしてみてください。ごくありふれた環境の bit は、
-      データセット全体で十数種類の他の部分構造と共有されています。「bit 1380 が効く」と学んだモデルは、
-      それらすべてについて同時にそう学んでいることになります。
-    * **Radius 0 は結合次数を見ない.** Paracetamol のカルボニル酸素のタイル (`[O;D1;H0]`) は、スルホニルの酸素や、
-      H を持たない他のどの末端酸素とも同じ identifier です。区別できるのは radius 1 のタイル (`O=C`) だけです。
+    * **Ibuprofen では bit 807 が 2 回出てくる**: カルボン酸のカルボニル炭素 (`[C;D3;H0]`) とヒドロキシ酸素
+      (`[O;D1;H1]`) です。Radius 0 の identifier は分子の残りに依存しないので、2048 bit では *すべての*
+      ヒドロキシ酸素が、結合相手が 3 つで H を持たない *すべての* 炭素と bit を共有しています。クリックすると
+      その bit の他の部分構造が見られます。8192 bit にすると赤枠は消えます。
+    * **繰り返しはまとめられる.** 3 つのメチルと 4 つの芳香族 CH 炭素は、それぞれ 1 枚のタイル (×3、×4) に
+      なります。
+    * **Radius 0 は結合次数を見ない.** Paracetamol のカルボニル酸素 `[O;D1;H0]` は、スルホニルの酸素と同じ
+      identifier です。区別できるのは radius 1 のタイル `O=C` だけです。
     """)
     return
 
@@ -519,7 +434,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 4 · 盲点
+    ## 3 · 盲点
 
     Folding は偶然によって情報を失います。一方で、そもそも最初から集められない情報もあります。
     下の各行は *異なる* 分子のペアです。よく使われる 4 つの設定での Tanimoto 類似度を比べてみてください。
@@ -541,7 +456,7 @@ def _(Chem, pl, rdFingerprintGenerator):
             "Cc1c(OCC(F)(F)F)ccnc1CS(=O)c1nc2ccccc2[nH]1",
         ),
         "biphenyl と terphenyl": ("c1ccc(-c2ccccc2)cc1", "c1ccc(-c2ccc(-c3ccccc3)cc2)cc1"),
-        "benzene → pyridine (§6 の PXR ペア)": (
+        "benzene → pyridine (§5 の PXR ペア)": (
             "CC(C)(C)NS(=O)(=O)C1(CNc2cc(Br)ccc2C#N)CCC1",
             "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1",
         ),
@@ -599,7 +514,7 @@ def _(mo):
       まとめるので scaffold hopping には役立ちますが、大事な変化を隠すこともあります。芳香族 CH が 1 つ N に
       変わる benzene → pyridine のペアを見てください。
 
-    ## 5 · 類似度: 「Tanimoto > 0.4」が約束すること
+    ## 4 · 類似度: 「Tanimoto > 0.4」が約束すること
 
     ECFP4 の Tanimoto 類似度は、2 つの分子が共通して立てている bit の割合です。アナログ探索の主力であり、
     PXR の test set もこれで作られました。下の図では、各 test 化合物を、最も近い **強活性** の training 化合物
@@ -677,7 +592,7 @@ def _(alt, fingerprint_matrix, mo, np, pl, tanimoto_matrix, test, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 6 · モデルの中の ECFP
+    ## 5 · モデルの中の ECFP
 
     たいていの人が最初に作るモデル — OpenADMET のチャレンジ tutorial と同じ **2048-bit ECFP4 の LightGBM** —
     を学習させて、何を学んだのかを聞いてみます。定番の道具は 2 つです:
@@ -783,6 +698,7 @@ def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
     **{np.median(top_bits["# environments in bit"]):.0f}** 種類の無関係な環境の混合物です。
     「bit {top_bits["bit"][0]} が最も重要な特徴」は説明になっていません。部分構造の詰め合わせを指さしているだけです。
     上で 8192 bit に切り替えると、詰め合わせはそれぞれ数種類まで減ります — 精度はほとんど変わらないのに。
+    下で bit を選ぶと、その中身が見られます。
     """
                     ),
                 ]
@@ -796,62 +712,25 @@ def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
 
 @app.cell(hide_code=True)
 def _(mo, top_bits):
-    top_bit_table = mo.ui.table(
-        top_bits,
-        selection="single",
-        initial_selection=[0],
-        page_size=5,
-        label="上位の bit を選ぶと中身が見られます",
+    top_bit_pick = mo.ui.dropdown(
+        {f"#{r} · bit {b}": int(b) for r, b in zip(top_bits["rank"], top_bits["bit"])},
+        value=f"#1 · bit {top_bits['bit'][0]}",
+        label="上位の bit の中身を見る",
     )
-    top_bit_table
-    return (top_bit_table,)
+    top_bit_pick
+    return (top_bit_pick,)
 
 
-@app.cell
-def _(Chem, MolGrid, N_BITS, census_for, mo, pl, top_bit_table, train):
-    from molwidgets.chem import env_atoms_bonds
-
-    _bit = (
-        int(top_bit_table.value["bit"][0])
-        if len(top_bit_table.value)
-        else int(top_bit_table.data["bit"][0])
-    )
-    _smiles = train["smiles"].to_list()
-    _ids = train["id"].to_list()
-    _examples = census_for(_smiles, 2, N_BITS).examples.get(_bit, [])
-    _rows, _hl = [], {}
-    for _k, _ex in enumerate(_examples):
-        _key = f"{_k + 1}. {_ids[_ex['mol_index']]}"
-        _atoms, _bonds = env_atoms_bonds(
-            Chem.MolFromSmiles(_smiles[_ex["mol_index"]]), _ex["center"], _ex["radius"]
+@app.cell(hide_code=True)
+def _(N_BITS, bit_gallery, mo, top_bit_pick, train):
+    mo.Html(
+        bit_gallery(
+            top_bit_pick.value,
+            train["smiles"].to_list(),
+            ids=train["id"].to_list(),
+            radius=2,
+            n_bits=N_BITS,
         )
-        _rows.append(
-            {
-                "env": _key,
-                "smiles": _smiles[_ex["mol_index"]],
-                "substructure": _ex["smiles"],
-                "radius": _ex["radius"],
-                "molecules": _ex["count"],
-            }
-        )
-        _hl[_key] = {"atoms": _atoms, "bonds": _bonds}
-    mo.vstack(
-        [
-            mo.md(
-                f"**Bit {_bit}** は training set の中で **{len(_examples)}** 種類の異なる環境によって立てられています。"
-                "各カードはそのうち 1 つを例の分子の中でハイライトしたもので、*molecules* はその環境を含む "
-                "training 化合物の数です。"
-            ),
-            MolGrid(
-                pl.DataFrame(_rows),
-                id_col="env",
-                subset=["substructure", "radius", "molecules"],
-                highlights=_hl,
-                sort_by="molecules",
-                page_size=8,
-                cell_size=170,
-            ),
-        ]
     )
     return
 
@@ -869,7 +748,7 @@ def _(mo):
 
     原子の色はモデルの TreeSHAP attribution です (赤は予測 pEC50 を上げ、青は下げる)。Bit をクリックすると
     代わりにその環境が表示され、表の **SHAP** 列には A と B それぞれの bit ごとの寄与が出ます。リストから
-    別の test 化合物とその nearest neighbour を選ぶこともできます。
+    予測の外れが大きい他の test 化合物も選べます。
     """)
     return
 
@@ -895,35 +774,52 @@ def _(fingerprint_matrix, np, pl, pred_test, tanimoto_matrix, test, train):
         .with_columns((pl.col("predicted") - pl.col("test pEC50")).abs().round(2).alias("|error|"))
         .sort("|error|", descending=True)
     )
-    _default = (
-        cliff_pairs["test id"].to_list().index("OADMET-0006254")
-        if "OADMET-0006254" in cliff_pairs["test id"]
-        else 0
-    )
-    pair_default = int(np.int64(_default))
-    return cliff_pairs, pair_default
+    return (cliff_pairs,)
 
 
 @app.cell(hide_code=True)
-def _(cliff_pairs, mo, pair_default):
-    pair_table = mo.ui.table(
-        cliff_pairs,
-        selection="single",
-        initial_selection=[pair_default],
-        page_size=5,
-        label="Test 化合物と training の nearest neighbour (モデルの誤差が大きい順)",
+def _(cliff_pairs, mo, pl):
+    _worst = cliff_pairs.head(8)
+    if "OADMET-0006254" not in _worst["test id"]:
+        _worst = pl.concat(
+            [cliff_pairs.filter(pl.col("test id") == "OADMET-0006254"), _worst.head(7)]
+        )
+    pair_pick = mo.ui.dropdown(
+        {
+            f"{r['test id']} (実測 {r['test pEC50']:.2f}, 予測 {r['predicted']:.2f}) vs {r['NN id']}": r[
+                "test id"
+            ]
+            for r in _worst.iter_rows(named=True)
+        },
+        value=next(
+            k
+            for k in [
+                f"{r['test id']} (実測 {r['test pEC50']:.2f}, 予測 {r['predicted']:.2f}) vs {r['NN id']}"
+                for r in _worst.iter_rows(named=True)
+            ]
+            if k.startswith("OADMET-0006254")
+        ),
+        label="ペア (test 化合物とその training の nearest neighbour)",
     )
-    pair_table
-    return (pair_table,)
+    pair_pick
+    return (pair_pick,)
 
 
 @app.cell
-def _(MorganExplorer, N_BITS, data, fingerprint_matrix, mo, model, np, pair_table, pl, train):
-    _row = (
-        pair_table.value.row(0, named=True)
-        if len(pair_table.value)
-        else pair_table.data.row(0, named=True)
-    )
+def _(
+    MorganExplorer,
+    N_BITS,
+    cliff_pairs,
+    data,
+    fingerprint_matrix,
+    mo,
+    model,
+    np,
+    pair_pick,
+    pl,
+    train,
+):
+    _row = cliff_pairs.filter(pl.col("test id") == pair_pick.value).row(0, named=True)
     _smi = dict(zip(data["id"], data["smiles"]))
     _ids = [_row["test id"], _row["NN id"]]
     _X = fingerprint_matrix([_smi[i] for i in _ids], 2, N_BITS).astype(np.float32)
@@ -997,7 +893,7 @@ def _(mo, pair_X, pair_contrib, pair_y):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 7 · チートシート
+    ## 6 · チートシート
 
     **長所**
 
@@ -1038,7 +934,7 @@ def _(mo):
       によります。
     * **参考文献:** Rogers & Hahn, *J. Chem. Inf. Model.* 2010, 50, 742 (ECFP); Morgan, *J. Chem. Doc.* 1965, 5, 107;
       Riniker & Landrum, *J. Cheminform.* 2013, 5, 43 (similarity maps)。
-    * **ウィジェット:** `ECFPStepper`、`MorganExplorer`、`MolGrid` は、この notebook のために作った anywidget
+    * **ウィジェット:** `ECFPStepper`、`MorganBitTiles`、`MorganExplorer` は、この notebook のために作った anywidget
       コンポーネントです ([ソース](https://github.com/N283T/openadmet-marimo))。`molwidgets.ecfp` が上で見せた
       読める ECFP 実装です。
     * **姉妹 notebook:** *似ているのに、同じじゃない* では、このデータセットで fingerprint モデルが苦戦する理由を

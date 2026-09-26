@@ -425,3 +425,45 @@ class MorganBitTiles(anywidget.AnyWidget):
                 }
             )
         self.gallery = rows
+
+
+def bit_gallery(
+    bit: int,
+    reference: list[str],
+    ids: list[str] | None = None,
+    radius: int = 2,
+    n_bits: int = 2048,
+    max_items: int = 12,
+) -> str:
+    """HTML grid of every distinct environment that folds onto ``bit`` in a reference set.
+
+    Uses the same RDKit ``DrawMorganEnv`` pictures as :class:`MorganBitTiles`, so a bit looks the
+    same wherever it appears in a notebook. Wrap the result in ``mo.Html``.
+    """
+    import html
+
+    examples = census_for(reference, radius, n_bits).examples.get(bit, [])
+    cards = []
+    for ex in examples[:max_items]:
+        mol = Chem.MolFromSmiles(reference[ex["mol_index"]])
+        label = ids[ex["mol_index"]] if ids else str(ex["mol_index"])
+        cards.append(
+            '<div class="mwg-card"><div class="mwg-head">'
+            f"<span>r{ex['radius']}</span><span>in {ex['count']} mols</span></div>"
+            f"{_env_svg(mol, ex['center'], ex['radius'], (150, 120))}"
+            f'<div class="mwg-env">{html.escape(ex["smiles"])}</div>'
+            f'<div class="mwg-id">e.g. {html.escape(str(label))}</div></div>'
+        )
+    more = len(examples) - len(cards)
+    return (
+        "<style>.mwg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}"
+        ".mwg-card{background:#fff;color:#1f2328;border:1px solid #d0d7de;border-radius:8px;padding:4px 6px}"
+        ".mwg-card svg{width:100%;height:auto;display:block}"
+        ".mwg-head{display:flex;justify-content:space-between;font-size:11px;color:#6b7280}"
+        ".mwg-env{font:11px ui-monospace,monospace;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+        ".mwg-id{font-size:10.5px;color:#6b7280}.mwg-title{margin:0 0 6px;font-weight:600}</style>"
+        f'<div class="mwg-title">Bit {bit}: {len(examples)} different environment'
+        f"{'s' if len(examples) != 1 else ''} in the reference set"
+        f"{f' (first {len(cards)} shown)' if more > 0 else ''}</div>"
+        f'<div class="mwg-grid">{"".join(cards)}</div>'
+    )
