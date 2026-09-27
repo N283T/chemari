@@ -101,6 +101,7 @@ class MorganExplorer(anywidget.AnyWidget):
     Pass `reference` SMILES (and optionally activities `y`) to get dataset context:
     how many molecules set each bit, how many *different* substructures collide in it,
     and the mean activity with the bit on vs off. `selected_bit` syncs back to Python.
+    `stereo_labels=True` annotates stereocentres (R/S) and double bonds (E/Z) in the drawings.
     """
 
     _esm = _bundle("morgan.js")
@@ -114,6 +115,7 @@ class MorganExplorer(anywidget.AnyWidget):
     bit_examples = traitlets.List(traitlets.Dict()).tag(sync=True)
     y_label = traitlets.Unicode("y").tag(sync=True)
     pair_note = traitlets.Unicode("").tag(sync=True)
+    stereo_labels = traitlets.Bool(False).tag(sync=True)  # draw R/S and E/Z labels
     # Optional model attribution per molecule: {bit: contribution}, e.g. LightGBM TreeSHAP.
     # Shown only while the explorer's radius / n_bits match the model's fingerprint.
     contributions = traitlets.List(traitlets.Dict()).tag(sync=True)
@@ -419,7 +421,8 @@ class MorganBitTiles(anywidget.AnyWidget):
                 row["n_on"] = int(census.on[:, t["bit"]].sum())
             tiles.append(row)
         self.tiles = tiles
-        self.selected = -1
+        # start with the first bit selected so the molecule highlight and gallery are visible
+        self.selected = int(tiles[0]["bit"]) if tiles else -1
         self._refresh_gallery()
 
     def _refresh_gallery(self, _change=None) -> None:
@@ -442,6 +445,103 @@ class MorganBitTiles(anywidget.AnyWidget):
                 }
             )
         self.gallery = rows
+
+
+class BitAtlas(anywidget.AnyWidget):
+    """Every folded bit of a reference set, one row per bit.
+
+    Each row lists the distinct substructures (Morgan environments) from the reference set that
+    fold onto that bit, drawn with ``Draw.DrawMorganEnv``, next to how many molecules set the bit.
+    Rows are paged and can be sorted by bit index, by number of substructures or by number of
+    molecules. Pictures are rendered in Python for the visible page only and cached.
+    """
+
+    _esm = _bundle("atlas.js")
+
+    radius = traitlets.Int(2).tag(sync=True)
+    n_bits = traitlets.Int(2048).tag(sync=True)
+    sort = traitlets.Unicode("bit").tag(sync=True)  # "bit" | "envs" | "mols"
+    page = traitlets.Int(0).tag(sync=True)
+    page_size = traitlets.Int(20).tag(sync=True)
+    per_row = traitlets.Int(10).tag(sync=True)
+    focus = traitlets.Int(-1).tag(sync=True)  # bit to highlight after a jump (set in JS)
+    order = traitlets.List(traitlets.Int()).tag(sync=True)  # bit shown at each position
+    rows = traitlets.List().tag(sync=True)
+    summary = traitlets.Dict().tag(sync=True)
+
+    def __init__(self, reference: list[str], ids: list[str] | None = None, **kwargs):
+        self._reference = list(reference)
+        self._ids = [str(i) for i in ids] if ids is not None else None
+        self._mols: dict[int, Chem.Mol] = {}
+        self._svgs: dict[tuple[int, int, int], str] = {}
+        super().__init__(**kwargs)
+        self.observe(self._reset, names=["radius", "n_bits", "sort"])
+        self.observe(self._refresh, names=["page", "page_size", "per_row"])
+        self._reset()
+
+    def _census(self) -> BitCensus:
+        return census_for(self._reference, self.radius, self.n_bits)
+
+    def _order(self) -> np.ndarray:
+        census = self._census()
+        bits = np.arange(self.n_bits)
+        if self.sort == "envs":
+            return bits[np.lexsort((bits, -census.n_envs))]
+        if self.sort == "mols":
+            return bits[np.lexsort((bits, -census.on.sum(0)))]
+        return bits
+
+    def _svg(self, mol_index: int, center: int, radius: int) -> str:
+        key = (mol_index, center, radius)
+        if key not in self._svgs:
+            if mol_index not in self._mols:
+                self._mols[mol_index] = Chem.MolFromSmiles(self._reference[mol_index])
+            self._svgs[key] = _env_svg(self._mols[mol_index], center, radius, (110, 90))
+        return self._svgs[key]
+
+    def _reset(self, _change=None) -> None:
+        census = self._census()
+        n_envs = census.n_envs
+        self.summary = {
+            "n_mols": census.n_mols,
+            "n_envs": int(n_envs.sum()),
+            "used_bits": int((census.on.sum(0) > 0).sum()),
+            "max_envs": int(n_envs.max()) if len(n_envs) else 0,
+            "max_mols": int(census.on.sum(0).max()) if census.n_mols else 0,
+        }
+        self.order = [int(b) for b in self._order()]
+        self.focus = -1
+        if self.page != 0:
+            self.page = 0  # triggers _refresh
+        else:
+            self._refresh()
+
+    def _refresh(self, _change=None) -> None:
+        census = self._census()
+        n_on = census.on.sum(0)
+        order = self.order or [int(b) for b in self._order()]
+        start = self.page * self.page_size
+        rows = []
+        for bit in order[start : start + self.page_size]:
+            examples = census.examples.get(int(bit), [])
+            rows.append(
+                {
+                    "bit": int(bit),
+                    "n_envs": len(examples),
+                    "n_mols": int(n_on[bit]),
+                    "envs": [
+                        {
+                            "svg": self._svg(ex["mol_index"], ex["center"], ex["radius"]),
+                            "env": ex["smiles"],
+                            "radius": ex["radius"],
+                            "count": ex["count"],
+                            "id": self._ids[ex["mol_index"]] if self._ids else str(ex["mol_index"]),
+                        }
+                        for ex in examples[: self.per_row]
+                    ],
+                }
+            )
+        self.rows = rows
 
 
 # Colour key for Draw.DrawMorganEnv's default colours (same as MORGAN_ENV_KEY in rdkit_loader.js).

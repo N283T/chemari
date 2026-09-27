@@ -26,11 +26,23 @@ const CSS = `
 .me-mol .me-cap { color:var(--me-muted); font-size:11.5px; min-height:1.4em; }
 .me-summary { background:var(--me-soft); border-radius:8px; padding:6px 10px; font-variant-numeric:tabular-nums; }
 .me-summary b { font-size:15px; }
-.me-table-wrap { max-height: 430px; overflow:auto; border:1px solid var(--me-border); border-radius:8px; }
+/* the table fills the height of the molecule column next to it */
+.me-right { display:flex; flex-direction:column; min-height:0; }
+.me-table-wrap { flex:1 1 0; min-height:240px; overflow:auto; border:1px solid var(--me-border); border-radius:8px; }
+@media (max-width: 760px) { .me-table-wrap { flex:none; max-height:430px; } }
 .me-table { border-collapse:collapse; width:100%; font-size:12px; font-variant-numeric:tabular-nums; }
 .me-table th { position:sticky; top:0; z-index:2; background:var(--me-soft); text-align:left; padding:4px 6px; cursor:pointer;
   border-bottom:1px solid var(--me-border); white-space:nowrap; user-select:none; }
 .me-table td { padding:3px 6px; border-bottom:1px solid var(--me-border); white-space:nowrap; }
+/* contribution columns stay pinned to the right edge while the table scrolls sideways */
+.me-table .me-pin { position:sticky; min-width:112px; width:112px; box-sizing:border-box; background:var(--me-card); }
+.me-table th.me-pin { background:var(--me-soft); z-index:3; }
+.me-table .me-pin0 { right:0; }
+/* a single pinned column (one molecule) draws the divider itself */
+.me-table .me-pin0.me-solo { box-shadow:inset 2px 0 0 var(--me-muted), -6px 0 6px -6px rgba(0,0,0,.25); }
+.me-table .me-pin1 { right:112px; box-shadow:inset 2px 0 0 var(--me-muted), -6px 0 6px -6px rgba(0,0,0,.25); }
+.me-table tr.sel td.me-pin { background:var(--me-sel); }
+.me-table tr:hover td.me-pin { background:var(--me-soft); }
 .me-table td.env { font-family:ui-monospace,monospace; max-width:220px; overflow:hidden; text-overflow:ellipsis; }
 .me-table tr { cursor:pointer; }
 .me-table tr:hover td { background:var(--me-soft); }
@@ -120,6 +132,7 @@ async function render({ model, el: host }) {
   let sortDesc = sortKey === "cA";
   let hover = null;
   const get = (k) => model.get(k);
+  const molOpts = () => (get("stereo_labels") ? { addStereoAnnotation: true, annotationFontScale: 0.9 } : {});
 
   function rows() {
     const mols = get("payload");
@@ -227,7 +240,7 @@ async function render({ model, el: host }) {
       const card = el("div", { className: "me-mol" });
       const dot = mols.length === 2 ? `<span class="dot" style="background:${COLORS[tag]}"></span>${tag} · ` : "";
       const extra = m.label ? ` <span class="me-muted" style="font-weight:400">${m.label}</span>` : "";
-      card.innerHTML = `<h4>${dot}${m.id}${extra}</h4>` + drawSvg(RDKit, m.smiles, 320, 200, hl, dark);
+      card.innerHTML = `<h4>${dot}${m.id}${extra}</h4>` + drawSvg(RDKit, m.smiles, 320, 200, hl, dark, molOpts());
       const cap = el("div", { className: "me-cap" });
       if (active != null)
         cap.innerHTML = entry
@@ -250,7 +263,7 @@ async function render({ model, el: host }) {
     main.appendChild(left);
 
     // --- bit table
-    const right = el("div");
+    const right = el("div", { className: "me-right" });
     const list = sorted(all.filter((r) => filter === "all" || (filter === "collide" ? r.localCollision : r.status === filter)));
     const hasStats = all.some((r) => r.n_on != null);
     const cols = [["bit", "bit"], ["status", mols.length === 2 ? "in" : "r"], ["env", "environment(s)"]];
@@ -261,16 +274,18 @@ async function render({ model, el: host }) {
       if (mols.length === 2) cols.push(["cB", `${get("contrib_label")} B`]);
     }
     const cMax = Math.max(1e-9, ...all.flatMap((r) => [Math.abs(r.cA ?? 0), Math.abs(r.cB ?? 0)]));
-    const cCell = (v) => {
-      if (v == null) return "<td>–</td>";
+    // rightmost contribution column gets me-pin0, the one before it me-pin1
+    const pinCls = (k) => (!showC ? "" : k === "cB" || (k === "cA" && mols.length !== 2) ? `me-pin me-pin0${mols.length !== 2 ? " me-solo" : ""}` : k === "cA" ? "me-pin me-pin1" : "");
+    const cCell = (v, k) => {
+      if (v == null) return `<td class="${pinCls(k)}">–</td>`;
       const w = (Math.abs(v) / cMax) * 27;
-      return `<td><span class="me-bar2"><i style="left:${v < 0 ? 27 - w : 27}px;width:${w}px;background:${v < 0 ? "#3366e6" : "#d63333"}"></i></span> ${(v > 0 ? "+" : "") + v.toFixed(3)}</td>`;
+      return `<td class="${pinCls(k)}"><span class="me-bar2"><i style="left:${v < 0 ? 27 - w : 27}px;width:${w}px;background:${v < 0 ? "#3366e6" : "#d63333"}"></i></span> ${(v > 0 ? "+" : "") + v.toFixed(3)}</td>`;
     };
     const wrap = el("div", { className: "me-table-wrap" });
     const table = el("table", { className: "me-table" });
     const thead = el("tr");
     for (const [k, label] of cols) {
-      const th = el("th", { textContent: label + (sortKey === k ? (sortDesc ? " ↓" : " ↑") : "") });
+      const th = el("th", { className: pinCls(k), textContent: label + (sortKey === k ? (sortDesc ? " ↓" : " ↑") : "") });
       th.addEventListener("click", () => { sortDesc = sortKey === k ? !sortDesc : k !== "bit" && k !== "status"; sortKey = k; draw(); });
       thead.appendChild(th);
     }
@@ -289,7 +304,7 @@ async function render({ model, el: host }) {
         const bar = d == null ? "" : `<span class="me-bar2"><i style="left:${d < 0 ? 27 - w : 27}px;width:${w}px;background:${d < 0 ? "#3b82f6" : "#e8590c"}"></i></span>`;
         html += `<td>${r.n_on ?? "–"}</td><td>${r.n_envs ?? "–"}</td><td>${bar} ${d == null ? "–" : (d > 0 ? "+" : "") + d.toFixed(2)}</td>`;
       }
-      if (showC) html += cCell(r.cA) + (mols.length === 2 ? cCell(r.cB) : "");
+      if (showC) html += cCell(r.cA, "cA") + (mols.length === 2 ? cCell(r.cB, "cB") : "");
       tr.innerHTML = html;
       if (warn) tr.title = "Several different substructures in this molecule set this bit";
       tr.addEventListener("mouseenter", () => { hover = r.bit; redrawMols(); });
@@ -298,6 +313,8 @@ async function render({ model, el: host }) {
       table.appendChild(tr);
     }
     wrap.appendChild(table);
+    // rows are rebuilt on every draw and may never see their mouseleave: clear the hover here too
+    wrap.addEventListener("mouseleave", () => { if (hover != null) { hover = null; redrawMols(); } });
     right.appendChild(wrap);
     right.appendChild(el("div", { className: "me-muted", style: "margin-top:4px;font-size:11.5px" },
       hasStats
@@ -334,7 +351,7 @@ async function render({ model, el: host }) {
       const m = mols[i];
       const entry = active != null ? m.bits.find((b) => b.bit === active) : null;
       const svg = card.querySelector("svg");
-      if (svg) svg.outerHTML = drawSvg(RDKit, m.smiles, 320, 200, active != null ? hlFor(entry) : heats[i] ?? NO_HL, dark);
+      if (svg) svg.outerHTML = drawSvg(RDKit, m.smiles, 320, 200, active != null ? hlFor(entry) : heats[i] ?? NO_HL, dark, molOpts());
     });
   }
 

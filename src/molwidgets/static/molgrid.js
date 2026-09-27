@@ -22,9 +22,9 @@ function fmt(v) {
 
 const CSS = `
 .mg-root { font: 13px/1.35 system-ui, sans-serif; color: var(--mg-fg); --mg-fg: #1f2328; --mg-muted: #6b7280;
-  --mg-border: #d0d7de; --mg-card: #ffffff; --mg-accent: #d6336c; --mg-soft: #f6f8fa; }
+  --mg-border: #d0d7de; --mg-card: #ffffff; --mg-accent: #1c7ed6; --mg-soft: #f6f8fa; }
 .mg-root.dark { --mg-fg: #e6e6e6; --mg-muted: #9aa4b2; --mg-border: #3a3f47; --mg-card: #1c1f24;
-  --mg-accent: #ff6b9a; --mg-soft: #24282e; }
+  --mg-accent: #4dabf7; --mg-soft: #24282e; }
 .mg-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
 .mg-bar input, .mg-bar select, .mg-bar button { font: inherit; color: var(--mg-fg); background: var(--mg-soft);
   border: 1px solid var(--mg-border); border-radius: 6px; padding: 3px 7px; }
@@ -79,11 +79,13 @@ async function render({ model, el }) {
   grid.className = "mg-grid";
   const pager = document.createElement("div");
   pager.className = "mg-pager";
+  const first = Object.assign(document.createElement("button"), { textContent: "« first" });
   const prev = Object.assign(document.createElement("button"), { textContent: "‹ prev" });
   const next = Object.assign(document.createElement("button"), { textContent: "next ›" });
+  const last = Object.assign(document.createElement("button"), { textContent: "last »" });
   const pageLbl = document.createElement("span");
-  pager.append(prev, pageLbl, next);
-  for (const b of [prev, next]) b.style.cssText = "font:inherit;padding:2px 10px;border-radius:6px;cursor:pointer";
+  pager.append(first, prev, pageLbl, next, last);
+  for (const b of [first, prev, next, last]) b.style.cssText = "font:inherit;padding:2px 10px;border-radius:6px;cursor:pointer";
   root.append(bar, grid, pager);
   el.appendChild(root);
 
@@ -186,8 +188,8 @@ async function render({ model, el }) {
       : "";
     info.textContent = `${rows.length} / ${get("data").length} shown · ${sel.size} selected`;
     pageLbl.textContent = `page ${page + 1} / ${pages}`;
-    prev.disabled = page === 0;
-    next.disabled = page >= pages - 1;
+    first.disabled = prev.disabled = page === 0;
+    last.disabled = next.disabled = page >= pages - 1;
     pager.style.display = pages > 1 ? "flex" : "none";
 
     grid.innerHTML = "";
@@ -235,6 +237,8 @@ async function render({ model, el }) {
   clearBtn.addEventListener("click", () => { model.set("selection", []); model.save_changes(); });
   prev.addEventListener("click", () => { page--; draw(); });
   next.addEventListener("click", () => { page++; draw(); });
+  first.addEventListener("click", () => { page = 0; draw(); });
+  last.addEventListener("click", () => { page = Infinity; draw(); }); // draw() clamps to the last page
 
   smarts.value = get("smarts") || "";
   compileQuery();
