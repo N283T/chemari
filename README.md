@@ -7,6 +7,7 @@ PXR induction data, with custom [anywidget](https://anywidget.dev) components th
 - `notebooks/ecfp_pxr.py` — **the notebook**: an 80 s ECFP4 movie, ECFP4 on real PXR molecules, how
   the test set was built, where ECFP4 breaks (similarity principle, activity cliffs, identical
   fingerprints, whole-molecule properties), LightGBM importance / TreeSHAP on bits, and a model lab
+- `notebooks/ecfp_pxr_ja.py` — the same notebook in Japanese
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
