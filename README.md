@@ -7,6 +7,7 @@ PXR induction data, with custom [anywidget](https://anywidget.dev) components th
 - `notebooks/ecfp_pxr.py` — **the notebook**: an 80 s ECFP4 movie, ECFP4 on real PXR molecules, how
   the test set was built, where ECFP4 breaks (similarity principle, activity cliffs, identical
   fingerprints, whole-molecule properties), LightGBM importance / TreeSHAP on bits, and a model lab
+- `notebooks/ecfp_pxr_ja.py` — the same notebook in Japanese
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
@@ -19,10 +20,13 @@ PXR induction data, with custom [anywidget](https://anywidget.dev) components th
   - `MorganBitTiles`: a molecule's fingerprint drawn bit by bit like RDKit's `DrawMorganBits`,
     with in-molecule collisions framed and, per bit, every other substructure in a dataset that
     folds onto it
+  - `BitAtlas`: every folded bit of a dataset, one row per bit, with the distinct substructures
+    that fold onto it; sortable by bit index, number of substructures or number of molecules
   - `MorganExplorer`: bit-by-bit view of a Morgan fingerprint for one molecule or a pair, with the
     atom environments behind each bit, dataset statistics per bit, and a gallery of the different
     substructures that collide in a selected bit; optionally per-bit model contributions
-    (e.g. LightGBM TreeSHAP) and a per-atom attribution map
+    (e.g. LightGBM TreeSHAP, pinned to the right of the table) and a per-atom attribution map;
+    `stereo_labels=True` adds R/S and E/Z labels to the drawings
 - `src/molwidgets/ecfp.py` — a readable re-implementation of ECFP that drives `ECFPStepper`
 
 Molecules are drawn in the browser with RDKit.js; standardization, fingerprints, bit environments

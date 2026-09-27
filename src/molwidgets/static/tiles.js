@@ -13,6 +13,7 @@ const CSS = `
 .bt-seg button + button { border-left:1px solid var(--bt-border); }
 .bt-seg button.on { background:var(--bt-fg); color:var(--bt-card); }
 .bt-lbl { color:var(--bt-muted); }
+.bt-stats { color:var(--bt-muted); margin:-2px 0 6px; }
 /* both columns share the row height: the list is capped, the molecule box stretches to match */
 .bt-main { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.15fr); gap:12px; align-items:stretch; }
 @media (max-width: 760px) { .bt-main { grid-template-columns: 1fr; } }
@@ -32,11 +33,13 @@ const CSS = `
 .bt-info b { font-size:13px; }
 .bt-env { font:11.5px ui-monospace,monospace; color:var(--bt-muted); word-break:break-all; }
 .bt-badge { display:inline-block; margin:2px 4px 0 0; border-radius:4px; padding:0 5px; font-size:10.5px; font-weight:600; }
-.bt-badge.warn { background:#fff0f6; color:#c2255c; }
+.bt-badge.warn { background:#f1f3f5; color:#495057; }
+.bt-root.dark .bt-badge.warn { background:#2c3036; color:#c1c7cf; }
 .bt-badge.ok { background:#ebfbee; color:#2b8a3e; }
 .bt-badge.hit { background:var(--bt-hit); color:#fff; }
 .bt-gallery { margin-top:12px; }
 .bt-gallery h4 { margin:0 0 6px; font-size:13px; }
+.bt-empty { color:var(--bt-muted); border:1px dashed var(--bt-border); border-radius:8px; padding:18px; text-align:center; }
 .bt-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:8px; }
 .bt-tile { background:#fff; color:#1f2328; border:1px solid var(--bt-border); border-radius:8px; padding:4px 6px 6px; }
 .bt-tile.mine { border:2px solid var(--bt-accent); }
@@ -92,6 +95,7 @@ async function render({ model, el: host }) {
   const get = (k) => model.get(k);
   const set = (obj) => { for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
   let hover = null; // uid under the mouse
+  let onlyHits = false; // list filter: only rows that collide inside the molecule
 
   function active() {
     const tiles = get("tiles");
@@ -133,10 +137,19 @@ async function render({ model, el: host }) {
     );
     const bits = new Set(tiles.map((t) => t.bit));
     const hits = new Set(tiles.filter((t) => t.collides).map((t) => t.bit));
-    bar.appendChild(el("span", { className: "bt-lbl" },
-      `· ${tiles.length} environments → ${bits.size} bits` +
-      (hits.size ? ` · <span style="color:var(--bt-hit);font-weight:600">${hits.size} collision${hits.size > 1 ? "s" : ""} inside this molecule</span>` : "")));
+    bar.append(
+      el("span", { className: "bt-lbl", textContent: "show" }),
+      seg([[false, "all bits"], [true, "collisions only"]], onlyHits, (v) => {
+        onlyHits = v;
+        // keep the selection inside the visible list
+        if (v && hits.size && !hits.has(sel)) set({ selected: [...hits][0] });
+        else draw();
+      }),
+    );
     root.appendChild(bar);
+    root.appendChild(el("div", { className: "bt-stats" },
+      `${tiles.length} environments → ${bits.size} bits` +
+      (hits.size ? ` · <span style="color:var(--bt-hit);font-weight:600">${hits.size} collision${hits.size > 1 ? "s" : ""} inside this molecule</span>` : " · no collisions inside this molecule")));
     root.appendChild(el("div", { className: "bt-legend" },
       legendHtml("Molecule", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) + "<br>" +
       legendHtml("Bit cards", MORGAN_ENV_KEY) +
@@ -145,7 +158,11 @@ async function render({ model, el: host }) {
     const main = el("div", { className: "bt-main" });
     main.appendChild(el("div", { className: "bt-mol" }));
     const list = el("div", { className: "bt-list" });
-    for (const t of tiles) {
+    const shown = onlyHits ? tiles.filter((t) => t.collides) : tiles;
+    if (!shown.length)
+      list.appendChild(el("div", { className: "bt-empty", style: "border:0" },
+        `No collisions inside this molecule at ${get("n_bits")} bits.`));
+    for (const t of shown) {
       const row = el("div", { className: "bt-row" + (t.bit === sel ? " sel" : "") + (t.collides ? " hit" : "") });
       let badges = "";
       if (t.collides) badges += `<span class="bt-badge hit">same bit as another row</span>`;
@@ -187,6 +204,9 @@ async function render({ model, el: host }) {
       }
       box.appendChild(g);
       root.appendChild(box);
+    } else if (hasRef) {
+      root.appendChild(el("div", { className: "bt-gallery bt-empty" },
+        "Click a bit on the right to see every substructure in the dataset that sets it."));
     }
   }
 

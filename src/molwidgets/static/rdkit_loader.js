@@ -24,7 +24,8 @@ export function loadRDKit() {
 }
 
 // Draw a SMILES to an SVG string. `hl` = {atoms, bonds, atomColors, bondColors}.
-export function drawSvg(RDKit, smiles, width, height, hl = null, dark = false) {
+// `extra` = further RDKit.js drawing options, e.g. {addStereoAnnotation: true} for R/S and E/Z labels.
+export function drawSvg(RDKit, smiles, width, height, hl = null, dark = false, extra = {}) {
   const mol = RDKit.get_mol(smiles);
   if (!mol) return `<svg width="${width}" height="${height}"><text x="8" y="20" fill="#c33">invalid</text></svg>`;
   try {
@@ -35,12 +36,14 @@ export function drawSvg(RDKit, smiles, width, height, hl = null, dark = false) {
       bondLineWidth: 1.2,
       fixedBondLength: 28,
       padding: 0.06,
+      ...extra,
     };
     if (dark) opts.backgroundColour = [0, 0, 0, 0];
     if (dark) opts.symbolColour = [0.9, 0.9, 0.9];
     if (hl) {
-      opts.atoms = hl.atoms || [];
-      opts.bonds = hl.bonds || [];
+      // copy: the invisible highlights pushed below must not leak into the caller's object
+      opts.atoms = [...(hl.atoms || [])];
+      opts.bonds = [...(hl.bonds || [])];
       if (hl.atomColors) opts.highlightAtomColors = hl.atomColors;
       if (hl.bondColors) opts.highlightBondColors = hl.bondColors;
       opts.highlightRadius = 0.35;
