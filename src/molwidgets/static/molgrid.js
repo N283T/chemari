@@ -168,7 +168,10 @@ async function render({ model, el }) {
   function draw() {
     const rows = filtered();
     const size = get("cell_size");
-    const per = get("page_size");
+    // round the page up to whole rows, so the last row is never half empty
+    const gap = 8;
+    const cols = Math.max(1, Math.floor((grid.clientWidth + gap) / (size + gap)));
+    const per = cols * Math.max(1, Math.round(get("page_size") / cols));
     const pages = Math.max(1, Math.ceil(rows.length / per));
     page = Math.min(page, pages - 1);
     const sel = new Set(get("selection").map(String));
@@ -242,6 +245,11 @@ async function render({ model, el }) {
   model.on("change:data", onData);
   for (const k of ["selection", "highlights", "subset", "color_by", "color_range", "page_size", "cell_size"])
     model.on(`change:${k}`, draw);
+  let lastCols = 0;
+  new ResizeObserver(() => {
+    const cols = Math.max(1, Math.floor((grid.clientWidth + 8) / (get("cell_size") + 8)));
+    if (cols !== lastCols) { lastCols = cols; draw(); }
+  }).observe(grid);
   model.on("change:smarts", () => { smarts.value = get("smarts") || ""; compileQuery(); page = 0; draw(); });
   model.on("change:sort_by", () => { sortSel.value = get("sort_by") || ""; draw(); });
 

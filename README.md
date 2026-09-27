@@ -1,15 +1,12 @@
 # Similar, but not the same — Morgan fingerprints on PXR
 
 A [marimo](https://marimo.io) notebook for the molab Notebook Competition #3 (OpenADMET × marimo).
-It asks why Morgan-fingerprint models struggle on the OpenADMET PXR induction data, and answers
-it with two custom [anywidget](https://anywidget.dev) components.
+It explains what ECFP4 computes, then asks why Morgan-fingerprint models struggle on the OpenADMET
+PXR induction data, with custom [anywidget](https://anywidget.dev) components throughout.
 
-- `notebooks/pxr_fingerprints.py` — the notebook
-- `notebooks/pxr_fingerprints_ja.py` — Japanese edition (same analysis, Japanese prose)
-- `notebooks/ecfp_inside.py` — *Inside ECFP4*, a hands-on tutorial on the Morgan/ECFP algorithm,
-  folding and collisions, blind spots, and LightGBM importance / TreeSHAP maps on fingerprint bits
-- `notebooks/ecfp_inside_ja.py` — Japanese edition of the tutorial
-- `scripts/translate_*_ja.py` — regenerate the Japanese editions after editing the English notebooks
+- `notebooks/ecfp_pxr.py` — **the notebook**: an 80 s ECFP4 movie, ECFP4 on real PXR molecules, how
+  the test set was built, where ECFP4 breaks (similarity principle, activity cliffs, identical
+  fingerprints, whole-molecule properties), LightGBM importance / TreeSHAP on bits, and a model lab
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
@@ -26,7 +23,7 @@ it with two custom [anywidget](https://anywidget.dev) components.
     atom environments behind each bit, dataset statistics per bit, and a gallery of the different
     substructures that collide in a selected bit; optionally per-bit model contributions
     (e.g. LightGBM TreeSHAP) and a per-atom attribution map
-- `src/molwidgets/ecfp.py` — a readable re-implementation of ECFP used by the tutorial
+- `src/molwidgets/ecfp.py` — a readable re-implementation of ECFP that drives `ECFPStepper`
 
 Molecules are drawn in the browser with RDKit.js; standardization, fingerprints, bit environments
 and collision statistics are computed with RDKit in Python.
@@ -35,7 +32,7 @@ and collision statistics are computed with RDKit in Python.
 
 ```bash
 uv sync
-uv run marimo edit notebooks/pxr_fingerprints.py
+uv run marimo edit notebooks/ecfp_pxr.py
 ```
 
 The notebook downloads the data from Hugging Face on first run
@@ -67,9 +64,4 @@ explorer = mo.ui.anywidget(
 uv run pytest
 uv run ruff format . && uv run ruff check --fix .
 uv run marimo check notebooks/*.py
-
-# after editing an English notebook, regenerate its Japanese edition
-uv run python scripts/translate_pxr_fingerprints_ja.py
-uv run python scripts/translate_ecfp_inside_ja.py
-uv run ruff format notebooks
 ```
