@@ -49,8 +49,21 @@ function render({ model, el }) {
         d.innerHTML = `<span>${name}</span>`;
         bar.appendChild(d);
       }
+      declutter();
     }
   };
+  // hide chapter labels that would overlap their left neighbour (narrow notebooks)
+  const declutter = () => {
+    let right = -Infinity;
+    for (const s of bar.querySelectorAll(".em-tick span")) {
+      s.style.visibility = "visible";
+      const r = s.getBoundingClientRect();
+      if (r.left < right + 6) s.style.visibility = "hidden";
+      else right = r.right;
+    }
+  };
+  const ro = new ResizeObserver(declutter);
+  ro.observe(bar);
   window.addEventListener("message", onMessage);
   btn.addEventListener("click", () => send({ cmd: "toggle" }));
   const seek = (ev) => {
@@ -63,7 +76,10 @@ function render({ model, el }) {
     bar.onpointermove = seek;
     bar.onpointerup = () => (bar.onpointermove = null);
   });
-  return () => window.removeEventListener("message", onMessage);
+  return () => {
+    window.removeEventListener("message", onMessage);
+    ro.disconnect();
+  };
 }
 
 export default { render };

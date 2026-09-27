@@ -12,10 +12,13 @@ import anywidget
 import numpy as np
 import traitlets
 from rdkit import Chem
+from rdkit.Chem import rdDepictor
 
 from .chem import BitCensus, bit_census, env_atoms_bonds, morgan_bits
 
 _STATIC = Path(__file__).parent / "static"
+# CoordGen draws rings and macrocycles more cleanly; RDKit.js uses it too (rdkit_loader.js).
+rdDepictor.SetPreferCoordGen(True)
 # Censuses are expensive (one pass over the reference set); share them between widget
 # instances so re-creating an explorer in a reactive cell is cheap.
 _CENSUS_CACHE: dict[tuple[int, int, int], BitCensus] = {}
@@ -441,6 +444,15 @@ class MorganBitTiles(anywidget.AnyWidget):
         self.gallery = rows
 
 
+# Colour key for Draw.DrawMorganEnv's default colours (same as MORGAN_ENV_KEY in rdkit_loader.js).
+_ENV_KEY_HTML = (
+    '<i style="background:rgb(153,153,230);margin-left:0"></i>centre atom'
+    '<i style="background:rgb(230,230,51)"></i>aromatic atom'
+    '<i style="background:rgb(204,204,204)"></i>aliphatic ring atom'
+    '<i style="background:rgb(230,230,230);border:1px dashed #9ca3af"></i>* where it attaches'
+)
+
+
 def bit_gallery(
     bit: int,
     reference: list[str],
@@ -475,9 +487,12 @@ def bit_gallery(
         ".mwg-card svg{width:100%;height:auto;display:block}"
         ".mwg-head{display:flex;justify-content:space-between;font-size:11px;color:#6b7280}"
         ".mwg-env{font:11px ui-monospace,monospace;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
-        ".mwg-id{font-size:10.5px;color:#6b7280}.mwg-title{margin:0 0 6px;font-weight:600}</style>"
+        ".mwg-id{font-size:10.5px;color:#6b7280}.mwg-title{margin:0 0 6px;font-weight:600}"
+        ".mwg-key{font-size:11.5px;color:#6b7280;margin:0 0 6px}"
+        ".mwg-key i{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:-1px;margin:0 4px 0 10px}</style>"
         f'<div class="mwg-title">Bit {bit}: {len(examples)} different environment'
         f"{'s' if len(examples) != 1 else ''} in the reference set"
         f"{f' (first {len(cards)} shown)' if more > 0 else ''}</div>"
+        f'<div class="mwg-key">{_ENV_KEY_HTML}</div>'
         f'<div class="mwg-grid">{"".join(cards)}</div>'
     )

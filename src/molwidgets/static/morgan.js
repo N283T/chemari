@@ -66,15 +66,17 @@ function seg(options, current, onPick) {
   return wrap;
 }
 
+const NO_HL = { atoms: [], bonds: [], stable: true }; // keeps the drawing's bounds fixed
+
 function hlFor(bitEntry) {
-  if (!bitEntry) return null;
+  if (!bitEntry) return { atoms: [], bonds: [], stable: true };
   const atoms = new Set(), bonds = new Set(), atomColors = {}, bondColors = {};
   for (const env of bitEntry.envs) {
     for (const a of env.atoms) { atoms.add(a); if (!(a in atomColors)) atomColors[a] = ENV; }
     for (const b of env.bonds) { bonds.add(b); bondColors[b] = ENV; }
   }
   for (const env of bitEntry.envs) atomColors[env.center] = CENTER;
-  return { atoms: [...atoms], bonds: [...bonds], atomColors, bondColors };
+  return { atoms: [...atoms], bonds: [...bonds], atomColors, bondColors, stable: true };
 }
 
 // Model attribution: split each bit's contribution evenly over the environments that set it,
@@ -93,7 +95,7 @@ function atomWeights(m, contrib) {
 }
 
 function heatFor(weights, scale) {
-  if (!weights || !scale) return null;
+  if (!weights || !scale) return { atoms: [], bonds: [], stable: true };
   const atoms = [], atomColors = {};
   for (const [k, v] of Object.entries(weights)) {
     const t = Math.min(1, Math.abs(v) / scale);
@@ -102,7 +104,7 @@ function heatFor(weights, scale) {
     atoms.push(Number(k));
     atomColors[k] = c.map((x) => 1 - t * (1 - x));
   }
-  return { atoms, bonds: [], atomColors, bondColors: {} };
+  return { atoms, bonds: [], atomColors, bondColors: {}, stable: true };
 }
 
 async function render({ model, el: host }) {
@@ -210,13 +212,18 @@ async function render({ model, el: host }) {
       return;
     }
 
+    root.appendChild(el("div", { className: "me-muted", style: "font-size:11.5px;margin:0 0 6px;line-height:1.9" },
+      legendHtml("Highlight", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) +
+      (contribActive()
+        ? legendHtml(get("contrib_label"), [[[0.84, 0.2, 0.2], "raises the prediction"], [[0.2, 0.42, 0.9], "lowers it"]])
+        : "")));
     const main = el("div", { className: "me-main" });
     const left = el("div", { className: "me-mols" });
     const heats = heatmaps(mols);
     mols.forEach((m, i) => {
       const tag = i === 0 ? "A" : "B";
       const entry = active != null ? m.bits.find((b) => b.bit === active) : null;
-      const hl = active != null ? hlFor(entry) : heats[i];
+      const hl = active != null ? hlFor(entry) : heats[i] ?? NO_HL;
       const card = el("div", { className: "me-mol" });
       const dot = mols.length === 2 ? `<span class="dot" style="background:${COLORS[tag]}"></span>${tag} · ` : "";
       const extra = m.label ? ` <span class="me-muted" style="font-weight:400">${m.label}</span>` : "";
@@ -327,7 +334,7 @@ async function render({ model, el: host }) {
       const m = mols[i];
       const entry = active != null ? m.bits.find((b) => b.bit === active) : null;
       const svg = card.querySelector("svg");
-      if (svg) svg.outerHTML = drawSvg(RDKit, m.smiles, 320, 200, active != null ? hlFor(entry) : heats[i], dark);
+      if (svg) svg.outerHTML = drawSvg(RDKit, m.smiles, 320, 200, active != null ? hlFor(entry) : heats[i] ?? NO_HL, dark);
     });
   }
 

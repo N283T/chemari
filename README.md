@@ -1,14 +1,15 @@
 # Similar, but not the same — Morgan fingerprints on PXR
 
 A [marimo](https://marimo.io) notebook for the molab Notebook Competition #3 (OpenADMET × marimo).
-It asks why Morgan-fingerprint models struggle on the OpenADMET PXR induction data, and answers
-it with two custom [anywidget](https://anywidget.dev) components.
+It explains what ECFP4 computes, then asks why Morgan-fingerprint models struggle on the OpenADMET
+PXR induction data, with custom [anywidget](https://anywidget.dev) components throughout.
 
-- `notebooks/pxr_fingerprints.py` — the notebook
-- `notebooks/pxr_fingerprints_ja.py` — Japanese edition (same analysis, Japanese prose)
-- `notebooks/ecfp_inside.py` — *Inside ECFP4*, a hands-on tutorial on the Morgan/ECFP algorithm,
-  folding and collisions, blind spots, and LightGBM importance / TreeSHAP maps on fingerprint bits
-- `notebooks/ecfp_inside_ja.py` — Japanese edition of the tutorial
+- `notebooks/ecfp_pxr.py` — **the notebook**: an 80 s ECFP4 movie, ECFP4 on real PXR molecules, how
+  the test set was built, where ECFP4 breaks (similarity principle, activity cliffs, identical
+  fingerprints, whole-molecule properties), LightGBM importance / TreeSHAP on bits, and a model lab
+- Earlier drafts, kept until the merged notebook has a Japanese edition:
+  - `notebooks/pxr_fingerprints.py` (+ `_ja`) — *Similar, but not the same*, the analysis notebook
+  - `notebooks/ecfp_inside.py` (+ `_ja`) — *Inside ECFP4*, the algorithm tutorial
 - `scripts/translate_*_ja.py` — regenerate the Japanese editions after editing the English notebooks
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and

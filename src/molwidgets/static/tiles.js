@@ -13,10 +13,11 @@ const CSS = `
 .bt-seg button + button { border-left:1px solid var(--bt-border); }
 .bt-seg button.on { background:var(--bt-fg); color:var(--bt-card); }
 .bt-lbl { color:var(--bt-muted); }
-.bt-main { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.15fr); gap:12px; align-items:start; }
+/* both columns share the row height: the list is capped, the molecule box stretches to match */
+.bt-main { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.15fr); gap:12px; align-items:stretch; }
 @media (max-width: 760px) { .bt-main { grid-template-columns: 1fr; } }
-.bt-mol { position:sticky; top:8px; background:var(--bt-card); border:1px solid var(--bt-border); border-radius:8px; padding:6px 8px; }
-.bt-mol svg { width:100%; height:auto; display:block; }
+.bt-mol { display:flex; flex-direction:column; justify-content:space-between; background:var(--bt-card); border:1px solid var(--bt-border); border-radius:8px; padding:6px 8px; min-height:0; }
+.bt-mol svg { width:100%; height:auto; max-height:460px; display:block; margin:auto 0; }
 .bt-cap { color:var(--bt-muted); font-size:12px; min-height:2.6em; }
 .bt-cap code { font-family:ui-monospace,monospace; color:var(--bt-fg); }
 .bt-list { max-height:520px; overflow:auto; border:1px solid var(--bt-border); border-radius:8px; }
@@ -44,6 +45,7 @@ const CSS = `
 .bt-tenv { font:11px ui-monospace,monospace; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .bt-muted { color:var(--bt-muted); }
 .bt-hint { color:var(--bt-muted); font-size:11.5px; margin-top:6px; }
+.bt-legend { color:var(--bt-muted); font-size:11.5px; margin:-2px 0 8px; line-height:1.9; }
 `;
 
 const CENTER = [0.55, 0.62, 0.95];
@@ -69,7 +71,7 @@ function seg(options, current, onPick) {
 const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 function highlight(tiles) {
-  if (!tiles.length) return null;
+  if (!tiles.length) return { atoms: [], bonds: [], stable: true };
   const atoms = new Set(), bonds = new Set(), atomColors = {}, bondColors = {};
   for (const t of tiles)
     for (const w of t.where) {
@@ -77,7 +79,7 @@ function highlight(tiles) {
       w.bonds.forEach((b) => { bonds.add(b); bondColors[b] = ENV; });
     }
   for (const t of tiles) for (const w of t.where) atomColors[w.center] = CENTER;
-  return { atoms: [...atoms], bonds: [...bonds], atomColors, bondColors };
+  return { atoms: [...atoms], bonds: [...bonds], atomColors, bondColors, stable: true };
 }
 
 async function render({ model, el: host }) {
@@ -103,7 +105,7 @@ async function render({ model, el: host }) {
     if (!box) return;
     const dark = root.classList.contains("dark");
     const act = active();
-    box.innerHTML = drawSvg(RDKit, get("smiles"), 360, 270, highlight(act), dark);
+    box.innerHTML = drawSvg(RDKit, get("smiles"), 400, 340, highlight(act), dark);
     const cap = el("div", { className: "bt-cap" });
     if (!act.length) cap.innerHTML = "Hover or click a bit on the right to see where it comes from.";
     else {
@@ -135,6 +137,10 @@ async function render({ model, el: host }) {
       `· ${tiles.length} environments → ${bits.size} bits` +
       (hits.size ? ` · <span style="color:var(--bt-hit);font-weight:600">${hits.size} collision${hits.size > 1 ? "s" : ""} inside this molecule</span>` : "")));
     root.appendChild(bar);
+    root.appendChild(el("div", { className: "bt-legend" },
+      legendHtml("Molecule", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) + "<br>" +
+      legendHtml("Bit cards", MORGAN_ENV_KEY) +
+      `<span style="white-space:nowrap"><i style="display:inline-block;width:4px;height:12px;background:var(--bt-hit);vertical-align:-2px;margin-right:4px"></i>red edge: shares a bit with another row</span>`));
 
     const main = el("div", { className: "bt-main" });
     main.appendChild(el("div", { className: "bt-mol" }));
@@ -160,9 +166,8 @@ async function render({ model, el: host }) {
     main.appendChild(list);
     root.appendChild(main);
     root.appendChild(el("div", { className: "bt-hint" },
-      "Each row is one distinct environment, drawn with RDKit's DrawMorganEnv (blue: centre atom, yellow: aromatic, " +
-      "grey: aliphatic ring, light grey: where it attaches). Red edge: two rows share a bit." +
-      (hasRef ? " Click a row to see every other substructure in the dataset that sets the same bit." : "")));
+      "Each row is one distinct environment, drawn with RDKit's DrawMorganEnv. Hover a row to light it up in the molecule." +
+      (hasRef ? " Click it to see every other substructure in the dataset that sets the same bit." : "")));
     drawMol();
 
     const gal = get("gallery");
