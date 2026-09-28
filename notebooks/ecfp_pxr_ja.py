@@ -16,7 +16,7 @@
 import marimo
 
 __generated_with = "0.25.0"
-app = marimo.App(width="medium", app_title="ECFP4 の中身と弱点")
+app = marimo.App(width="medium", app_title="その ECFP4、理解して使っていますか？")
 
 
 @app.cell(hide_code=True)
@@ -29,8 +29,8 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # ECFP4 の中身と弱点
-    ### なんとなく使っている ECFP (Morgan fingerprint) を開けてみる
+    # その ECFP4、理解して使っていますか？
+    ### 中身と弱点を PXR データで確かめる
 
     分子を機械学習にかけるとき、とりあえずこう書いていないでしょうか。
 
@@ -1346,7 +1346,8 @@ def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
 
     * 棒は重要度上位 15 の bit 長さはその bit に入る部分構造の種類数 (train)
     * {N_BITS} bit では 1 bit あたり約 {_envs:.0f} 種類入るが その bit が立つ分子の中央値
-      {_share:.0%} は一番多い部分構造 1 つで説明できる {_mixed_note}
+      {_share:.0%} は一番多い部分構造 1 つで説明できる
+    {_mixed_note}
     * 8192 bit でも上位 bit の主な部分構造はほぼ同じなので 精度はほとんど変わらない
     * 下で bit を選ぶと 中の部分構造を見られる
     """),
@@ -1825,11 +1826,7 @@ def _(mo):
       チャレンジでの取り組みに基づくもので、表示している数値はすべてこの notebook
       の中でその場で計算しています。
 
-    PXR
-    チャレンジについてもっと知りたい方は、[結果発表](https://openadmet.ghost.io/its-the-end-of-the-pxr-challenge-as-we-know-it-and-i-feel-fine/)に並んでいる参加者のモデルレポートを読んでみてください。私のレポート
-    (Activity トラック 4 位)
-    は[こちら](https://n283t.github.io/openadmet-pxr-model-report/)です。お察しのとおり、fingerprint
-    を使ったモデルは最終的なアンサンブルに採用しませんでした。
+    参加者がどんな手法を使ったかは、[チャレンジ後の解析](https://openadmet.ghost.io/dont-look-back-in-error-what-we-learned-predicting-pxr-induction-part-i/)に Tier 1 の 28 チーム分の表としてまとまっています。各チームのモデルレポートは[結果発表](https://openadmet.ghost.io/its-the-end-of-the-pxr-challenge-as-we-know-it-and-i-feel-fine/)から読めます。私のレポート (Activity トラック 4 位) は[こちら](https://n283t.github.io/openadmet-pxr-model-report/)です。お察しのとおり、fingerprint を使ったモデルは最終的なアンサンブルに採用しませんでした。
 
     ### 参考文献
 
