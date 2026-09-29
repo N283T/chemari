@@ -8,8 +8,8 @@ const COLORS = { A: "#3b82f6", B: "#f59e0b" };
 
 const CSS = `
 .me-root { font: 13px/1.4 system-ui, sans-serif; color: var(--me-fg); --me-fg:#1f2328; --me-muted:#6b7280;
-  --me-border:#d0d7de; --me-card:#fff; --me-soft:#f6f8fa; --me-sel:#fff4e0; }
-.me-root.dark { --me-fg:#e6e6e6; --me-muted:#9aa4b2; --me-border:#3a3f47; --me-card:#1c1f24; --me-soft:#24282e; --me-sel:#3a2f1c; }
+  --me-border:#d0d7de; --me-card:#fff; --me-soft:#f6f8fa; --me-sel:#fff4e0; --me-pin-edge:#babbc5; }
+.me-root.dark { --me-fg:#e6e6e6; --me-muted:#9aa4b2; --me-border:#3a3f47; --me-card:#1c1f24; --me-soft:#24282e; --me-sel:#3a2f1c; --me-pin-edge:#000; }
 .me-bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:8px; }
 .me-seg { display:inline-flex; border:1px solid var(--me-border); border-radius:6px; overflow:hidden; }
 .me-seg button { font:inherit; color:var(--me-fg); background:var(--me-soft); border:0; padding:3px 9px; cursor:pointer; }
@@ -38,9 +38,9 @@ const CSS = `
 .me-table .me-pin { position:sticky; min-width:112px; width:112px; box-sizing:border-box; background:var(--me-card); }
 .me-table th.me-pin { background:var(--me-soft); z-index:3; }
 .me-table .me-pin0 { right:0; }
-/* a single pinned column (one molecule) draws the divider itself */
-.me-table .me-pin0.me-solo { box-shadow:inset 2px 0 0 var(--me-muted), -6px 0 6px -6px rgba(0,0,0,.25); }
-.me-table .me-pin1 { right:112px; box-shadow:inset 2px 0 0 var(--me-muted), -6px 0 6px -6px rgba(0,0,0,.25); }
+/* the edge of marimo's frozen columns: a soft inset shadow; a single pinned column draws it itself */
+.me-table .me-pin0.me-solo { box-shadow:inset 4px 0 4px -4px var(--me-pin-edge); }
+.me-table .me-pin1 { right:112px; box-shadow:inset 4px 0 4px -4px var(--me-pin-edge); }
 .me-table tr.sel td.me-pin { background:var(--me-sel); }
 .me-table tr:hover td.me-pin { background:var(--me-soft); }
 .me-table td.env { font-family:ui-monospace,monospace; max-width:220px; overflow:hidden; text-overflow:ellipsis; }
