@@ -17,8 +17,9 @@ components are used throughout.
   - `MolPair`: two molecules side by side, B drawn in A's orientation. A maximum common
     substructure (any element may match any other) maps the atoms: atoms in one molecule only are
     orange, matched atoms whose element, charge or R/S label differ are violet (E/Z too), and
-    hovering an atom rings its partner. Between the drawings: Tanimoto, Δ of chosen values (with
-    fold change for log units); below, RDKit descriptors of both and their difference
+    hovering an atom rings its partner. Below: Tanimoto and the size of each atom group (hover to
+    ring its atoms), then one table of the given values and RDKit descriptors for A, B and B − A
+    (with fold change for log units)
   - `ECFPMovie`: an ~80 s animated explainer of ECFP4 (radius 0 → 2, duplicates, folding,
     collisions, Tanimoto) for N-methylacetamide, built on real RDKit identifiers; a self-contained
     HTML page (`static/ecfp_movie.html`) shown in an iframe

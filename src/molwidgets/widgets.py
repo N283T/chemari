@@ -829,7 +829,7 @@ class MolPair(_Computing):
     under each drawing; ``delta_cols`` get B − A between them, and ``fold_cols`` also the
     fold-change ``10**|Δ|`` (for log units such as pEC50). ``descriptors`` are RDKit
     descriptors compared in a table (names from ``PAIR_DESCRIPTORS`` or ``{name: fn(mol)}``).
-    The centre also shows the Morgan Tanimoto at ``radius`` / ``n_bits``.
+    The summary line also shows the Morgan Tanimoto at ``radius`` / ``n_bits``.
     """
 
     _esm = _bundle("molpair.js")
@@ -988,6 +988,11 @@ class MolPair(_Computing):
                         and bd.GetEndAtomIdx() in mine
                     }
                 )
+            # Highlight circles count towards the drawing's bounds, so marking an edge atom
+            # would shift the molecule when the mode changes: give every other atom an
+            # invisible one, and the layout stays put.
+            for i in range(mol.GetNumAtoms()):
+                atoms.setdefault(i, (1.0, 1.0, 1.0, 0.0))
             drawer = rdMolDraw2D.MolDraw2DSVG(*self._size)
             opts = drawer.drawOptions()
             opts.clearBackground = False
