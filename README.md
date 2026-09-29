@@ -28,9 +28,11 @@ components are used throughout.
     folds onto it
   - `BitAtlas`: every folded bit of a dataset, one row per bit, with the distinct substructures
     that fold onto it; sortable by bit index, number of substructures or number of molecules
-  - `BitImportance`: a fingerprint model's most important bits (e.g. LightGBM gain or mean |SHAP|),
-    ranked, with each bit's direction, its most common substructure and how many distinct
-    substructures share it; clicking a bit lists every substructure that folds onto it
+  - `BitImportance`: every bit of a fingerprint model ranked by its importance (e.g. LightGBM gain
+    or mean |SHAP|), in either direction so unused bits can be browsed too, with each bit's
+    direction, its most common substructure and how many substructures and molecules it has;
+    below, the selected bit's substructures and the molecules that set it, with the responsible
+    atoms highlighted (click a substructure to keep only its molecules)
   - `MorganExplorer`: bit-by-bit view of a Morgan fingerprint for one molecule or a pair, with the
     atom environments behind each bit, dataset statistics per bit, and a gallery of the different
     substructures that collide in a selected bit; optionally per-bit model contributions
