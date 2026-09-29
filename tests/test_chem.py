@@ -181,3 +181,32 @@ def test_widgets_bump_rev_after_recomputing():
     before = atlas.rev
     atlas.sort = "envs"
     assert atlas.rev > before
+
+
+def test_bit_importance_ranks_bits_and_shows_their_substructures():
+    import numpy as np
+
+    from molwidgets import BitImportance
+
+    gain = np.zeros(64)
+    gain[[5, 9]] = [1.0, 3.0]
+    w = BitImportance(["CCO", "c1ccccc1O", "CC(=O)N"], importance={"gain": gain}, effect=gain - 1)
+    assert w.sort == "gain" and w.n_bits == 64
+    assert [r["bit"] for r in w.rows[:2]] == [9, 5]
+    assert (
+        w.rows[0]["rank"] == 1
+        and w.rows[0]["scores"]["gain"] == 0.75
+        and w.rows[0]["effect"] == 2.0
+    )
+    assert w.selected == 9 and w.detail["bit"] == 9  # the top bit is open from the start
+    busy = next(r["bit"] for r in w.rows if r["n_envs"])
+    w.selected = busy
+    assert len(w.detail["envs"]) >= 1 and "<svg" in w.detail["envs"][0]["svg"]
+    assert w.mols["total"] == w.detail["n_mols"] and w.mols["items"][0]["hits"]  # atoms to light up
+    w.mol_filter = w.detail["envs"][0]["uid"]
+    assert w.mols["total"] == w.detail["envs"][0]["count"]
+    w.descending = False  # unused bits first, most frequent first
+    assert w.rows[0]["scores"]["gain"] == 0
+    w.page_size = 10
+    w.page = 1
+    assert w.rows[0]["rank"] == 11 and len(w.order) == 64  # every bit is ranked, a page at a time

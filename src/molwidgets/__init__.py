@@ -12,6 +12,7 @@ from .chem import (
 from .ecfp import ecfp_trace
 from .widgets import (
     BitAtlas,
+    BitImportance,
     ECFPMovie,
     ECFPStepper,
     MolGrid,
@@ -24,6 +25,7 @@ from .widgets import (
 __all__ = [
     "BitAtlas",
     "BitCensus",
+    "BitImportance",
     "ECFPMovie",
     "ECFPStepper",
     "MolGrid",
