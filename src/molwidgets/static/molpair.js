@@ -1,6 +1,9 @@
-// MolPair: two compounds side by side, the Tanimoto similarity, and a property table with B − A.
-// Two switches (both off by default) highlight the common substructure and align B to A.
-// Drawings and numbers come from Python (RDKit). Styled like MorganExplorer / BitImportance.
+// MolPair: two compounds side by side, the Tanimoto similarity, and a property table. Each row
+// has A and B as a dumbbell on the property's typical range and B − A as a bar on the same scale.
+// Two switches (both off by default) highlight the common substructure and align B to A. Below
+// the drawings, the table can switch to the difference: the common part with R1, R2, … and per
+// site A's piece → B's piece. The common part's SMILES has a copy button, and each drawing a
+// copy icon for its SMILES. Drawings and numbers come from Python (RDKit). Styled like MorganExplorer / BitImportance.
 // Depends on isDark / busyIndicator (prepended by the Python side).
 
 const CSS = `
@@ -27,7 +30,16 @@ const CSS = `
 .mp-mol .cap { color:#6b7280; font-size:11.5px; text-align:center; }
 .mp-mol .smi { font:11px ui-monospace, monospace; color:#6b7280; word-break:break-all; text-align:center; }
 .mp-mol .bad { color:#e03131; font-size:12px; padding:40px 0; text-align:center; }
-.mp-mcs { color:var(--mp-muted); font-size:12px; margin:6px 0 0; min-height:1.45em; }
+.mp-mcs { color:var(--mp-muted); font-size:12px; margin:6px 0 0; min-height:1.45em; display:flex;
+  flex-wrap:wrap; align-items:center; gap:6px; }
+.mp-mcs .txt { flex:1; min-width:0; word-break:break-all; }
+.mp-seg { display:inline-flex; }
+.mp-seg .mp-sw { border-radius:0; font-size:12px; }
+.mp-seg .mp-sw:first-child { border-radius:6px 0 0 6px; }
+.mp-seg .mp-sw:last-child { border-radius:0 6px 6px 0; border-left:0; }
+.mp-copy { font:12px system-ui, sans-serif; color:var(--mp-fg); background:var(--mp-soft); border:1px solid var(--mp-border);
+  border-radius:6px; padding:2px 10px; margin-left:6px; cursor:pointer; vertical-align:middle; flex:none; white-space:nowrap; }
+.mp-copy:hover { border-color:var(--mp-muted); }
 .mp-mcs code { font:11px ui-monospace, monospace; color:var(--mp-fg); }
 .mp-mcs i { display:inline-block; width:10px; height:10px; border-radius:50%; background:rgb(140,199,255); vertical-align:-1px; margin-right:5px; }
 .mp-wrap { border:1px solid var(--mp-border); border-radius:8px; overflow:hidden; margin-top:8px; }
@@ -44,6 +56,32 @@ const CSS = `
 .mp-table td.delta { color:var(--mp-muted); font-weight:400; }
 .mp-table td.delta.up { color:var(--mp-up); }
 .mp-table td.delta.down { color:var(--mp-down); }
+.mp-table td.a { padding-right:10px; }
+.mp-table td.b { text-align:left; padding-left:10px; }
+.mp-table td.bell { width:40%; }
+.mp-table td.dbar { width:18%; }
+.mp-track { position:relative; height:14px; }
+.mp-track i { position:absolute; display:block; }
+.mp-track .rail { top:6px; left:0; right:0; height:2px; background:var(--mp-track); }
+.mp-track .span { top:6px; height:2px; background:var(--mp-muted); opacity:.6; }
+.mp-track .pt { top:2px; width:10px; height:10px; margin-left:-5px; border-radius:50%; }
+.mp-track .zero { top:0; bottom:0; left:50%; width:1px; background:var(--mp-border); }
+.mp-track .bar { top:3px; height:8px; border-radius:2px; opacity:.75; }
+.mp-track .bar.up { background:var(--mp-up); }
+.mp-track .bar.down { background:var(--mp-down); }
+.mp-diff { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); gap:12px; padding:8px; align-items:start; }
+@media (max-width: 640px) { .mp-diff { grid-template-columns:1fr; } }
+.mp-diff .lbl { color:var(--mp-muted); font-size:12px; margin-bottom:2px; }
+.mp-core { background:#fff; border:1px solid var(--mp-border); border-radius:8px; padding:4px; }
+.mp-core svg { width:100%; height:auto; max-height:220px; display:block; }
+.mp-edits { display:grid; grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr); gap:6px 8px; align-items:center; }
+.mp-edits .h { font-weight:600; font-size:12px; text-align:center; }
+.mp-edits .site { font-weight:600; }
+.mp-edits .to { color:var(--mp-muted); font-size:16px; }
+.mp-piece { background:#fff; color:#1f2328; border:1px solid var(--mp-border); border-radius:8px; height:100px;
+  display:flex; align-items:center; justify-content:center; font:600 16px ui-monospace, monospace; overflow:hidden; }
+.mp-piece svg { max-width:100%; max-height:100%; width:auto; height:auto; display:block; }
+.mp-none { color:var(--mp-muted); padding:12px; }
 `;
 
 const SIDE = ["#3b82f6", "#f59e0b"]; // A, B: the same colours as MorganExplorer
@@ -66,6 +104,52 @@ function deltaCell(a, b, digits) {
   return `<td class="delta ${d > 0 ? "up" : "down"}">${d > 0 ? "▲" : "▼"} ${fmt(Math.abs(d), digits)}</td>`;
 }
 
+const has = (v) => v !== null && v !== undefined;
+
+const copyButton = (text) => `<button class="mp-copy" data-copy="${esc(text)}">copy</button>`;
+
+// The "common part" view: the common substructure with R1, R2, … where A and B differ, and per
+// site what A has there → what B has (H when nothing; a changed atom shows its element or CIP
+// label). Hover a piece for its SMILES.
+function diffView(data) {
+  const e = data.edits || { sites: [] };
+  const cell = (site, k) => {
+    if (site.change) return `<div class="mp-piece" title="${esc(site.kind)}">${esc(site.change[k])}</div>`;
+    const smi = site.smiles[k];
+    return `<div class="mp-piece" title="${esc(smi || "H")}">${site.svg[k] || "H"}</div>`;
+  };
+  const rows = e.sites.map((site) =>
+    `<span class="site">${esc(site.label)}</span>${cell(site, 0)}<span class="to">→</span>${cell(site, 1)}`).join("");
+  const edits = e.sites.length
+    ? `<div class="mp-edits"><span></span><span class="h" style="color:${SIDE[0]}">A</span><span></span>` +
+      `<span class="h" style="color:${SIDE[1]}">B</span>${rows}</div>`
+    : `<div class="mp-none">no difference: same graph and stereocentres</div>`;
+  return `<div class="mp-diff"><div><div class="lbl">common substructure</div><div class="mp-core mw-copyable">${e.core_svg}${smilesCopyHtml(e.core_smiles)}</div></div>` +
+    `<div><div class="lbl">what differs</div>${edits}</div></div>`;
+}
+
+// One table row: label | A | dumbbell | B | B − A bar | B − A. The dumbbell's axis is `range`
+// (for values without one, the two values ± 1); the bar is centred on 0 and half its track is
+// the whole range, so bars compare across rows.
+function row(cls, label, a, b, digits, range) {
+  let [lo, hi] = range || [Math.min(a ?? b, b ?? a) - 1, Math.max(a ?? b, b ?? a) + 1];
+  if (!(hi > lo)) [lo, hi] = [0, 1];
+  const x = (v) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
+  let bell = `<i class="rail"></i>`;
+  if (has(a) && has(b) && a !== b)
+    bell += `<i class="span" style="left:${Math.min(x(a), x(b))}%;width:${Math.abs(x(b) - x(a))}%"></i>`;
+  if (has(a)) bell += `<i class="pt" style="left:${x(a)}%;background:${SIDE[0]}"></i>`;
+  if (has(b)) bell += `<i class="pt" style="left:${x(b)}%;background:${SIDE[1]};opacity:.85"></i>`;
+  let bar = `<i class="zero"></i>`;
+  if (has(a) && has(b) && Math.abs(b - a) >= Math.pow(10, -(digits ?? 2)) / 2) {
+    const w = Math.min(50, (Math.abs(b - a) / (hi - lo)) * 50);
+    bar += `<i class="bar ${b > a ? "up" : "down"}" style="left:${b > a ? 50 : 50 - w}%;width:${w}%"></i>`;
+  }
+  return `<tr class="${cls}"><td>${esc(label)}</td><td class="a">${fmt(a, digits)}</td>` +
+    `<td class="bell"><div class="mp-track">${bell}</div></td><td class="b">${fmt(b, digits)}</td>` +
+    `<td class="dbar"><div class="mp-track">${bar}</div></td>${deltaCell(a, b, digits)}</tr>`;
+}
+
 function render({ model, el }) {
   const root = document.createElement("div");
   root.className = "mp-root" + (isDark(el) ? " dark" : "");
@@ -73,19 +157,44 @@ function render({ model, el }) {
   const body = document.createElement("div");
   root.appendChild(body);
   el.appendChild(root);
-  const busy = busyIndicator(model, el, ["molecules", "show_common", "align"]);
+  const busy = busyIndicator(model, el, ["molecules", "show_common", "align", "view"]);
+  enableSmilesCopy(root, model);
+  root.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-copy]");
+    if (!b) return;
+    await copyText(b.dataset.copy);
+    b.textContent = "copied";
+    setTimeout(() => (b.textContent = "copy"), 1200);
+  });
+
+  // set several traits at once; the "computing" indicator only when Python has to search
+  function change(next) {
+    if (!(model.get("data") || {}).searched || "align" in next) busy(next);
+    for (const [k, v] of Object.entries(next)) model.set(k, v);
+    model.save_changes();
+  }
 
   function toggle(name, label) {
     const b = document.createElement("button");
     b.className = "mp-sw" + (model.get(name) ? " on" : "");
     b.textContent = label;
-    b.addEventListener("click", () => {
-      const next = { [name]: !model.get(name) };
-      busy(next);
-      model.set(name, next[name]);
-      model.save_changes();
-    });
+    // once the common part is known both drawings are here, so that switch needs no Python
+    b.addEventListener("click", () => change({ [name]: !model.get(name) }));
     return b;
+  }
+
+  function viewSwitch() {
+    const seg = document.createElement("span");
+    seg.className = "mp-seg";
+    for (const [v, label] of [["properties", "properties"], ["common", "common part"]]) {
+      const b = document.createElement("button");
+      b.className = "mp-sw" + (model.get("view") === v ? " on" : "");
+      b.textContent = label;
+      // the common-part view also highlights it in the drawings
+      b.addEventListener("click", () => change(v === "common" ? { view: v, show_common: true } : { view: v }));
+      seg.appendChild(b);
+    }
+    return seg;
   }
 
   function molBox(side, k) {
@@ -93,7 +202,10 @@ function render({ model, el }) {
     const head = `<h4><i class="dot" style="background:${SIDE[k]}"></i>${name}${side.id && side.id !== name ? ` <span>${esc(side.id)}</span>` : ""}</h4>`;
     if (!side.valid)
       return `<div class="mp-mol">${head}<div class="bad">Could not parse SMILES</div><div class="smi">${esc(side.smiles)}</div></div>`;
-    return `<div class="mp-mol">${head}${side.svg}<div class="cap">${esc(side.formula)}</div><div class="smi">${esc(side.smiles)}</div></div>`;
+    const cap = (model.get("show_formula") ? `<div class="cap">${esc(side.formula)}</div>` : "") +
+      (model.get("show_smiles") ? `<div class="smi">${esc(side.smiles)}</div>` : "");
+    const svg = model.get("show_common") && side.svg_common ? side.svg_common : side.svg;
+    return `<div class="mp-mol mw-copyable">${head}${svg}${smilesCopyHtml(side.smiles)}${cap}</div>`;
   }
 
   function draw() {
@@ -119,33 +231,52 @@ function render({ model, el }) {
     mols.innerHTML = sides.map(molBox).join("");
     body.appendChild(mols);
 
-    // one line, always present, so switching the common part on does not move the table
+    // one line, always present (it holds the table's switch), so the table never moves
     const mcs = document.createElement("div");
     mcs.className = "mp-mcs";
-    if (both && model.get("show_common"))
-      mcs.innerHTML = data.mcs_atoms > 0
-        ? `<i></i>common substructure: ${data.mcs_atoms} atoms · <code>${esc(data.mcs_smiles)}</code>`
+    const txt = document.createElement("span");
+    txt.className = "txt";
+    const common = model.get("view") === "common";
+    if (both && data.searched && (model.get("show_common") || common))
+      txt.innerHTML = data.mcs_atoms > 0
+        ? `<i></i>common substructure: ${data.mcs_atoms} atoms · <code>${esc(data.mcs_smiles)}</code>${copyButton(data.mcs_smiles)}`
         : "no common substructure found";
+    mcs.appendChild(txt);
+    if (both) mcs.appendChild(viewSwitch());
     body.appendChild(mcs);
 
     if (!both) return;
+    if (common) {
+      const wrap = document.createElement("div");
+      wrap.className = "mp-wrap";
+      wrap.innerHTML = !data.searched
+        ? `<div style="padding:12px;color:var(--mp-muted)">searching for the common substructure…</div>`
+        : data.mcs_atoms > 0 ? diffView(data)
+        : `<div style="padding:12px;color:var(--mp-muted)">no common substructure found</div>`;
+      body.appendChild(wrap);
+      return;
+    }
+    const ranges = data.value_ranges || {};
     const valueRows = Object.keys(sides[0].values || {}).map((key) => {
       const a = sides[0].values[key], b = sides[1].values[key];
-      return `<tr class="value"><td>${esc(key)}</td><td>${fmt(a)}</td><td>${fmt(b)}</td>${deltaCell(a, b)}</tr>`;
+      return row("value", key, a, b, undefined, ranges[key]);
     });
-    const propRows = (data.property_meta || []).map(({ key, label, digits }) => {
-      const a = sides[0].props[key], b = sides[1].props[key];
-      return `<tr><td>${esc(label)}</td><td>${fmt(a, digits)}</td><td>${fmt(b, digits)}</td>${deltaCell(a, b, digits)}</tr>`;
-    });
+    const propRows = (data.property_meta || []).map(({ key, label, digits, range }) =>
+      row("", label, sides[0].props[key], sides[1].props[key], digits, range));
     const wrap = document.createElement("div");
     wrap.className = "mp-wrap";
-    wrap.innerHTML = `<table class="mp-table"><thead><tr><th>Property</th><th style="color:${SIDE[0]}">A</th>` +
-      `<th style="color:${SIDE[1]}">B</th><th>B − A</th></tr></thead><tbody>${[...valueRows, ...propRows].join("")}</tbody></table>`;
+    wrap.innerHTML = `<table class="mp-table"><thead><tr><th>Property</th><th style="color:${SIDE[0]}">A</th><th></th>` +
+      `<th style="color:${SIDE[1]};text-align:left">B</th><th colspan="2" style="text-align:center">B − A</th></tr></thead>` +
+      `<tbody>${[...valueRows, ...propRows].join("")}</tbody></table>`;
     body.appendChild(wrap);
   }
 
   draw();
   model.on("change:data", draw);
+  model.on("change:show_common", draw);
+  model.on("change:view", draw);
+  model.on("change:show_formula", draw);
+  model.on("change:show_smiles", draw);
 }
 
 export default { render };

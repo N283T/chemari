@@ -121,6 +121,7 @@ function heatFor(weights, scale) {
 
 async function render({ model, el: host }) {
   const root = el("div", { className: "me-root" });
+  enableSmilesCopy(root, model);
   if (isDark(host)) root.classList.add("dark");
   root.appendChild(el("style", {}, CSS));
   host.appendChild(root);
@@ -238,10 +239,10 @@ async function render({ model, el: host }) {
       const tag = i === 0 ? "A" : "B";
       const entry = active != null ? m.bits.find((b) => b.bit === active) : null;
       const hl = active != null ? hlFor(entry) : heats[i] ?? NO_HL;
-      const card = el("div", { className: "me-mol" });
+      const card = el("div", { className: "me-mol mw-copyable" });
       const dot = mols.length === 2 ? `<span class="dot" style="background:${COLORS[tag]}"></span>${tag} · ` : "";
       const extra = m.label ? ` <span class="me-muted" style="font-weight:400">${m.label}</span>` : "";
-      card.innerHTML = `<h4>${dot}${m.id}${extra}</h4>` + drawSvg(RDKit, m.smiles, 320, 200, hl, dark, molOpts());
+      card.innerHTML = `<h4>${dot}${m.id}${extra}</h4>` + drawSvg(RDKit, m.smiles, 320, 200, hl, dark, molOpts()) + smilesCopyHtml(m.smiles);
       const cap = el("div", { className: "me-cap" });
       if (active != null)
         cap.innerHTML = entry
@@ -332,8 +333,8 @@ async function render({ model, el: host }) {
       const g = el("div", { className: "me-coll-grid" });
       for (const e of ex.slice(0, 12)) {
         const hl = { atoms: e.atoms, bonds: e.bonds, atomColors: Object.fromEntries(e.atoms.map((a) => [a, a === e.center ? CENTER : ENV])), bondColors: Object.fromEntries(e.bonds.map((b) => [b, ENV])) };
-        const c = el("div", { className: "me-coll-card" });
-        c.innerHTML = drawSvg(RDKit, e.parent_smiles, 200, 140, hl, dark) + `<code title="${e.smiles}">${e.smiles}</code><span class="me-muted">r${e.radius} · in ${e.count} mols</span>`;
+        const c = el("div", { className: "me-coll-card mw-copyable" });
+        c.innerHTML = drawSvg(RDKit, e.parent_smiles, 200, 140, hl, dark) + smilesCopyHtml(e.parent_smiles) + `<code title="${e.smiles}">${e.smiles}</code><span class="me-muted">r${e.radius} · in ${e.count} mols</span>`;
         g.appendChild(c);
       }
       box.appendChild(g);

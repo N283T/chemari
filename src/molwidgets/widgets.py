@@ -69,6 +69,8 @@ class MolGrid(anywidget.AnyWidget):
     """
 
     _esm = _bundle("molgrid.js")
+    # the copy-SMILES icon in the corner of each molecule drawing
+    copy_smiles = traitlets.Bool(True).tag(sync=True)
 
     data = traitlets.List(traitlets.Dict()).tag(sync=True)
     id_col = traitlets.Unicode("id").tag(sync=True)
@@ -122,6 +124,8 @@ class MorganExplorer(_Computing):
     """
 
     _esm = _bundle("morgan.js")
+    # the copy-SMILES icon in the corner of each molecule drawing
+    copy_smiles = traitlets.Bool(True).tag(sync=True)
 
     molecules = traitlets.List(traitlets.Dict()).tag(sync=False)
     radius = traitlets.Int(2).tag(sync=True)
@@ -264,6 +268,8 @@ class ECFPStepper(_Computing):
     """
 
     _esm = _bundle("stepper.js")
+    # the copy-SMILES icon in the corner of each molecule drawing
+    copy_smiles = traitlets.Bool(True).tag(sync=True)
 
     smiles = traitlets.Unicode("CC(=O)Nc1ccc(O)cc1").tag(sync=True)
     max_radius = traitlets.Int(2).tag(sync=True)
@@ -410,6 +416,8 @@ class MorganBitTiles(_Computing):
     """
 
     _esm = _bundle("tiles.js")
+    # the copy-SMILES icon in the corner of each molecule drawing
+    copy_smiles = traitlets.Bool(True).tag(sync=True)
 
     radius = traitlets.Int(2).tag(sync=True)
     n_bits = traitlets.Int(2048).tag(sync=True)
@@ -592,6 +600,8 @@ class BitImportance(_Computing):
     """
 
     _esm = _bundle("importance.js")
+    # the copy-SMILES icon in the corner of each molecule drawing
+    copy_smiles = traitlets.Bool(True).tag(sync=True)
 
     radius = traitlets.Int(2).tag(sync=True)
     n_bits = traitlets.Int(2048).tag(sync=True)
@@ -792,41 +802,58 @@ class BitImportance(_Computing):
         }
 
 
-def _pair_properties() -> list[tuple[str, str, Any, int]]:
-    """(key, label, fn(mol), decimals) of every property MolPair lists."""
+def _pair_properties() -> list[tuple[str, str, Any, int, tuple[float, float]]]:
+    """(key, label, fn(mol), decimals, typical range) of every property MolPair lists. The range
+    (drug-like compounds) is the axis of the property's dumbbell, the same for every pair."""
     from rdkit.Chem import QED, Crippen, Descriptors, Lipinski, rdMolDescriptors
 
     return [
-        ("MW", "Mol. weight", Descriptors.MolWt, 1),  # ty: ignore[unresolved-attribute]
-        ("cLogP", "Crippen logP", Crippen.MolLogP, 2),  # ty: ignore[unresolved-attribute]
-        ("TPSA", "Polar surface area", rdMolDescriptors.CalcTPSA, 1),
-        ("HBD", "H-bond donors", Lipinski.NumHDonors, 0),  # ty: ignore[unresolved-attribute]
-        ("HBA", "H-bond acceptors", Lipinski.NumHAcceptors, 0),  # ty: ignore[unresolved-attribute]
-        ("RotB", "Rotatable bonds", Lipinski.NumRotatableBonds, 0),  # ty: ignore[unresolved-attribute]
-        ("Rings", "Ring count", rdMolDescriptors.CalcNumRings, 0),
-        ("AroRings", "Aromatic rings", rdMolDescriptors.CalcNumAromaticRings, 0),
-        ("HeavyAtoms", "Heavy atoms", lambda m: m.GetNumHeavyAtoms(), 0),
-        ("Fsp3", "Fraction sp3 C", rdMolDescriptors.CalcFractionCSP3, 2),
-        ("QED", "QED", QED.qed, 2),
+        ("MW", "Mol. weight", Descriptors.MolWt, 1, (0, 600)),  # ty: ignore[unresolved-attribute]
+        ("cLogP", "Crippen logP", Crippen.MolLogP, 2, (-2, 7)),  # ty: ignore[unresolved-attribute]
+        ("TPSA", "Polar surface area", rdMolDescriptors.CalcTPSA, 1, (0, 160)),
+        ("HBD", "H-bond donors", Lipinski.NumHDonors, 0, (0, 6)),  # ty: ignore[unresolved-attribute]
+        ("HBA", "H-bond acceptors", Lipinski.NumHAcceptors, 0, (0, 12)),  # ty: ignore[unresolved-attribute]
+        ("RotB", "Rotatable bonds", Lipinski.NumRotatableBonds, 0, (0, 12)),  # ty: ignore[unresolved-attribute]
+        ("Rings", "Ring count", rdMolDescriptors.CalcNumRings, 0, (0, 6)),
+        ("AroRings", "Aromatic rings", rdMolDescriptors.CalcNumAromaticRings, 0, (0, 5)),
+        ("HeavyAtoms", "Heavy atoms", lambda m: m.GetNumHeavyAtoms(), 0, (0, 45)),
+        ("Fsp3", "Fraction sp3 C", rdMolDescriptors.CalcFractionCSP3, 2, (0, 1)),
+        ("QED", "QED", QED.qed, 2, (0, 1)),
     ]
 
 
 class MolPair(_Computing):
     """Two compounds side by side: their drawings with the common substructure highlighted,
-    the Tanimoto similarity, and a table of properties with B − A.
+    the Tanimoto similarity, and a table of properties. Each row shows A and B as a dumbbell on
+    the property's typical range and B − A as a bar on the same scale.
+
+    Below the drawings, ``view`` switches between the property table ("properties") and the
+    difference ("common"): the common substructure with R1, R2, … where A and B differ, and per
+    site the piece each has there (or a changed element or stereocentre). The common part's
+    SMILES (R<n> as ``[*:n]``) can be copied like any drawing's. ``mcs`` holds the search options of
+    :func:`find_mcs` (e.g. ``{"atoms": "any"}`` so a ring CH → N stays matched and is shown as
+    a changed element); changing it searches again.
 
     ``a`` and ``b`` are dicts (a DataFrame row works) or SMILES strings. ``value_cols`` are
-    further values of each compound (e.g. a measured pEC50) listed first in the table. Two
+    further values of each compound (e.g. a measured pEC50) listed first in the table;
+    ``value_ranges`` gives their axes (``{"pEC50": (3, 9)}``), otherwise the axis is the two
+    values ± 1. ``show_formula`` / ``show_smiles`` switch the captions under the drawings. Two
     switches, both off by default: "common part" (``show_common``) highlights the maximum
     common substructure, and "align B to A" (``align``) redraws B in A's orientation along it.
     The common substructure is searched only while one of them is on.
     """
 
     _esm = _bundle("molpair.js")
+    # the copy-SMILES icon in the corner of each molecule drawing
+    copy_smiles = traitlets.Bool(True).tag(sync=True)
 
     molecules = traitlets.List(traitlets.Dict()).tag(sync=True)
     show_common = traitlets.Bool(False).tag(sync=True)
     align = traitlets.Bool(False).tag(sync=True)
+    show_formula = traitlets.Bool(True).tag(sync=True)
+    show_smiles = traitlets.Bool(True).tag(sync=True)
+    view = traitlets.Unicode("properties").tag(sync=True)  # the table: "properties" or "common"
+    mcs = traitlets.Dict().tag(sync=True)  # find_mcs options: atoms, bonds, ring_matches_ring, …
     data = traitlets.Dict().tag(sync=True)
 
     def __init__(
@@ -836,16 +863,28 @@ class MolPair(_Computing):
         id_col: str = "id",
         smiles_col: str = "smiles",
         value_cols: list[str] | None = None,
+        value_ranges: dict[str, tuple[float, float]] | None = None,
         mcs_timeout: float = 2.0,
         **kwargs: Any,
     ) -> None:
         self._id_col, self._smiles_col = id_col, smiles_col
         self._value_cols = list(value_cols or [])
+        self._value_ranges = {
+            k: [float(lo), float(hi)] for k, (lo, hi) in (value_ranges or {}).items()
+        }
         self._timeout = mcs_timeout
         super().__init__(molecules=[self._as_dict(a, "A"), self._as_dict(b, "B")], **kwargs)
-        self.observe(self._compute, names=["molecules", "show_common", "align"])
-        self._signal_done(["molecules", "show_common", "align"])
+        self._mcs_cache: dict[tuple[str, str, str], dict] = {}
+        self.observe(self._compute, names=["molecules", "align", "mcs"])
+        self.observe(self._on_common, names=["show_common", "view"])
+        self._signal_done(["molecules", "show_common", "align", "view", "mcs"])
         self._compute()
+
+    def _on_common(self, _change=None) -> None:
+        # both drawings (plain and highlighted) are sent once the common part is known, so the
+        # browser flips between them; only the first switch-on has to search for it
+        if (self.show_common or self.view == "common") and not self.data.get("searched"):
+            self._compute()
 
     def _as_dict(self, m: Any, fallback_id: str) -> dict:
         if isinstance(m, str):
@@ -864,9 +903,8 @@ class MolPair(_Computing):
     def _compute(self, _change=None) -> None:
         from rdkit import DataStructs
         from rdkit.Chem import rdMolDescriptors
-        from rdkit.Chem.Draw import rdMolDraw2D
 
-        from .chem import _generator, common_substructure
+        from .chem import _generator, find_mcs
 
         props = _pair_properties()
         mols = [Chem.MolFromSmiles(m["smiles"]) for m in self.molecules]
@@ -882,11 +920,14 @@ class MolPair(_Computing):
                 rdDepictor.Compute2DCoords(mol)
                 side["smiles"] = Chem.MolToSmiles(mol)
                 side["formula"] = rdMolDescriptors.CalcMolFormula(mol)
-                side["props"] = {k: round(float(fn(mol)), d) for k, _, fn, d in props}
+                side["props"] = {k: round(float(fn(mol)), d) for k, _, fn, d, _ in props}
             sides.append(side)
         data: dict[str, Any] = {
             "sides": sides,
-            "property_meta": [{"key": k, "label": lbl, "digits": d} for k, lbl, _, d in props],
+            "property_meta": [
+                {"key": k, "label": lbl, "digits": d, "range": list(r)} for k, lbl, _, d, r in props
+            ],
+            "value_ranges": self._value_ranges,
             "similarity": None,
             "searched": False,
             "mcs_atoms": 0,
@@ -900,37 +941,207 @@ class MolPair(_Computing):
                 gen.GetFingerprint(ma), gen.GetFingerprint(mb)
             )
             pairs, bonds_a, bonds_b = [], [], []
-            if self.show_common or self.align:
-                pairs, bonds_a, bonds_b = common_substructure(ma, mb, self._timeout)
+            opts: dict[str, Any] = {"timeout": self._timeout, **self.mcs}
+            key = (
+                self.molecules[0]["smiles"],
+                self.molecules[1]["smiles"],
+                repr(sorted(opts.items())),
+            )
+            want = self.show_common or self.align or self.view == "common"
+            if want or key in self._mcs_cache:
+                if key not in self._mcs_cache:
+                    self._mcs_cache[key] = find_mcs(ma, mb, **opts)
+                found = self._mcs_cache[key]
+                pairs, bonds_a, bonds_b = found["pairs"], found["bonds_a"], found["bonds_b"]
                 data["searched"] = True
+                data["mcs_smarts"] = found["smarts"]
+                data["mcs_timed_out"] = found["timed_out"]
             if pairs:
-                if self.show_common:
-                    highlight = [([i for i, _ in pairs], bonds_a), ([j for _, j in pairs], bonds_b)]
+                highlight = [([i for i, _ in pairs], bonds_a), ([j for _, j in pairs], bonds_b)]
                 data["mcs_atoms"] = len(pairs)
                 data["mcs_smiles"] = Chem.MolFragmentToSmiles(ma, atomsToUse=[i for i, _ in pairs])
+                data["edits"] = _pair_edits(ma, mb, pairs)
                 if self.align and len(pairs) >= 3:
                     rdDepictor.GenerateDepictionMatching2DStructure(mb, ma, pairs)
         for side, mol, (atoms, bonds) in zip(sides, mols, highlight):
             if mol is None:
                 continue
-            drawer = rdMolDraw2D.MolDraw2DSVG(320, 240)
-            opts = drawer.drawOptions()
-            opts.clearBackground = False
-            opts.highlightBondWidthMultiplier = 12
-            # every other atom gets an invisible highlight, so the layout does not depend on
-            # which atoms are shared
-            colours = {i: (1.0, 1.0, 1.0, 0.0) for i in range(mol.GetNumAtoms())}
-            colours.update({i: _MCS_COLOUR for i in atoms})
-            drawer.DrawMolecule(
-                mol,
-                highlightAtoms=list(colours),
-                highlightAtomColors=colours,
-                highlightBonds=bonds,
-                highlightBondColors={i: _MCS_COLOUR for i in bonds},
-            )
-            drawer.FinishDrawing()
-            side["svg"] = drawer.GetDrawingText()
+            side["svg"] = _draw_pair_side(mol, [], [])
+            if data["searched"]:
+                side["svg_common"] = _draw_pair_side(mol, atoms, bonds)
         self.data = data
+
+
+def _pieces_outside(mol: Chem.Mol, common: dict[int, int]) -> list[tuple[tuple[int, ...], str]]:
+    """The connected pieces of ``mol`` outside the common part, each as (the core atoms it hangs
+    from, in A's numbering; its SMILES with ``*`` where it attaches). ``common`` maps this
+    molecule's common atoms to A's."""
+    cut = [
+        b.GetIdx()
+        for b in mol.GetBonds()
+        if (b.GetBeginAtomIdx() in common) != (b.GetEndAtomIdx() in common)
+    ]
+    if not cut:
+        return []
+    frag = Chem.FragmentOnBonds(mol, cut, dummyLabels=[(0, 0)] * len(cut))
+    n = mol.GetNumAtoms()
+    out = []
+    for idx in Chem.GetMolFrags(frag, sanitizeFrags=False):
+        real = [i for i in idx if i < n]
+        if not real or any(i in common for i in real):
+            continue
+        anchors = sorted(
+            {
+                common[nb.GetIdx()]
+                for i in real
+                for nb in mol.GetAtomWithIdx(i).GetNeighbors()
+                if nb.GetIdx() in common
+            }
+        )
+        out.append((tuple(anchors), Chem.MolFragmentToSmiles(frag, atomsToUse=list(idx))))
+    return out
+
+
+def _pair_edits(ma: Chem.Mol, mb: Chem.Mol, pairs: list[tuple[int, int]]) -> dict:
+    """What turns A into B around their common part: the common part with R1, R2, … where the
+    two differ, and per site the piece A has there and the piece B has ("" = hydrogen). A
+    matched atom whose element / charge (possible with ``atoms="any"``) or CIP label differs is
+    a site too, labelled on the atom itself. SMILES carry the site number as ``[*:n]``."""
+    from rdkit.Chem import rdDepictor
+
+    a_of_b = {j: i for i, j in pairs}
+    common_a = {i: i for i, _ in pairs}
+    sites: dict[tuple[int, ...], dict] = {}
+
+    def site(key: tuple[int, ...]) -> dict:
+        return sites.setdefault(key, {"pieces": ([], []), "change": None, "kind": None})
+
+    for k, side in enumerate([_pieces_outside(ma, common_a), _pieces_outside(mb, a_of_b)]):
+        for anchors, smi in side:
+            site(anchors)["pieces"][k].append(smi)
+
+    def cip(m: Chem.Mol) -> dict[int, str]:
+        return dict(
+            Chem.FindMolChiralCenters(m, includeUnassigned=False, useLegacyImplementation=False)
+        )
+
+    def symbol(atom: Chem.Atom) -> str:
+        q = atom.GetFormalCharge()
+        return atom.GetSymbol() + ("" if not q else ("+" if q > 0 else "−") * abs(q))
+
+    cip_a, cip_b = cip(ma), cip(mb)
+    for i, j in pairs:
+        x, y = ma.GetAtomWithIdx(i), mb.GetAtomWithIdx(j)
+        # (i, -1): a change on the atom itself, apart from any piece hanging from it
+        if symbol(x) != symbol(y):
+            site((i, -1)).update(change=(symbol(x), symbol(y)), kind="element")
+        elif cip_a.get(i) != cip_b.get(j):
+            site((i, -1)).update(change=(cip_a.get(i, "–"), cip_b.get(j, "–")), kind="stereo")
+
+    order = sorted(sites)
+    number = {t: n + 1 for n, t in enumerate(order)}
+
+    # the core: A's common atoms plus a labelled dummy on each site's anchor atoms
+    rw = Chem.RWMol(ma)
+    for t in order:
+        if sites[t]["change"]:
+            rw.GetAtomWithIdx(t[0]).SetProp("atomNote", f"R{number[t]}")
+            continue
+        for anchor in t:
+            atom = rw.GetAtomWithIdx(anchor)
+            if not sites[t]["pieces"][0] and atom.GetNumExplicitHs():
+                atom.SetNumExplicitHs(atom.GetNumExplicitHs() - 1)  # the R replaces an H
+            d = rw.AddAtom(Chem.Atom(0))
+            rw.GetAtomWithIdx(d).SetAtomMapNum(number[t])
+            rw.AddBond(anchor, d, Chem.BondType.SINGLE)
+    keep = set(common_a) | set(range(ma.GetNumAtoms(), rw.GetNumAtoms()))
+    for idx in sorted(set(range(rw.GetNumAtoms())) - keep, reverse=True):
+        rw.RemoveAtom(idx)
+    core = rw.GetMol()
+    try:
+        Chem.SanitizeMol(core)
+    except Chem.rdchem.MolSanitizeException:  # e.g. an aromatic ring cut open
+        core.UpdatePropertyCache(strict=False)
+    rdDepictor.GenerateDepictionMatching2DStructure(
+        core, ma, [(a, c) for c, a in enumerate(sorted(common_a))]
+    )
+
+    def labelled(smis: list[str], n: int) -> Chem.Mol | None:
+        if not smis:
+            return None
+        m = Chem.MolFromSmiles(".".join(smis))
+        if m is None:  # an aromatic ring cut open cannot be kekulised: keep it as written
+            m = Chem.MolFromSmiles(".".join(smis), sanitize=False)
+            m.UpdatePropertyCache(strict=False)
+        for atom in m.GetAtoms():
+            if atom.GetAtomicNum() == 0:
+                atom.SetAtomMapNum(n)
+        return m
+
+    out = []
+    for t in order:
+        n, st = number[t], sites[t]
+        mols = [labelled(p, n) for p in st["pieces"]]
+        out.append(
+            {
+                "label": f"R{n}",
+                "kind": st["kind"],
+                "change": st["change"],
+                "smiles": [Chem.MolToSmiles(m) if m is not None else "" for m in mols],
+                "svg": [_draw_small(m, 180, 100) if m is not None else "" for m in mols],
+            }
+        )
+    return {
+        "core_svg": _draw_small(core, 320, 220),
+        "core_smiles": Chem.MolToSmiles(core),
+        "sites": out,
+    }
+
+
+def _draw_small(mol: Chem.Mol, w: int, h: int) -> str:
+    """A plain drawing at one bond length, so the core and the pieces share a scale."""
+    from rdkit.Chem.Draw import rdMolDraw2D
+
+    mol = Chem.Mol(mol)
+    for atom in mol.GetAtoms():  # [*:n] is drawn as R<n>
+        if atom.GetAtomicNum() == 0 and atom.GetAtomMapNum():
+            atom.SetProp("atomLabel", f"R{atom.GetAtomMapNum()}")
+            atom.SetAtomMapNum(0)
+    drawer = rdMolDraw2D.MolDraw2DSVG(w, h)
+    opts = drawer.drawOptions()
+    opts.clearBackground = False
+    opts.fixedBondLength = 28
+    opts.explicitMethyl = True
+    opts.padding = 0.12
+    try:
+        rdMolDraw2D.PrepareAndDrawMolecule(drawer, mol)
+    except ValueError:  # cannot kekulize an unsanitised core: draw it as it is
+        drawer.DrawMolecule(mol)
+    drawer.FinishDrawing()
+    return drawer.GetDrawingText()
+
+
+def _draw_pair_side(mol: Chem.Mol, atoms: list[int], bonds: list[int]) -> str:
+    """One MolPair drawing with ``atoms`` / ``bonds`` in the common-part colour."""
+    from rdkit.Chem.Draw import rdMolDraw2D
+
+    drawer = rdMolDraw2D.MolDraw2DSVG(320, 240)
+    opts = drawer.drawOptions()
+    opts.clearBackground = False
+    opts.highlightBondWidthMultiplier = 12
+    # every other atom gets an invisible highlight, so the layout does not depend on which atoms
+    # are shared
+    colours = {i: (1.0, 1.0, 1.0, 0.0) for i in range(mol.GetNumAtoms())}
+    colours.update({i: _MCS_COLOUR for i in atoms})
+    drawer.DrawMolecule(
+        mol,
+        highlightAtoms=list(colours),
+        highlightAtomColors=colours,
+        highlightBonds=bonds,
+        highlightBondColors={i: _MCS_COLOUR for i in bonds},
+    )
+    drawer.FinishDrawing()
+    return drawer.GetDrawingText()
 
 
 _MCS_COLOUR = (0.55, 0.78, 1.0, 0.6)

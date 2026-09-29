@@ -146,6 +146,7 @@ function seg(options, current, onPick) {
 
 function render({ model, el: host }) {
   const root = el("div", { className: "es-root" });
+  enableSmilesCopy(root, model);
   if (isDark(host)) root.classList.add("dark");
   root.appendChild(el("style", {}, CSS));
   host.appendChild(root);
@@ -349,7 +350,7 @@ function render({ model, el: host }) {
     // --- molecule
     const main = el("div", { className: "es-main" });
     const left = el("div");
-    molEl = el("div", { className: "es-mol" }, get("svg"));
+    molEl = el("div", { className: "es-mol mw-copyable" }, get("svg") + smilesCopyHtml(get("smiles")));
     molEl.addEventListener("click", (ev) => {
       const target = ev.target.closest(".es-hit");
       if (!target) return;
@@ -593,7 +594,7 @@ function render({ model, el: host }) {
   model.on("change:steps", reset);
   model.on("change:error", drawTop);
   model.on("change:smiles", drawTop);
-  model.on("change:svg", () => molEl && (molEl.innerHTML = get("svg")));
+  model.on("change:svg", () => molEl && (molEl.innerHTML = get("svg") + smilesCopyHtml(get("smiles"))));
   model.on("change:n_bits", draw);
   for (const k of ["radius", "atom"]) model.on(`change:${k}`, () => !guided && draw());
   return () => stopPlay();

@@ -11,12 +11,20 @@ components are used throughout.
   activity cliffs, identical fingerprints, whole-molecule properties), LightGBM importance and
   TreeSHAP on bits, and a model lab
 - `notebooks/ecfp_pxr_ja.py`: the same notebook in Japanese
-- `src/molwidgets/` — the widget package
+- `src/molwidgets/` — the widget package. Every whole-molecule drawing has a copy icon in its
+  top-right corner that puts the molecule's SMILES on the clipboard; `copy_smiles=False` hides
+  them
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
   - `MolPair`: two compounds side by side with the Tanimoto similarity (ECFP4) and a table of
-    properties (plus any values you pass, such as a measured pEC50) with B − A. Two switches,
-    both off by default, highlight the common substructure and redraw B in A's orientation
+    properties (plus any values you pass, such as a measured pEC50). Each row shows A and B as a
+    dumbbell on the property's typical range and B − A as a bar; `value_ranges` sets the axis of
+    your own values, and `show_formula` / `show_smiles` turn off the captions. Two switches,
+    both off by default, highlight the common substructure and redraw B in A's orientation. Below
+    the drawings, the table can switch to the difference: the common substructure with R1, R2, …
+    where the two differ, and per site A's piece → B's piece, with a copy button for the common
+    part's SMILES. `mcs={"atoms": "any"}` (options of `find_mcs`) keeps a ring CH → N
+    matched and shows it as a changed element
   - `ECFPMovie`: an ~80 s animated explainer of ECFP4 (radius 0 → 2, duplicates, folding,
     collisions, Tanimoto) for N-methylacetamide, built on real RDKit identifiers; a self-contained
     HTML page (`static/ecfp_movie.html`) shown in an iframe

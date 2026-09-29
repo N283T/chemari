@@ -229,32 +229,91 @@ def molecule_bit_tiles(smiles: str, radius: int = 2, n_bits: int = 2048) -> list
     return tiles
 
 
+def find_mcs(
+    mol_a: Chem.Mol,
+    mol_b: Chem.Mol,
+    timeout: float = 2.0,
+    atoms: str = "elements",
+    bonds: str = "order",
+    ring_matches_ring: bool = True,
+    complete_rings: bool = True,
+) -> dict[str, Any]:
+    """Maximum common substructure of two molecules, with RDKit's FMCS options by name.
+
+    ``atoms``: "elements" (an atom matches only the same element) or "any" (any element, so a
+    ring CH that became N stays matched). ``bonds``: "order" (aromatic matches aromatic),
+    "order_exact" or "any". ``ring_matches_ring``: ring atoms/bonds match only ring ones;
+    ``complete_rings``: a ring is matched whole or not at all.
+
+    Returns ``pairs`` (atom pairs ``[(a, b), ...]``), ``bonds_a`` / ``bonds_b`` (matched bonds),
+    ``smarts`` (the common part as SMARTS) and ``timed_out``; empty when nothing is shared.
+    With ``atoms="any"``, of B's symmetric matches the one pairing the most identical elements
+    is kept.
+    """
+    from rdkit.Chem import rdFMCS
+
+    atom_cmp = {
+        "elements": rdFMCS.AtomCompare.CompareElements,
+        "any": rdFMCS.AtomCompare.CompareAny,
+    }
+    bond_cmp = {
+        "order": rdFMCS.BondCompare.CompareOrder,
+        "order_exact": rdFMCS.BondCompare.CompareOrderExact,
+        "any": rdFMCS.BondCompare.CompareAny,
+    }
+    res = rdFMCS.FindMCS(
+        [mol_a, mol_b],
+        timeout=int(max(1, timeout)),
+        ringMatchesRingOnly=ring_matches_ring,
+        completeRingsOnly=complete_rings,
+        atomCompare=atom_cmp[atoms],
+        bondCompare=bond_cmp[bonds],
+    )
+    empty: dict[str, Any] = {
+        "pairs": [],
+        "bonds_a": [],
+        "bonds_b": [],
+        "smarts": "",
+        "timed_out": bool(res.canceled),
+    }
+    query = Chem.MolFromSmarts(res.smartsString) if res.numAtoms else None
+    if query is None:
+        return empty
+    hit_a = mol_a.GetSubstructMatch(query)
+    if atoms == "any":
+        hit_b = max(
+            mol_b.GetSubstructMatches(query, uniquify=False, maxMatches=500),
+            key=lambda h: sum(
+                mol_a.GetAtomWithIdx(i).GetAtomicNum() == mol_b.GetAtomWithIdx(j).GetAtomicNum()
+                for i, j in zip(hit_a, h)
+            ),
+            default=(),
+        )
+    else:
+        hit_b = mol_b.GetSubstructMatch(query)
+    if not hit_a or not hit_b:
+        return empty
+    matched: list[list[int]] = [[], []]
+    for qb in query.GetBonds():
+        for k, (m, hit) in enumerate(zip((mol_a, mol_b), (hit_a, hit_b))):
+            b = m.GetBondBetweenAtoms(hit[qb.GetBeginAtomIdx()], hit[qb.GetEndAtomIdx()])
+            if b is not None:
+                matched[k].append(b.GetIdx())
+    return {
+        **empty,
+        "pairs": [(int(i), int(j)) for i, j in zip(hit_a, hit_b)],
+        "bonds_a": matched[0],
+        "bonds_b": matched[1],
+        "smarts": res.smartsString,
+    }
+
+
 def common_substructure(
     mol_a: Chem.Mol, mol_b: Chem.Mol, timeout: float = 2.0
 ) -> tuple[list[tuple[int, int]], list[int], list[int]]:
     """Maximum common substructure of two molecules (elements and bond orders must match,
     rings only with rings and only whole). Returns the atom pairs ``[(a, b), ...]`` and the
-    matched bonds of A and of B; all empty when nothing is shared."""
-    from rdkit.Chem import rdFMCS
-
-    res = rdFMCS.FindMCS(
-        [mol_a, mol_b],
-        timeout=int(max(1, timeout)),
-        ringMatchesRingOnly=True,
-        completeRingsOnly=True,
-        atomCompare=rdFMCS.AtomCompare.CompareElements,
-        bondCompare=rdFMCS.BondCompare.CompareOrder,
-    )
-    query = Chem.MolFromSmarts(res.smartsString) if res.numAtoms else None
-    if query is None:
-        return [], [], []
-    hits = [m.GetSubstructMatch(query) for m in (mol_a, mol_b)]
-    if not all(hits):
-        return [], [], []
-    bonds: list[list[int]] = [[], []]
-    for qb in query.GetBonds():
-        for k, (m, hit) in enumerate(zip((mol_a, mol_b), hits)):
-            b = m.GetBondBetweenAtoms(hit[qb.GetBeginAtomIdx()], hit[qb.GetEndAtomIdx()])
-            if b is not None:
-                bonds[k].append(b.GetIdx())
-    return [(int(i), int(j)) for i, j in zip(*hits)], bonds[0], bonds[1]
+    matched bonds of A and of B; all empty when nothing is shared. See :func:`find_mcs` for
+    the other options."""
+    r = find_mcs(mol_a, mol_b, timeout)
+    return r["pairs"], r["bonds_a"], r["bonds_b"]

@@ -139,3 +139,65 @@ export function busyIndicator(model, host, triggers) {
     giveUp = setTimeout(stop, 30000); // never leave it spinning if an answer is lost
   };
 }
+
+// "Copy SMILES" icon in the top-right corner of a molecule drawing. Put smilesCopyHtml(smiles)
+// inside the drawing's box and give the box the class `mw-copyable`; enableSmilesCopy(root,
+// model) adds the style and one click handler for everything under `root`, and hides the icons
+// while the widget's `copy_smiles` is false. The handler runs in the
+// capture phase and stops the click, so it never also selects a card or an atom.
+const COPY_ICON =
+  '<svg class="mw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
+const CHECK_ICON =
+  '<svg class="mw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const COPY_CSS = `
+.mw-copyable { position: relative; }
+.mw-copy { position: absolute; top: 4px; right: 4px; z-index: 2; width: 24px; height: 24px; padding: 0; margin: 0;
+  display: flex; align-items: center; justify-content: center; border: 1px solid #d0d7de; border-radius: 6px;
+  background: rgba(255, 255, 255, .92); color: #57606a; cursor: pointer; opacity: .75; }
+.mw-copyable:hover .mw-copy, .mw-copy:focus-visible { opacity: 1; }
+.mw-copy:hover { color: #1f2328; border-color: #8c959f; }
+.mw-copy.done { color: #1a7f37; border-color: #1a7f37; opacity: 1; }
+.mw-nocopy .mw-copy { display: none; }
+.mw-copy svg.mw-ico { width: 14px; height: 14px; max-width: none; max-height: none; margin: 0; display: block; }
+`;
+
+export function smilesCopyHtml(smiles) {
+  const attr = String(smiles).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  return `<button type="button" class="mw-copy" data-smiles="${attr}" title="Copy SMILES" aria-label="Copy SMILES">${COPY_ICON}</button>`;
+}
+
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // clipboard API unavailable (e.g. an insecure context): the old way
+    const t = document.createElement("textarea");
+    t.value = text;
+    document.body.appendChild(t);
+    t.select();
+    document.execCommand("copy");
+    t.remove();
+  }
+}
+
+export function enableSmilesCopy(root, model) {
+  const style = document.createElement("style");
+  style.textContent = COPY_CSS;
+  root.appendChild(style);
+  // the widget's `copy_smiles` option hides the icons
+  const show = () => root.classList.toggle("mw-nocopy", model.get("copy_smiles") === false);
+  show();
+  model.on("change:copy_smiles", show);
+  root.addEventListener("click", async (ev) => {
+    const b = ev.target.closest(".mw-copy");
+    if (!b) return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    await copyText(b.dataset.smiles);
+    b.classList.add("done");
+    b.innerHTML = CHECK_ICON;
+    setTimeout(() => { b.classList.remove("done"); b.innerHTML = COPY_ICON; }, 1200);
+  }, true);
+}

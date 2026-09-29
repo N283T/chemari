@@ -661,7 +661,16 @@ def _(MolPair, mo, train):
 
     An **activity cliff** is a pair of compounds that look alike but differ a lot in activity (here pEC50). The two below differ only by one methyl on the benzene ring (the common part is blue), yet their EC50 values are about {10**_dy:.0f}-fold apart.
     """),
-            mo.ui.anywidget(MolPair(_rows[0], _rows[1], value_cols=["pEC50"], show_common=True)),
+            mo.ui.anywidget(
+                MolPair(
+                    _rows[0],
+                    _rows[1],
+                    value_cols=["pEC50"],
+                    # the dumbbell's axis: every train compound's pEC50
+                    value_ranges={"pEC50": (train["pEC50"].min(), train["pEC50"].max())},
+                    show_common=True,
+                )
+            ),
         ]
     )
     return (cliff_example,)

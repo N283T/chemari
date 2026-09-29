@@ -241,9 +241,46 @@ def test_mol_pair_widget():
     w.show_common = True
     d = w.data
     assert d["searched"] and d["mcs_atoms"] == 11
+    assert all("svg_common" in s for s in d["sides"])
+    w.show_common = False  # the browser swaps drawings; Python does not recompute
+    assert w.data is d
     assert d["sides"][1]["values"] == {"pEC50": 6.0}
     assert d["sides"][0]["props"]["HBD"] == 2
     w.align = True
     assert w.data["mcs_atoms"] == 11
+    assert d["property_meta"][0]["range"] == [0, 600] and d["value_ranges"] == {}
+    w2 = MolPair("CCO", "CCN", value_ranges={"pEC50": (3, 9)}, show_formula=False)
+    assert w2.data["value_ranges"] == {"pEC50": [3.0, 9.0]} and not w2.show_formula
+    d = w.data
+    w.view = "common"  # already searched: no recompute
+    assert w.data is d
+    # paracetamol → phenacetin: the OH's hydrogen becomes an ethyl
+    (site,) = d["edits"]["sites"]
+    assert site["label"] == "R1" and site["smiles"] == ["", "CC[*:1]"] and site["change"] is None
+    assert d["edits"]["core_smiles"] == "CC(=O)Nc1ccc(O[*:1])cc1"
+    (site,) = MolPair(
+        "O=C1CC[C@@H](N2C(=O)c3ccccc3C2=O)C(=O)N1",
+        "O=C1CC[C@H](N2C(=O)c3ccccc3C2=O)C(=O)N1",
+        view="common",
+    ).data["edits"]["sites"]
+    assert site["kind"] == "stereo" and tuple(site["change"]) == ("R", "S")
+    # benzene → pyridine: with any-element matching the ring stays common and C → N is a site
+    p = MolPair("c1ccccc1CCN", "c1ccncc1CCN", view="common", mcs={"atoms": "any"})
+    (site,) = p.data["edits"]["sites"]
+    assert (
+        p.data["mcs_atoms"] == 9
+        and site["kind"] == "element"
+        and tuple(site["change"]) == ("C", "N")
+    )
+    p.mcs = {}  # elements only: the ring is no longer common
+    assert p.data["mcs_atoms"] < 9
     w.set_pair("CCO", "not a smiles")
     assert w.data["sides"][1]["valid"] is False and w.data["similarity"] is None
+
+
+def test_copy_smiles_option():
+    from molwidgets import MolGrid, MolPair
+
+    assert MolPair("CCO", "CCN").copy_smiles
+    assert not MolPair("CCO", "CCN", copy_smiles=False).copy_smiles
+    assert not MolGrid([{"id": "a", "smiles": "CCO"}], copy_smiles=False).copy_smiles

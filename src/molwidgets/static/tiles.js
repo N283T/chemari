@@ -87,6 +87,7 @@ function highlight(tiles) {
 
 async function render({ model, el: host }) {
   const root = el("div", { className: "bt-root" });
+  enableSmilesCopy(root, model);
   if (isDark(host)) root.classList.add("dark");
   root.appendChild(el("style", {}, CSS));
   host.appendChild(root);
@@ -110,7 +111,7 @@ async function render({ model, el: host }) {
     if (!box) return;
     const dark = root.classList.contains("dark");
     const act = active();
-    box.innerHTML = drawSvg(RDKit, get("smiles"), 400, 340, highlight(act), dark);
+    box.innerHTML = drawSvg(RDKit, get("smiles"), 400, 340, highlight(act), dark) + smilesCopyHtml(get("smiles"));
     const cap = el("div", { className: "bt-cap" });
     if (!act.length) cap.innerHTML = "Hover or click a bit on the right to see where it comes from.";
     else {
@@ -157,7 +158,7 @@ async function render({ model, el: host }) {
       `<span style="white-space:nowrap"><i style="display:inline-block;width:4px;height:12px;background:var(--bt-hit);vertical-align:-2px;margin-right:4px"></i>red edge: shares a bit with another row</span>`));
 
     const main = el("div", { className: "bt-main" });
-    main.appendChild(el("div", { className: "bt-mol" }));
+    main.appendChild(el("div", { className: "bt-mol mw-copyable" }));
     const list = el("div", { className: "bt-list" });
     const shown = onlyHits ? tiles.filter((t) => t.collides) : tiles;
     if (!shown.length)
