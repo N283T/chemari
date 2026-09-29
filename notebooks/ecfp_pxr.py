@@ -94,6 +94,21 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    The widget below runs the same steps on any molecule. Type a SMILES or pick an example, then step through with **next** or press **play**.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(ECFPStepper, mo):
+    ecfp_stepper = mo.ui.anywidget(ECFPStepper())
+    ecfp_stepper
+    return (ecfp_stepper,)
+
+
 @app.cell
 def _():
     import altair as alt
@@ -110,6 +125,7 @@ def _():
     from molwidgets import (
         BitAtlas,
         ECFPMovie,
+        ECFPStepper,
         MolGrid,
         MorganBitTiles,
         MorganExplorer,
@@ -126,6 +142,7 @@ def _():
         Crippen,
         Descriptors,
         ECFPMovie,
+        ECFPStepper,
         MolGrid,
         MorganBitTiles,
         MorganExplorer,
@@ -1736,7 +1753,7 @@ def _(mo):
     ### About this notebook
 
     * **Data:** [openadmet/pxr-challenge-train-test](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test) (CC-BY-4.0): the train set plus the phase 1 and phase 2 unblinded test labels. The test-set design and the analysis of the hardest compounds come from references [4]–[6].
-    * **Widgets:** `ECFPMovie`, `MolGrid`, `MorganBitTiles`, `BitAtlas` and `MorganExplorer` are anywidget components written for this notebook ([source](https://github.com/N283T/openadmet-marimo)).
+    * **Widgets:** `ECFPMovie`, `ECFPStepper`, `MolGrid`, `MorganBitTiles`, `BitAtlas` and `MorganExplorer` are anywidget components written for this notebook ([source](https://github.com/N283T/openadmet-marimo)).
     * **AI use:** I used Claude (Anthropic) as a coding assistant for the widgets, the video and the notebook scaffolding. The question, the choice of analyses and the interpretation come from my own work on the PXR challenge, and every number shown is computed live in this notebook.
 
     For what other participants did, the [post-challenge analysis](https://openadmet.ghost.io/dont-look-back-in-error-what-we-learned-predicting-pxr-induction-part-i/) has a table of the methods used by the 28 Tier 1 teams, and the [results post](https://openadmet.ghost.io/its-the-end-of-the-pxr-challenge-as-we-know-it-and-i-feel-fine/) links each team's model report. Mine (4th in the activity track) is [here](https://n283t.github.io/openadmet-pxr-model-report/). As you might guess, no fingerprint model made it into my final ensemble.

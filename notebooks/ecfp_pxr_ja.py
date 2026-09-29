@@ -102,6 +102,21 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    下のウィジェットでは、同じ手順を好きな化合物で追えます。SMILES を入力するか例を選び、「次へ」で 1 ステップずつ進めるか、自動再生してください。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(ECFPStepper, mo):
+    ecfp_stepper = mo.ui.anywidget(ECFPStepper())
+    ecfp_stepper
+    return (ecfp_stepper,)
+
+
 @app.cell
 def _():
     import altair as alt
@@ -118,6 +133,7 @@ def _():
     from molwidgets import (
         BitAtlas,
         ECFPMovie,
+        ECFPStepper,
         MolGrid,
         MorganBitTiles,
         MorganExplorer,
@@ -134,6 +150,7 @@ def _():
         Crippen,
         Descriptors,
         ECFPMovie,
+        ECFPStepper,
         MolGrid,
         MorganBitTiles,
         MorganExplorer,
@@ -1818,7 +1835,7 @@ def _(mo):
       [openadmet/pxr-challenge-train-test](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test)
       (CC-BY-4.0)。train と、フェーズ 1・フェーズ 2 で公開された test のラベルを使っています。test
       の設計と最難関化合物の解析は、参考文献 [4]–[6] によります。
-    * **ウィジェット:** `ECFPMovie`、`MolGrid`、`MorganBitTiles`、`BitAtlas`、`MorganExplorer`
+    * **ウィジェット:** `ECFPMovie`、`ECFPStepper`、`MolGrid`、`MorganBitTiles`、`BitAtlas`、`MorganExplorer`
       は、この notebook のために作った anywidget コンポーネントです
       ([ソース](https://github.com/N283T/openadmet-marimo))。
     * **AI の利用:** ウィジェット、動画、notebook の骨組みのコーディングには、Claude (Anthropic)
