@@ -100,6 +100,17 @@ def _(Path, pl):
                 "vardenafil", "CCCC1=NC(=C2N1N=C(NC2=O)C3=C(C=CC(=C3)S(=O)(=O)N4CCN(CC4)CC)OCC)C"
             ),
         ),
+        "aspirin vs caffeine (unrelated)": (
+            _drug("aspirin", "CC(=O)Oc1ccccc1C(=O)O"),
+            _drug("caffeine", "Cn1cnc2c1c(=O)n(C)c(=O)n2C"),
+        ),
+        "ibuprofen vs atorvastatin (unrelated)": (
+            _drug("ibuprofen", "CC(C)Cc1ccc(cc1)C(C)C(=O)O"),
+            _drug(
+                "atorvastatin",
+                "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H](O)C[C@@H](O)CC(=O)O",
+            ),
+        ),
         "(R)- vs (S)-thalidomide": (
             _drug("(R)-thalidomide", "O=C1CC[C@@H](N2C(=O)c3ccccc3C2=O)C(=O)N1"),
             _drug("(S)-thalidomide", "O=C1CC[C@H](N2C(=O)c3ccccc3C2=O)C(=O)N1"),
@@ -188,6 +199,8 @@ def _(
         d.drawOptions().fixedBondLength = 34
         d.drawOptions().explicitMethyl = True  # a lone methyl is otherwise just a line
         d.drawOptions().dummiesAreAttachments = True  # * drawn as a wavy attachment bond
+        if mol is None:  # e.g. a piece of an aromatic ring on its own
+            return None
         rdMolDraw2D.PrepareAndDrawMolecule(d, mol)
         d.FinishDrawing()
         return d.GetDrawingText()
@@ -341,7 +354,81 @@ def _(
             },
         }
 
-    return (pair_data,)
+    def _props(a, b, ma, mb):
+        props = []
+        for name in a["values"]:
+            va, vb = a["values"][name], b["values"].get(name)
+            if vb is None:
+                continue
+            lo, hi = VALUE_RANGES.get(name, (min(va, vb) - 1, max(va, vb) + 1))
+            props.append({"name": name, "a": va, "b": vb, "range": [lo, hi], "value": True})
+        for name, (fn, rng) in PROPS.items():
+            props.append({"name": name, "a": float(fn(ma)), "b": float(fn(mb)), "range": list(rng)})
+        return props
+
+    def compare_data(a, b, analysed=False, width=340):
+        """Any two molecules side by side. Only when `analysed` is the MCS searched: then B is
+        laid out in A's orientation and the differences are marked and listed."""
+        from rdkit.Chem import rdDepictor
+
+        plain = [Chem.MolFromSmiles(x["smiles"]) for x in (a, b)]
+        if None in plain:
+            raise ValueError("cannot parse " + ("A" if plain[0] is None else "B"))
+        for m in plain:
+            rdDepictor.Compute2DCoords(m)  # same call as pair_alignment: A is identical
+        al = pair_alignment(a["smiles"], b["smiles"]) if analysed else None
+        ma, mb = (al["mol_a"], al["mol_b"]) if al else plain
+        # each molecule centred in its own panel, both at one scale. The frame also covers
+        # B's un-analysed layout and is rounded up to whole Å, so pressing the button
+        # re-lays out B without moving or rescaling A (unless the new B is larger)
+        pos = [m.GetConformer().GetPositions()[:, :2] for m in (ma, mb)]
+        centre = [(p.min(0) + p.max(0)) / 2 for p in pos]
+        extent = pos + [plain[1].GetConformer().GetPositions()[:, :2]]
+        half = np.ceil(np.max([(p.max(0) - p.min(0)) / 2 for p in extent], axis=0) + 0.7)
+        size = (width, int(width * min(0.85, max(0.5, half[1] / half[0]))))
+        cols = [{}, {}], [{}, {}]
+        if al:
+            cols = (
+                [
+                    {i: ONLY_A for i in al["only_a"]} | {i: CHANGED for i in al["changed_a"]},
+                    {i: ONLY_B for i in al["only_b"]} | {i: CHANGED for i in al["changed_b"]},
+                ],
+                [
+                    {i: ONLY_A for i in al["only_bonds_a"]}
+                    | {i: CHANGED for i in al["changed_bonds_a"]},
+                    {i: ONLY_B for i in al["only_bonds_b"]}
+                    | {i: CHANGED for i in al["changed_bonds_b"]},
+                ],
+            )
+        panels = [
+            {
+                **draw(m, (c - half, c + half), size, cols[0][k], cols[1][k]),
+                "symbols": [x.GetSymbol() for x in m.GetAtoms()],
+            }
+            for k, (m, c) in enumerate(zip((ma, mb), centre))
+        ]
+        fps = fingerprint_matrix([a["smiles"], b["smiles"]])
+        return {
+            "ids": [a["id"], b["id"]],
+            "panels": panels,
+            "tanimoto": float(tanimoto_matrix(fps)[0, 1]),
+            "props": _props(a, b, ma, mb),
+            "analysed": bool(al),
+            "mapping": [list(p) for p in al["mapping"]] if al else [],
+            "edits": edits(al) if al else [],
+            "counts": {
+                "shared": len(al["mapping"]),
+                "n": [ma.GetNumAtoms(), mb.GetNumAtoms()],
+                "only_a": len(al["only_a"]),
+                "only_b": len(al["only_b"]),
+                "changed": len(al["changed_a"]) + len(al["changed_bonds_a"]),
+                "timed_out": al["timed_out"],
+            }
+            if al
+            else None,
+        }
+
+    return compare_data, pair_data
 
 
 @app.cell
@@ -352,12 +439,13 @@ def _(EXAMPLES, mo, pair_data, pick, smi_a, smi_b):
         _a = {"id": "A", "smiles": smi_a.value, "values": {}}
     if smi_b.value != _b["smiles"]:
         _b = {"id": "B", "smiles": smi_b.value, "values": {}}
+    pair = (_a, _b)
     try:
         data = pair_data(_a, _b)
     except ValueError as err:
         data = None
         mo.output.replace(mo.callout(str(err), kind="danger"))
-    return (data,)
+    return data, pair
 
 
 @app.cell
@@ -446,6 +534,156 @@ def _(PRELUDE, anywidget, traitlets):
         return _Candidate
 
     return (candidate,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## 0 · Compare (any two molecules; structure analysis on demand)
+
+    Two molecules, similar or not, with their properties on dumbbells. **Compare
+    structures** runs the MCS only when asked: B is then turned to A's orientation, the
+    differences are coloured and listed, and hovering an atom finds its partner.
+    """)
+    return
+
+
+@app.cell
+def _(PRELUDE, anywidget, compare_data, traitlets):
+    COMPARE_JS = r"""
+    const CSS = `
+    .mc-mols { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .mc-bar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin:8px 0 4px; font-size:12.5px; }
+    .mc-btn { font:inherit; font-size:12.5px; border:1px solid var(--border); background:var(--soft); color:var(--fg);
+      border-radius:6px; padding:3px 12px; cursor:pointer; }
+    .mc-btn:disabled { opacity:.6; cursor:default; }
+    .mc-grp i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; }
+    .mc-edits { display:flex; flex-direction:column; gap:4px; margin:4px 0 8px; }
+    .mc-edit { display:grid; grid-template-columns: 80px 90px 18px 90px 1fr; align-items:center; gap:8px;
+      border:1px solid var(--border); border-radius:8px; padding:2px 10px; font-size:12px; }
+    .mc-edit:hover { background:var(--soft); }
+    .mc-edit .k { font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); font-weight:600; }
+    .mc-edit .f { background:#fff; border-radius:6px; height:46px; display:flex; align-items:center; justify-content:center;
+      font:600 15px ui-monospace, monospace; color:#1f2328; }
+    .mc-edit .f svg { height:46px; width:auto; }
+    .mc-edit .to { text-align:center; color:var(--muted); }
+    .mc-edit .s { font:11px ui-monospace, monospace; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .db-list { display:grid; grid-template-columns: 90px 1fr 90px; gap:2px 12px; align-items:center; margin-top:6px;
+      font-variant-numeric:tabular-nums; font-size:12px; }
+    .db-list .n { color:var(--muted); text-align:right; }
+    .db-list .n.value { color:var(--fg); font-weight:600; }
+    .db-list .dv { white-space:nowrap; }
+    .db-list svg { width:100%; height:22px; display:block; }
+    .db-axis { stroke:var(--border); stroke-width:2; }
+    `;
+    const GROUP = { a: "rgb(168,204,255)", b: "rgb(255,204,115)", c: "rgb(214,158,255)" };
+    function dumbbells(d) {
+      const list = el("div", "db-list");
+      list.append(el("span", "n", "Tanimoto"), el("span", "", `<b>${d.tanimoto.toFixed(2)}</b> <span class="c-muted">(ECFP4)</span>`), el("span"));
+      for (const p of d.props) {
+        const [lo, hi] = p.range;
+        const x = (v) => 4 + 92 * Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+        const [xa, xb] = [x(p.a), x(p.b)];
+        const cell = el("div", "",
+          `<svg viewBox="0 0 100 22" preserveAspectRatio="none">` +
+          `<line class="db-axis" x1="4" x2="96" y1="11" y2="11" vector-effect="non-scaling-stroke"/>` +
+          `<line x1="${xa}" x2="${xb}" y1="11" y2="11" stroke="#9ca3af" stroke-width="4" vector-effect="non-scaling-stroke"/></svg>`);
+        cell.style.position = "relative";
+        for (const [xx, s] of [[xa, "a"], [xb, "b"]])
+          cell.append(Object.assign(el("i"), { style: `position:absolute;left:calc(${xx}% - 6px);top:5px;width:12px;height:12px;border-radius:50%;background:${SIDE[s]};border:2px solid var(--card)` }));
+        const dv = p.b - p.a;
+        const fold = p.value && p.name.startsWith("p") ? ` <span class="c-muted">${Math.pow(10, Math.abs(dv)).toFixed(0)}×</span>` : "";
+        list.append(
+          el("span", "n" + (p.value ? " value" : ""), esc(p.name)),
+          cell,
+          el("span", "dv", Math.abs(dv) < 1e-9 ? `<span class="c-muted">same</span>` : `<b>${signed(dv, p.name)}</b>${fold}`)
+        );
+      }
+      return list;
+    }
+    function render({ model, el: host }) {
+      const r = root(host, CSS);
+      function draw() {
+        r.querySelectorAll(":scope > :not(style)").forEach((n) => n.remove());
+        const d = model.get("data");
+        if (!d.panels) return;
+        const A = molBox(d.panels[0], "a"), B = molBox(d.panels[1], "b");
+        const mols = el("div", "mc-mols");
+        const ca = el("div"), cb = el("div");
+        ca.append(el("div", "c-id", `<i style="background:${SIDE.a}"></i>A · ${esc(d.ids[0])}`), A.box);
+        cb.append(el("div", "c-id", `<i style="background:${SIDE.b}"></i>B · ${esc(d.ids[1])}`), B.box);
+        mols.append(ca, cb);
+        const bar = el("div", "mc-bar");
+        const btn = el("button", "mc-btn", d.analysed ? "hide structure comparison" : "compare structures");
+        btn.addEventListener("click", () => {
+          btn.disabled = true;
+          btn.textContent = d.analysed ? "…" : "searching the common substructure…";
+          model.set("analysed", !d.analysed);
+          model.save_changes();
+        });
+        bar.append(btn);
+        r.append(mols, bar);
+        if (d.analysed) {
+          const c = d.counts;
+          const grp = (colour, text) => bar.append(el("span", "mc-grp", `<i style="background:${colour}"></i>${text}`));
+          bar.append(el("span", "", `common part <b>${c.shared}</b> of ${c.n[0]} / ${c.n[1]} atoms`));
+          if (c.only_a) grp(GROUP.a, `${c.only_a} only in A`);
+          if (c.only_b) grp(GROUP.b, `${c.only_b} only in B`);
+          if (c.changed) grp(GROUP.c, `${c.changed} changed`);
+          if (c.timed_out) bar.append(el("span", "c-muted", "(search timed out)"));
+          const info = el("div", "c-info");
+          const clear = linkBoxes(A, B, d, info);
+          r.append(info);
+          // with a small common part (or many differences) the pair is not one edit apart:
+          // say so instead of listing edits that mean nothing
+          const small = c.shared < 0.5 * Math.max(...c.n);
+          if (d.edits.length && (small || d.edits.length > 6)) {
+            r.append(el("div", "c-muted", small
+              ? `The common part covers less than half of the larger molecule, so the two are not read as one edit of each other.`
+              : `${d.edits.length} separate differences: too many to read as a single edit.`));
+          } else if (d.edits.length) {
+            const list = el("div", "mc-edits");
+            for (const e of d.edits) {
+              const frag = (svg, txt) => (svg ? svg : esc(txt === "[H]*" ? "H" : txt));
+              const row = el("div", "mc-edit",
+                `<span class="k">${esc(e.kind)}</span><div class="f">${frag(e.svg_a, e.a)}</div><span class="to">→</span>` +
+                `<div class="f">${frag(e.svg_b, e.b)}</div><span class="s">${esc(H(e.a))} → ${esc(H(e.b))}</span>`);
+              row.addEventListener("mouseenter", () => { A.show(e.atoms_a); B.show(e.atoms_b); });
+              row.addEventListener("mouseleave", clear);
+              list.append(row);
+            }
+            r.append(list);
+          }
+        }
+        r.append(dumbbells(d));
+      }
+      model.on("change:data", draw);
+      draw();
+    }
+    export default { render };
+    """
+
+    class MolCompare(anywidget.AnyWidget):
+        _esm = PRELUDE + COMPARE_JS
+        data = traitlets.Dict().tag(sync=True)
+        analysed = traitlets.Bool(False).tag(sync=True)
+
+        def __init__(self, a, b, **kwargs):
+            self._pair = (a, b)
+            super().__init__(**kwargs)
+            self.observe(self._update, names=["analysed"])
+            self._update()
+
+        def _update(self, _change=None):
+            self.data = compare_data(*self._pair, analysed=self.analysed)
+
+    return (MolCompare,)
+
+
+@app.cell
+def _(MolCompare, data, mo, pair):
+    mo.ui.anywidget(MolCompare(*pair)) if data else None
+    return
 
 
 @app.cell
