@@ -307,6 +307,8 @@ def _(mo):
     * **a substructure that occurs several times gets one row**
       * three methyls or four aromatic CH are shown once, as ×3 or ×4
       * the bit vector keeps no counts
+
+    An ECFP4 bit records only whether a substructure is present, and one bit is often shared by unrelated substructures.
     """)
     return
 
@@ -534,6 +536,8 @@ def _(S_test, alt, k_slider, mo, np, pl, spearmanr, test, y_test, y_train):
     * with k = 1, ρ ≈ 0: almost no ranking power
     * the MAE is about the same as predicting with a random train compound
     * a larger k lowers the MAE, but only because the predictions drift toward the mean (the points collapse into a vertical band)
+
+    The test set was built from ECFP4 neighbours of train, yet the nearest neighbour's activity says almost nothing about a test compound.
     """),
         ]
     )
@@ -634,6 +638,8 @@ def _(alt, mo, pair_dy, pair_sim, pl, random_pair_dy, similarity_curve):
 
     * line: mean |Δ pEC50| per bin; shading: up to the 90th percentile; dashed line: random pairs
     * hover a point for the number of pairs in the bin
+
+    The premise of an ECFP4 model, that similar molecules have similar activity, holds only loosely for PXR.
     """),
         ]
     )
@@ -919,6 +925,8 @@ def _(cliffs, mo, pl):
 
     * in {_noisy}, the weaker compound's CI is wider than 1.5 log units, so part of the difference is measurement uncertainty
     * in {_lip} ({_lip / max(_n, 1):.0%}), the more potent compound also has the higher calculated logP: a whole-molecule property is at work, not any single bit
+
+    Part of a cliff's gap comes from what a fingerprint cannot represent: measurement uncertainty and whole-molecule properties.
     """
     )
     return
@@ -1044,6 +1052,8 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
     * examples: cyclohexylamine and cycloheptylamine, azepane and azocane, nonanoic and palmitic acid
     * within radius 2 every atom sees the same surroundings, so the set of substructures is identical and only their counts differ
     * a bit vector keeps no counts and cannot tell them apart; a count fingerprint can
+
+    Molecules with the same bit vector get the same prediction from any model; ECFP4 does not see stereo (by default) or counts.
     """
             ),
             twin_table,
@@ -1195,6 +1205,8 @@ def _(
     * left: the chosen descriptor against pEC50; right: Spearman ρ of each of the 14 descriptors with pEC50 (train)
     * among pairs with Tanimoto ≥ 0.5, the logP difference tracks the pEC50 difference, if weakly (ρ = {_rho_pairs:.2f})
     * a bit vector has no axis for "slightly more lipophilic": adding a methyl either sets a bit or it doesn't
+
+    Continuous whole-molecule properties such as lipophilicity cannot be expressed as a set of substructures that are present or absent.
     """),
         ]
     )
@@ -1353,6 +1365,8 @@ def _(N_BITS, Xm_test, bit_gain, census_for, mo, np, pl, pred_test, spearmanr, t
     {_mixed_note}
     * the model never uses {_n0:,} bits; the most frequent of them is set in {_n0_mols:,} molecules (bit {_n0_bit}). Retraining without them gives about the same test score (MAE 0.59)
     * test molecules with more of these bits have slightly larger errors (Spearman {_rho0:.2f}; MAE {_mae_lo:.2f} with 0–2 of them, {_mae_hi:.2f} with 7 or more)
+
+    Importance belongs to bits, but a top bit is usually one substructure, so it can be read as that substructure's importance; for the exceptions, check what is inside.
     """),
         ]
     )
@@ -1495,6 +1509,8 @@ def _(N_BITS, census_for, mo, pair_X, pair_contrib, pair_smiles, pair_y, train):
     * even so, the predicted gap is only {abs(_gap):.2f}, far from the measured {abs(_measured):.2f}; the shared bits push A's prediction up by {_lift:+.2f}
     * {_rare} of the {len(_only_a)} substructures only A has appear in 3 or fewer train compounds, so the weight on their bits was learned from other substructures in the same bits
     * the atom map can only show bits that are set; absent bits matter to the trees too, but cannot be drawn on atoms
+
+    The model reproduced only {abs(_gap) / abs(_measured):.0%} of the measured difference.
     """
     )
     return
@@ -1741,6 +1757,8 @@ def _(mo):
     * **fold size**: 256 bits is clearly worse (0.64), while 2048 and 8192 are close (0.59 → 0.58)
     * **include chirality**: few compounds change, so the score hardly moves, but the stereo groups from 3c become separable
     * **RDKit descriptors**: the 217 descriptors alone reach 0.56, better than ECFP4 (0.59); combined with ECFP4, 0.53
+
+    Adding descriptors to ECFP4 helps most, but every model still pulls its predictions toward the mean.
 
     ## 6 · Take-aways
 
