@@ -106,3 +106,36 @@ export function isDark(el) {
   }
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
 }
+
+// "computing…" while Python recomputes after a change made in the browser. Python bumps `rev`
+// when it is done (see _Computing in widgets.py). Returns mark(changes): call it with the
+// {name: value} object you are about to set; only real changes to `triggers` count. Nothing
+// shows for fast answers, so quick updates do not flicker.
+const BUSY_CSS = `
+.mw-host { position: relative; }
+.mw-host.mw-busy > :not(style) { opacity: .55; transition: opacity .15s; }
+.mw-host.mw-busy::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; z-index: 5;
+  background: linear-gradient(90deg, transparent, #1c7ed6, transparent) no-repeat; background-size: 35% 100%;
+  animation: mw-slide 1s ease-in-out infinite; border-radius: 2px; }
+.mw-host.mw-busy::after { content: "computing…"; position: absolute; top: 8px; right: 8px; z-index: 5;
+  font: 600 11px/1.6 system-ui, sans-serif; color: #fff; background: rgba(28, 126, 214, .92);
+  padding: 0 9px; border-radius: 999px; }
+@keyframes mw-slide { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+`;
+
+export function busyIndicator(model, host, triggers) {
+  host.classList.add("mw-host");
+  const style = document.createElement("style");
+  style.textContent = BUSY_CSS;
+  host.appendChild(style);
+  let show = null, giveUp = null;
+  const stop = () => { clearTimeout(show); clearTimeout(giveUp); host.classList.remove("mw-busy"); };
+  model.on("change:rev", stop);
+  return (changes) => {
+    const same = (k) => JSON.stringify(model.get(k)) === JSON.stringify(changes[k]);
+    if (!Object.keys(changes).some((k) => triggers.includes(k) && !same(k))) return;
+    clearTimeout(show); clearTimeout(giveUp);
+    show = setTimeout(() => host.classList.add("mw-busy"), 150);
+    giveUp = setTimeout(stop, 30000); // never leave it spinning if an answer is lost
+  };
+}

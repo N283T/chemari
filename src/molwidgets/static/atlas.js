@@ -64,7 +64,8 @@ function render({ model, el: host }) {
   root.appendChild(el("style", {}, CSS));
   host.appendChild(root);
   const get = (k) => model.get(k);
-  const set = (obj) => { for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
+  const busy = busyIndicator(model, host, ["radius", "n_bits", "sort", "page", "page_size", "per_row"]);
+  const set = (obj) => { busy(obj); for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
 
   function draw() {
     root.querySelectorAll(":scope > :not(style)").forEach((n) => n.remove());

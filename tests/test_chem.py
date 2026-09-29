@@ -168,3 +168,16 @@ def test_movie_uses_real_rdkit_identifiers():
     bits = G.GetMorganGenerator(radius=2, fpSize=16).GetFingerprint(Chem.MolFromSmiles("CC(=O)NCC"))
     assert "[0, 1, 5, 6, 7, 8, 9, 10, 11, 13, 14]" in page
     assert list(bits.GetOnBits()) == [0, 1, 5, 6, 7, 8, 9, 10, 11, 13, 14]
+
+
+def test_widgets_bump_rev_after_recomputing():
+    from molwidgets import BitAtlas, ECFPStepper
+
+    w = ECFPStepper("CCO")
+    before, svg = w.rev, w.svg
+    w.radius = 1
+    assert w.rev > before and w.svg != svg  # the drawing is ready by the time rev moves
+    atlas = BitAtlas(["CCO", "c1ccccc1O", "CC(=O)N"])
+    before = atlas.rev
+    atlas.sort = "envs"
+    assert atlas.rev > before

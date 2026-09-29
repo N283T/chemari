@@ -124,6 +124,7 @@ async function render({ model, el: host }) {
   if (isDark(host)) root.classList.add("dark");
   root.appendChild(el("style", {}, CSS));
   host.appendChild(root);
+  const busy = busyIndicator(model, host, ["radius", "n_bits", "selected_bit"]);
   root.appendChild(el("div", { className: "me-muted" }, "loading RDKit.js…"));
   const RDKit = await loadRDKit();
 
@@ -208,9 +209,9 @@ async function render({ model, el: host }) {
     const bar = el("div", { className: "me-bar" });
     bar.append(
       el("span", { className: "me-lbl", textContent: "radius" }),
-      seg([[0, "0"], [1, "1"], [2, "2"], [3, "3"]], get("radius"), (v) => { model.set("radius", v); model.set("selected_bit", -1); model.save_changes(); }),
+      seg([[0, "0"], [1, "1"], [2, "2"], [3, "3"]], get("radius"), (v) => { busy({ radius: v, selected_bit: -1 }); model.set("radius", v); model.set("selected_bit", -1); model.save_changes(); }),
       el("span", { className: "me-lbl", textContent: "bits" }),
-      seg([[64, "64"], [256, "256"], [1024, "1024"], [2048, "2048"], [4096, "4096"]], get("n_bits"), (v) => { model.set("n_bits", v); model.set("selected_bit", -1); model.save_changes(); }),
+      seg([[64, "64"], [256, "256"], [1024, "1024"], [2048, "2048"], [4096, "4096"]], get("n_bits"), (v) => { busy({ n_bits: v, selected_bit: -1 }); model.set("n_bits", v); model.set("selected_bit", -1); model.save_changes(); }),
     );
     if (mols.length === 2)
       bar.append(
@@ -309,7 +310,7 @@ async function render({ model, el: host }) {
       if (warn) tr.title = "Several different substructures in this molecule set this bit";
       tr.addEventListener("mouseenter", () => { hover = r.bit; redrawMols(); });
       tr.addEventListener("mouseleave", () => { hover = null; redrawMols(); });
-      tr.addEventListener("click", () => { hover = null; model.set("selected_bit", r.bit === sel ? -1 : r.bit); model.save_changes(); });
+      tr.addEventListener("click", () => { hover = null; busy({ selected_bit: r.bit === sel ? -1 : r.bit }); model.set("selected_bit", r.bit === sel ? -1 : r.bit); model.save_changes(); });
       table.appendChild(tr);
     }
     wrap.appendChild(table);
