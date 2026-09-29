@@ -6,6 +6,7 @@ from .chem import (
     fingerprint_matrix,
     molecule_bit_tiles,
     morgan_bits,
+    pair_alignment,
     standardize_smiles,
     tanimoto_matrix,
 )
@@ -16,6 +17,7 @@ from .widgets import (
     ECFPMovie,
     ECFPStepper,
     MolGrid,
+    MolPair,
     MorganBitTiles,
     MorganExplorer,
     bit_gallery,
@@ -29,6 +31,7 @@ __all__ = [
     "ECFPMovie",
     "ECFPStepper",
     "MolGrid",
+    "MolPair",
     "MorganBitTiles",
     "MorganExplorer",
     "bit_census",
@@ -38,6 +41,7 @@ __all__ = [
     "fingerprint_matrix",
     "molecule_bit_tiles",
     "morgan_bits",
+    "pair_alignment",
     "standardize_smiles",
     "tanimoto_matrix",
 ]

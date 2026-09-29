@@ -792,6 +792,220 @@ class BitImportance(_Computing):
         }
 
 
+# Descriptors MolPair can compare, by name; pass your own {name: fn(mol) -> float} as well.
+def _descriptor_table() -> dict[str, Any]:
+    from rdkit.Chem import Crippen, Descriptors, Lipinski, rdMolDescriptors
+
+    return {
+        "MW": Descriptors.MolWt,  # ty: ignore[unresolved-attribute]
+        "cLogP": Crippen.MolLogP,  # ty: ignore[unresolved-attribute]
+        "TPSA": rdMolDescriptors.CalcTPSA,
+        "HBD": Lipinski.NumHDonors,  # ty: ignore[unresolved-attribute]
+        "HBA": Lipinski.NumHAcceptors,  # ty: ignore[unresolved-attribute]
+        "RotB": rdMolDescriptors.CalcNumRotatableBonds,
+        "heavy atoms": lambda m: m.GetNumHeavyAtoms(),
+        "rings": rdMolDescriptors.CalcNumRings,
+        "arom. rings": rdMolDescriptors.CalcNumAromaticRings,
+        "Fsp3": rdMolDescriptors.CalcFractionCSP3,
+    }
+
+
+PAIR_DESCRIPTORS = ["MW", "cLogP", "TPSA", "HBD", "HBA", "RotB", "heavy atoms", "rings"]
+_ONLY = (1.0, 0.72, 0.3)  # atoms in one molecule only (orange)
+_CHANGED = (0.84, 0.6, 1.0)  # matched atoms whose element / charge / stereo differ (violet)
+_CORE = (0.62, 0.8, 1.0)  # the common substructure (light blue)
+
+
+class MolPair(_Computing):
+    """Two molecules side by side, drawn in the same orientation, with what differs marked.
+
+    The maximum common substructure (any element may match any other; bonds and rings must
+    agree) maps B's atoms onto A's, and B is laid out on A's coordinates. Atoms found in only
+    one molecule are orange; matched atoms whose element, charge or R/S label differ are violet
+    (bonds whose E/Z differs too). ``highlight="core"`` shades the common part instead.
+    Hovering an atom rings its partner in the other molecule.
+
+    ``a`` and ``b`` are dicts (a DataFrame row works) or SMILES strings. ``value_cols`` are shown
+    under each drawing; ``delta_cols`` get B − A between them, and ``fold_cols`` also the
+    fold-change ``10**|Δ|`` (for log units such as pEC50). ``descriptors`` are RDKit
+    descriptors compared in a table (names from ``PAIR_DESCRIPTORS`` or ``{name: fn(mol)}``).
+    The centre also shows the Morgan Tanimoto at ``radius`` / ``n_bits``.
+    """
+
+    _esm = _bundle("molpair.js")
+
+    molecules = traitlets.List(traitlets.Dict()).tag(sync=True)
+    highlight = traitlets.Unicode("diff").tag(sync=True)  # "diff" | "core" | "none"
+    stereo_labels = traitlets.Bool(False).tag(sync=True)
+    radius = traitlets.Int(2).tag(sync=True)
+    n_bits = traitlets.Int(2048).tag(sync=True)
+    note = traitlets.Unicode("").tag(sync=True)
+    # computed in Python
+    view = traitlets.Dict().tag(sync=True)
+    mapping = traitlets.List().tag(sync=True)  # [[atom in A, atom in B], ...]
+    mcs_smarts = traitlets.Unicode("").tag(sync=True)
+
+    def __init__(
+        self,
+        a: Any,
+        b: Any,
+        id_col: str = "id",
+        smiles_col: str = "smiles",
+        value_cols: list[str] | None = None,
+        delta_cols: list[str] | None = None,
+        fold_cols: list[str] | None = None,
+        formats: dict[str, str] | None = None,
+        descriptors: list[str] | dict[str, Any] | None = None,
+        mcs_timeout: float = 2.0,
+        size: tuple[int, int] = (300, 220),
+        **kwargs: Any,
+    ) -> None:
+        self._id_col, self._smiles_col = id_col, smiles_col
+        self._value_cols = list(value_cols or [])
+        self._delta_cols = list(self._value_cols if delta_cols is None else delta_cols)
+        self._fold_cols = list(fold_cols or [])
+        self._formats = formats or {}
+        table = _descriptor_table()
+        if descriptors is None:
+            descriptors = PAIR_DESCRIPTORS
+        self._desc_fns = (
+            dict(descriptors)
+            if isinstance(descriptors, dict)
+            else {name: table[name] for name in descriptors}
+        )
+        self._timeout = mcs_timeout
+        self._size = size
+        super().__init__(molecules=[self._as_dict(a, "A"), self._as_dict(b, "B")], **kwargs)
+        self.observe(self._align, names=["molecules"])
+        self.observe(self._render, names=["highlight", "stereo_labels"])
+        self.observe(self._summarise, names=["radius", "n_bits"])
+        self._signal_done(["molecules", "highlight", "stereo_labels", "radius", "n_bits"])
+        self._align()
+
+    def _as_dict(self, m: Any, fallback_id: str) -> dict:
+        if isinstance(m, str):
+            m = {self._smiles_col: m}
+        m = {k: _clean(v) for k, v in dict(m).items()}
+        return {
+            "id": str(m.get(self._id_col, fallback_id)),
+            "smiles": m[self._smiles_col],
+            "values": {c: m.get(c) for c in self._value_cols},
+        }
+
+    def set_pair(self, a: Any, b: Any) -> None:
+        """Show another pair in the same widget."""
+        self.molecules = [self._as_dict(a, "A"), self._as_dict(b, "B")]
+
+    def _align(self, _change=None) -> None:
+        from .chem import pair_alignment
+
+        a, b = self.molecules
+        self._al = pair_alignment(a["smiles"], b["smiles"], self._timeout)
+        with self.hold_sync():
+            self.mapping = [list(p) for p in self._al["mapping"]]
+            self.mcs_smarts = self._al["mcs_smarts"]
+            self._summarise()
+            self._render()
+
+    def _summarise(self, _change=None) -> None:
+        from .chem import fingerprint_matrix, tanimoto_matrix
+
+        a, b = self.molecules
+        fps = fingerprint_matrix([a["smiles"], b["smiles"]], self.radius, self.n_bits)
+        al = self._al
+        deltas = []
+        for c in self._delta_cols:
+            va, vb = a["values"].get(c), b["values"].get(c)
+            if va is None or vb is None:
+                continue
+            d = vb - va
+            deltas.append(
+                {"name": c, "delta": d, "fold": 10 ** abs(d) if c in self._fold_cols else None}
+            )
+        mols = [al["mol_a"], al["mol_b"]]
+        desc = []
+        for name, fn in self._desc_fns.items():
+            va, vb = (float(fn(m)) for m in mols)
+            desc.append({"name": name, "a": va, "b": vb})
+        self._summary = {
+            "tanimoto": float(tanimoto_matrix(fps)[0, 1]),
+            "fp": f"ECFP{2 * self.radius}"
+            if self.n_bits == 2048
+            else f"Morgan r{self.radius}/{self.n_bits}",
+            "deltas": deltas,
+            "descriptors": desc,
+            "core": len(al["mapping"]),
+            "n_a": al["mol_a"].GetNumAtoms(),
+            "n_b": al["mol_b"].GetNumAtoms(),
+            "only": [len(al["only_a"]), len(al["only_b"])],
+            "changed": len(al["changed_a"]),
+            "changed_bonds": len(al["changed_bonds_a"]),
+            "timed_out": al["timed_out"],
+        }
+        if self.view:
+            self.view = {**self.view, "summary": self._summary}
+
+    def _bond_length(self) -> float:
+        """One scale for both drawings: the largest bond length at which both still fit."""
+        w, h = self._size
+        fits = []
+        for m in (self._al["mol_a"], self._al["mol_b"]):
+            pos = m.GetConformer().GetPositions()
+            span_x, span_y = np.ptp(pos[:, 0]) + 1.5, np.ptp(pos[:, 1]) + 1.5  # room for labels
+            fits.append(min(w * 0.88 / span_x, h * 0.88 / span_y) * 1.5)  # coords: bonds ~1.5 Å
+        return float(min(min(fits), 40.0))
+
+    def _render(self, _change=None) -> None:
+        from rdkit.Chem.Draw import rdMolDraw2D
+
+        al = self._al
+        bond_len = self._bond_length()
+        panels = []
+        for side in ("a", "b"):
+            mol = Chem.Mol(al[f"mol_{side}"])
+            atoms: dict[int, tuple] = {}
+            bonds: dict[int, tuple] = {}
+            if self.highlight == "diff":
+                atoms.update({i: _ONLY for i in al[f"only_{side}"]})
+                bonds.update({i: _ONLY for i in al[f"only_bonds_{side}"]})
+                atoms.update({i: _CHANGED for i in al[f"changed_{side}"]})
+                bonds.update({i: _CHANGED for i in al[f"changed_bonds_{side}"]})
+            elif self.highlight == "core":
+                mine = [p[0 if side == "a" else 1] for p in al["mapping"]]
+                atoms.update({i: _CORE for i in mine})
+                bonds.update(
+                    {
+                        bd.GetIdx(): _CORE
+                        for bd in mol.GetBonds()
+                        if bd.GetIdx() not in al[f"only_bonds_{side}"]
+                        and bd.GetBeginAtomIdx() in mine
+                        and bd.GetEndAtomIdx() in mine
+                    }
+                )
+            drawer = rdMolDraw2D.MolDraw2DSVG(*self._size)
+            opts = drawer.drawOptions()
+            opts.clearBackground = False
+            opts.fixedBondLength = bond_len
+            opts.addStereoAnnotation = self.stereo_labels
+            rdMolDraw2D.PrepareAndDrawMolecule(
+                drawer,
+                mol,
+                highlightAtoms=list(atoms),
+                highlightAtomColors=atoms,
+                highlightBonds=list(bonds),
+                highlightBondColors=bonds,
+            )
+            coords = [
+                [round(p.x, 1), round(p.y, 1)]
+                for i in range(mol.GetNumAtoms())
+                for p in [drawer.GetDrawCoords(i)]
+            ]
+            drawer.FinishDrawing()
+            symbols = [at.GetSymbol() for at in mol.GetAtoms()]
+            panels.append({"svg": drawer.GetDrawingText(), "coords": coords, "symbols": symbols})
+        self.view = {"panels": panels, "summary": self._summary, "formats": self._formats}
+
+
 # Colour key for Draw.DrawMorganEnv's default colours (same as MORGAN_ENV_KEY in rdkit_loader.js).
 _ENV_KEY_HTML = (
     '<i style="background:rgb(153,153,230);margin-left:0"></i>centre atom'
