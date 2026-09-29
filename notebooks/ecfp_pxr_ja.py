@@ -132,12 +132,12 @@ def _():
 
     from molwidgets import (
         BitAtlas,
+        BitImportance,
         ECFPMovie,
         ECFPStepper,
         MolGrid,
         MorganBitTiles,
         MorganExplorer,
-        bit_gallery,
         census_for,
         fingerprint_matrix,
         standardize_smiles,
@@ -146,6 +146,7 @@ def _():
 
     return (
         BitAtlas,
+        BitImportance,
         Chem,
         Crippen,
         Descriptors,
@@ -155,7 +156,6 @@ def _():
         MorganBitTiles,
         MorganExplorer,
         alt,
-        bit_gallery,
         census_for,
         fingerprint_matrix,
         lgb,
@@ -1254,8 +1254,8 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
+def _(mo, model_scores):
+    mo.md(f"""
     ## 4 · モデルの中身
 
     多くの人が最初に作るモデル、**2048 bit の ECFP4 で学習した LightGBM** (OpenADMET のチャレンジ
@@ -1267,26 +1267,15 @@ def _(mo):
       を立てた原子に配分すると原子ごとのマップになる (Riniker & Landrum の similarity map
       と同じ発想)
 
-    bit 長を選ぶとモデルを学習し直します。
+    このモデルの test での成績は MAE **{model_scores["MAE"]:.2f}**、Spearman ρ
+    **{model_scores["rho"]:.2f}** です。5 章の Model lab の基準 (ECFP4 bit) と同じ設定なので、予測と実測の比較はそちらで見られます。
     """)
     return
 
 
-@app.cell(hide_code=True)
-def _(mo):
-    model_bits = mo.ui.radio(
-        {"2048 bit (よく使われるデフォルト)": 2048, "8192 bit": 8192},
-        value="2048 bit (よく使われるデフォルト)",
-        label="モデルの bit 長",
-        inline=True,
-    )
-    model_bits
-    return (model_bits,)
-
-
 @app.cell
-def _(fingerprint_matrix, lgb, model_bits, mo, np, spearmanr, test, train, y_test, y_train):
-    N_BITS = model_bits.value
+def _(fingerprint_matrix, lgb, mo, np, spearmanr, test, train, y_test, y_train):
+    N_BITS = 2048  # the usual default, as in most first models
     Xm_train = fingerprint_matrix(train["smiles"].to_list(), 2, N_BITS).astype(np.float32)
     Xm_test = fingerprint_matrix(test["smiles"].to_list(), 2, N_BITS).astype(np.float32)
     with mo.status.spinner(f"{N_BITS} bit の ECFP4 で LightGBM を学習中…"):
@@ -1305,15 +1294,73 @@ def _(fingerprint_matrix, lgb, model_bits, mo, np, spearmanr, test, train, y_tes
         "MAE": float(np.abs(pred_test - y_test).mean()),
         "rho": float(spearmanr(pred_test, y_test)[0]),
     }
-    return N_BITS, model, model_scores, pred_test
+    return N_BITS, Xm_test, Xm_train, model, model_scores, pred_test
+
+
+@app.cell
+def _(N_BITS, Xm_train, model, np):
+    # per-bit importance of the model: LightGBM gain, and TreeSHAP over the training set
+    bit_gain = model.booster_.feature_importance("gain")
+    _abs, _on_sum = np.zeros(N_BITS), np.zeros(N_BITS)
+    for _s in range(0, len(Xm_train), 500):  # in chunks: at 8192 bits the full matrix is large
+        _x = Xm_train[_s : _s + 500]
+        _c = model.predict(_x, pred_contrib=True)[:, :-1]  # last column = expected value
+        _abs += np.abs(_c).sum(0)
+        _on_sum += (_c * _x).sum(0)
+    bit_shap = _abs / len(Xm_train)
+    _n_on = Xm_train.sum(0)
+    bit_effect = np.divide(_on_sum, _n_on, out=np.zeros(N_BITS), where=_n_on > 0)
+    return bit_effect, bit_gain, bit_shap
 
 
 @app.cell(hide_code=True)
-def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
+def _(mo):
+    mo.md(r"""
+    ### 重要度の高い bit と、その中身
+
+    下の表は、モデルの bit を重要度の高い順に並べたものです。
+
+    * **gain** / **mean |SHAP|**: 重要度 (全 bit に対する割合) どちらで並べるか選べる
+    * **mean SHAP (bit on)**: その bit が立っている分子での平均寄与 赤は予測を上げ 青は下げる
+    * **main substructure**: その bit で一番多い部分構造と その bit が立つ分子のうちそれを含む割合
+    * 行をクリックすると その bit に入る部分構造と その bit が立っている分子が下に出る
+    * 列見出しをもう一度押すと並びが逆になり モデルが使わなかった bit (gain 0) を見られる
+
+    /// details | 各指標の定義
+    * **gain**: その bit での分岐が学習中に減らした損失の合計 (LightGBM の
+      [`feature_importance(importance_type="gain")`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.feature_importance))
+    * **mean |SHAP|**: train の全分子について その bit の TreeSHAP 寄与 (LightGBM の
+      [`predict(pred_contrib=True)`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.predict)) の絶対値を平均したもの ([SHAP](https://shap.readthedocs.io/en/latest/))
+    * **mean SHAP (bit on)**: 同じ寄与を その bit が立っている分子だけで平均したもの (符号つき)
+    * gain 0 の bit どうしは 立っている分子の多い順に並ぶ
+    ///
+    """)
+    return
+
+
+@app.cell
+def _(BitImportance, bit_effect, bit_gain, bit_shap, mo, train):
+    bit_importance = mo.ui.anywidget(
+        BitImportance(
+            train["smiles"].to_list(),
+            importance={"gain": bit_gain, "mean |SHAP|": bit_shap},
+            effect=bit_effect,
+            effect_label="mean SHAP (bit on)",
+            ids=train["id"].to_list(),
+            y=train["pEC50"].to_numpy(),
+            y_label="pEC50",
+        )
+    )
+    bit_importance
+    return
+
+
+@app.cell(hide_code=True)
+def _(N_BITS, Xm_test, bit_gain, census_for, mo, np, pl, pred_test, spearmanr, train, y_test):
     _census = census_for(train["smiles"].to_list(), 2, N_BITS)
-    _gain = model.booster_.feature_importance("gain")
+    _gain = bit_gain
     _top = np.argsort(-_gain)[:15]
-    top_bits = pl.DataFrame(
+    _top_bits = pl.DataFrame(
         {
             "rank": np.arange(1, 16),
             "bit": _top.astype(int),
@@ -1327,28 +1374,18 @@ def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
             ],
         }
     )
-    _chart = (
-        alt.Chart(top_bits)
-        .mark_bar()
-        .encode(
-            y=alt.Y("bit:N", sort=None, title=f"top bits ({N_BITS})"),
-            x=alt.X("# environments in bit:Q", title="distinct substructures sharing the bit"),
-            color=alt.Color(
-                "gain:Q", scale=alt.Scale(scheme="reds"), legend=alt.Legend(title="share of gain")
-            ),
-            tooltip=[
-                "rank",
-                "bit",
-                alt.Tooltip("gain:Q", format=".1%"),
-                "# environments in bit",
-                "# training molecules with bit",
-            ],
-        )
-        .properties(width=340, height=300)
-    )
-    _envs = np.median(top_bits["# environments in bit"])
-    _share = np.median(top_bits["top substructure share"])
-    _mixed = top_bits.filter(pl.col("top substructure share") < 0.8)["bit"].to_list()
+    _envs = np.median(_top_bits["# environments in bit"])
+    _n_on = _census.on.sum(0)
+    _unused = np.flatnonzero(_gain == 0)
+    _n0, _n0_bit = len(_unused), int(_unused[np.argmax(_n_on[_unused])]) if len(_unused) else -1
+    _n0_mols = int(_n_on[_n0_bit]) if len(_unused) else 0
+    # does a test molecule with many ignored bits get a worse prediction?
+    _k = (Xm_test[:, _unused] > 0).sum(1)
+    _err = np.abs(pred_test - y_test)
+    _rho0 = spearmanr(_k, _err)[0]
+    _mae_lo, _mae_hi = _err[_k <= 2].mean(), _err[_k >= 7].mean()
+    _share = np.median(_top_bits["top substructure share"])
+    _mixed = _top_bits.filter(pl.col("top substructure share") < 0.8)["bit"].to_list()
     _mixed_note = (
         f"* 例外は 2 番目の部分構造も多くの分子に現れる bit ({' '.join(map(str, _mixed))}) で こうした bit の重要度はどの部分構造のものか決められない"
         if _mixed
@@ -1356,60 +1393,28 @@ def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
     )
     mo.vstack(
         [
-            mo.hstack(
-                [
-                    _chart,
-                    mo.vstack(
-                        [
-                            mo.stat(f"{model_scores['MAE']:.2f}", label="test MAE"),
-                            mo.stat(f"{model_scores['rho']:.2f}", label="test Spearman ρ"),
-                            mo.stat(
-                                f"{_envs:.0f}", label="上位 15 bit あたりの部分構造数 (中央値)"
-                            ),
-                            mo.stat(f"{_share:.0%}", label="一番多い部分構造が占める割合 (中央値)"),
-                        ]
-                    ),
-                ],
-                widths=[1.1, 1],
-                align="center",
-            ),
-            mo.md(f"""
+            mo.md("""
     **重要度上位の bit には何種類もの部分構造が入っていますが、ほとんどは 1 つの部分構造がその bit
     を占めています。**
-
-    * 棒は重要度上位 15 の bit 長さはその bit に入る部分構造の種類数 (train)
-    * {N_BITS} bit では 1 bit あたり約 {_envs:.0f} 種類入るが その bit が立つ分子の中央値
+    """),
+            mo.hstack(
+                [
+                    mo.stat(f"{_envs:.0f}", label="上位 15 bit あたりの部分構造数 (中央値)"),
+                    mo.stat(f"{_share:.0%}", label="一番多い部分構造が占める割合 (中央値)"),
+                ],
+                widths="equal",
+                gap=0.5,
+            ),
+            mo.md(f"""
+    * {N_BITS} bit では上位 15 bit に 1 bit あたり約 {_envs:.0f} 種類入るが その bit が立つ分子の中央値
       {_share:.0%} は一番多い部分構造 1 つで説明できる
     {_mixed_note}
-    * 8192 bit でも上位 bit の主な部分構造はほぼ同じなので 精度はほとんど変わらない
-    * 下で bit を選ぶと 中の部分構造を見られる
+    * モデルが一度も使わなかった bit は {_n0:,} 個 一番多く立つものは {_n0_mols:,} 分子 (bit {_n0_bit})
+      これらを落として学習し直しても test の成績はほぼ同じ (MAE 0.59)
+    * こうした bit が多い test 分子ほど誤差はわずかに大きい (Spearman {_rho0:.2f} 0〜2 個で MAE
+      {_mae_lo:.2f} 7 個以上で {_mae_hi:.2f})
     """),
         ]
-    )
-    return (top_bits,)
-
-
-@app.cell(hide_code=True)
-def _(mo, top_bits):
-    top_bit_pick = mo.ui.dropdown(
-        {f"#{r} · bit {b}": int(b) for r, b in zip(top_bits["rank"], top_bits["bit"])},
-        value=f"#1 · bit {top_bits['bit'][0]}",
-        label="上位 bit の中身を見る",
-    )
-    top_bit_pick
-    return (top_bit_pick,)
-
-
-@app.cell(hide_code=True)
-def _(N_BITS, bit_gallery, mo, top_bit_pick, train):
-    mo.Html(
-        bit_gallery(
-            top_bit_pick.value,
-            train["smiles"].to_list(),
-            ids=train["id"].to_list(),
-            radius=2,
-            n_bits=N_BITS,
-        )
     )
     return
 

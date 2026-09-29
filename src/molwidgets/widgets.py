@@ -579,6 +579,219 @@ class BitAtlas(_Computing):
         self.rows = rows
 
 
+class BitImportance(_Computing):
+    """A fingerprint model's bits ranked by importance, and what is behind the selected bit.
+
+    ``importance`` maps a name to a per-bit array (length ``n_bits``), e.g. LightGBM gain and
+    mean |SHAP|; the table ranks every bit by the chosen one (or by how many molecules set it, or
+    how many substructures share it), in either direction, so bits the model never uses can be
+    found too. ``effect`` is an optional signed per-bit value (e.g. mean SHAP in the molecules that
+    set the bit) shown as the direction. Below the table, the selected bit's substructures in
+    ``reference`` and the molecules that set it, with the responsible atoms highlighted; clicking a
+    substructure keeps only the molecules that contain it. Pass ``y`` to label (and order) them.
+    """
+
+    _esm = _bundle("importance.js")
+
+    radius = traitlets.Int(2).tag(sync=True)
+    n_bits = traitlets.Int(2048).tag(sync=True)
+    score_names = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    sort = traitlets.Unicode("").tag(sync=True)  # an importance name, "mols" or "envs"
+    descending = traitlets.Bool(True).tag(sync=True)
+    page = traitlets.Int(0).tag(sync=True)
+    page_size = traitlets.Int(30).tag(sync=True)
+    order = traitlets.List(traitlets.Int()).tag(sync=True)  # every bit, in rank order
+    max_score = traitlets.Dict().tag(sync=True)  # largest share per importance, to scale the bars
+    effect_label = traitlets.Unicode("").tag(sync=True)
+    y_label = traitlets.Unicode("").tag(sync=True)
+    rows = traitlets.List().tag(sync=True)
+    selected = traitlets.Int(-1).tag(sync=True)
+    detail = traitlets.Dict().tag(sync=True)
+    mol_filter = traitlets.Int(-1).tag(sync=True)  # unfolded identifier of one substructure, or -1
+    mol_page = traitlets.Int(0).tag(sync=True)
+    mol_page_size = traitlets.Int(24).tag(sync=True)
+    mols = traitlets.Dict().tag(sync=True)  # {"total": n, "items": [...]} for the selected bit
+
+    def __init__(
+        self,
+        reference: list[str],
+        importance: dict[str, Any],
+        effect: Any = None,
+        effect_label: str = "effect",
+        radius: int = 2,
+        ids: list[str] | None = None,
+        y: Any = None,
+        y_label: str = "y",
+        **kwargs,
+    ):
+        self._reference = list(reference)
+        self._ids = [str(i) for i in ids] if ids is not None else None
+        self._y = None if y is None else np.asarray(y, dtype=float)
+        self._imp = {k: np.asarray(v, dtype=float) for k, v in importance.items()}
+        self._share = {k: v / v.sum() if v.sum() else v for k, v in self._imp.items()}
+        self._effect = None if effect is None else np.asarray(effect, dtype=float)
+        self._mols: dict[int, Chem.Mol] = {}
+        self._svgs: dict[tuple[int, int, int, int], str] = {}
+        self._hits: dict[int, list[dict]] = {}  # molecule -> its substructures in the selected bit
+        self._uid_index: dict[int, int] = {}  # substructure -> its position in the selected bit
+        self._quiet = False
+        kwargs.setdefault("sort", next(iter(self._imp)))
+        super().__init__(
+            radius=radius,
+            n_bits=len(next(iter(self._imp.values()))),
+            score_names=list(self._imp),
+            max_score={k: float(v.max()) for k, v in self._share.items()},
+            effect_label=effect_label if effect is not None else "",
+            y_label=y_label if y is not None else "",
+            **kwargs,
+        )
+        self.observe(self._rank, names=["sort", "descending"])
+        self.observe(self._refresh, names=["page", "page_size"])
+        self.observe(self._select, names=["selected"])
+        self.observe(self._mol_view_changed, names=["mol_filter", "mol_page"])
+        self._signal_done(
+            ["sort", "descending", "page", "page_size", "selected", "mol_filter", "mol_page"]
+        )
+        self._rank()
+
+    def _census(self) -> BitCensus:
+        return census_for(self._reference, self.radius, self.n_bits)
+
+    def _mol(self, i: int) -> Chem.Mol:
+        if i not in self._mols:
+            self._mols[i] = Chem.MolFromSmiles(self._reference[i])
+        return self._mols[i]
+
+    def _svg(self, ex: dict, size: tuple[int, int]) -> str:
+        key = (ex["mol_index"], ex["center"], ex["radius"], size[0])
+        if key not in self._svgs:
+            self._svgs[key] = _env_svg(self._mol(ex["mol_index"]), ex["center"], ex["radius"], size)
+        return self._svgs[key]
+
+    def _rank(self, _change=None) -> None:
+        census = self._census()
+        n_on = census.on.sum(0)
+        key = {"mols": n_on, "envs": census.n_envs}.get(self.sort)
+        if key is None:
+            key = self._imp[self.sort]
+        bits = np.arange(self.n_bits)
+        # ties (e.g. every bit the model never splits on) go to the bits most molecules set
+        order = np.lexsort((bits, -n_on, -key if self.descending else key))
+        self.order = [int(b) for b in order]
+        if self.page != 0:
+            self.page = 0  # triggers _refresh
+        else:
+            self._refresh()
+
+    def _refresh(self, _change=None) -> None:
+        census = self._census()
+        n_on = census.on.sum(0)
+        start = self.page * self.page_size
+        rows = []
+        for rank, bit in enumerate(self.order[start : start + self.page_size], start=start + 1):
+            examples = census.examples.get(int(bit), [])
+            main = examples[0] if examples else None
+            rows.append(
+                {
+                    "rank": rank,
+                    "bit": int(bit),
+                    "scores": {k: float(v[bit]) for k, v in self._share.items()},
+                    "effect": None if self._effect is None else float(self._effect[bit]),
+                    "n_envs": len(examples),
+                    "n_mols": int(n_on[bit]),
+                    # the most common substructure, and the share of the bit's molecules it covers
+                    "main_svg": self._svg(main, (96, 72)) if main else "",
+                    "main_env": main["smiles"] if main else "",
+                    "main_share": main["count"] / max(int(n_on[bit]), 1) if main else 0.0,
+                }
+            )
+        self.rows = rows
+        if self.selected < 0 and rows:
+            self.selected = rows[0]["bit"]  # opens the top bit
+
+    def _select(self, _change=None) -> None:
+        self._hits = {}
+        census = self._census()
+        bit = self.selected
+        examples = census.examples.get(bit, []) if bit >= 0 else []
+        self._uid_index = {ex["uid"]: k for k, ex in enumerate(examples)}
+        self.detail = (
+            {
+                "bit": bit,
+                "n_mols": int(census.on[:, bit].sum()),
+                "envs": [
+                    {
+                        "uid": ex["uid"],
+                        "svg": self._svg(ex, (130, 100)),
+                        "env": ex["smiles"],
+                        "radius": ex["radius"],
+                        "count": ex["count"],
+                        "id": self._ids[ex["mol_index"]] if self._ids else str(ex["mol_index"]),
+                    }
+                    for ex in examples
+                ],
+            }
+            if bit >= 0
+            else {}
+        )
+        self._quiet = True
+        self.mol_filter, self.mol_page = -1, 0
+        self._quiet = False
+        self._refresh_mols()
+
+    def _mol_view_changed(self, change) -> None:
+        if self._quiet:
+            return
+        if change["name"] == "mol_filter" and self.mol_page:
+            self._quiet = True
+            self.mol_page = 0
+            self._quiet = False
+        self._refresh_mols()
+
+    def _hits_of(self, i: int) -> list[dict]:
+        """The substructures of molecule i that set the selected bit, with the atoms of each."""
+        from .chem import molecule_bit_tiles
+
+        if i not in self._hits:
+            self._hits[i] = [
+                {
+                    "uid": t["uid"],
+                    "k": self._uid_index.get(t["uid"], -1),
+                    "atoms": sorted({a for w in t["where"] for a in w["atoms"]}),
+                    "bonds": sorted({b for w in t["where"] for b in w["bonds"]}),
+                }
+                for t in molecule_bit_tiles(self._reference[i], self.radius, self.n_bits)
+                if t["bit"] == self.selected
+            ]
+        return self._hits[i]
+
+    def _refresh_mols(self) -> None:
+        bit = self.selected
+        if bit < 0:
+            self.mols = {}
+            return
+        idx = np.flatnonzero(self._census().on[:, bit])
+        if self._y is not None:  # most active first
+            idx = idx[np.argsort(-np.nan_to_num(self._y[idx], nan=-np.inf), kind="stable")]
+        if self.mol_filter >= 0:
+            idx = [
+                i for i in idx if any(h["uid"] == self.mol_filter for h in self._hits_of(int(i)))
+            ]
+        start = self.mol_page * self.mol_page_size
+        self.mols = {
+            "total": len(idx),
+            "items": [
+                {
+                    "id": self._ids[i] if self._ids else str(i),
+                    "smiles": self._reference[i],
+                    "y": None if self._y is None else float(self._y[i]),
+                    "hits": self._hits_of(int(i)),
+                }
+                for i in (int(i) for i in idx[start : start + self.mol_page_size])
+            ],
+        }
+
+
 # Colour key for Draw.DrawMorganEnv's default colours (same as MORGAN_ENV_KEY in rdkit_loader.js).
 _ENV_KEY_HTML = (
     '<i style="background:rgb(153,153,230);margin-left:0"></i>centre atom'

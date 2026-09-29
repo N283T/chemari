@@ -124,12 +124,12 @@ def _():
 
     from molwidgets import (
         BitAtlas,
+        BitImportance,
         ECFPMovie,
         ECFPStepper,
         MolGrid,
         MorganBitTiles,
         MorganExplorer,
-        bit_gallery,
         census_for,
         fingerprint_matrix,
         standardize_smiles,
@@ -138,6 +138,7 @@ def _():
 
     return (
         BitAtlas,
+        BitImportance,
         Chem,
         Crippen,
         Descriptors,
@@ -147,7 +148,6 @@ def _():
         MorganBitTiles,
         MorganExplorer,
         alt,
-        bit_gallery,
         census_for,
         fingerprint_matrix,
         lgb,
@@ -1202,8 +1202,8 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
+def _(mo, model_scores):
+    mo.md(f"""
     ## 4 · Inside the model
 
     What does the model most people train first, **LightGBM on 2048-bit ECFP4** (the same baseline as OpenADMET's challenge tutorial), actually learn? Two ways to look:
@@ -1211,26 +1211,14 @@ def _(mo):
     * **feature importance** (total gain per bit): which bits the trees split on most
     * **TreeSHAP** (LightGBM's `pred_contrib=True`): how much each bit raised or lowered this molecule's prediction; spreading a bit's contribution over the atoms that set it gives a per-atom map (the idea behind Riniker & Landrum's similarity maps)
 
-    Choosing a fold size retrains the model.
+    On the test set this model reaches MAE **{model_scores["MAE"]:.2f}** and Spearman ρ **{model_scores["rho"]:.2f}**. It is the ECFP4-bit baseline of the Model lab in section 5, where its predictions are plotted against the truth.
     """)
     return
 
 
-@app.cell(hide_code=True)
-def _(mo):
-    model_bits = mo.ui.radio(
-        {"2048 bits (the usual default)": 2048, "8192 bits": 8192},
-        value="2048 bits (the usual default)",
-        label="fold size for the model",
-        inline=True,
-    )
-    model_bits
-    return (model_bits,)
-
-
 @app.cell
-def _(fingerprint_matrix, lgb, model_bits, mo, np, spearmanr, test, train, y_test, y_train):
-    N_BITS = model_bits.value
+def _(fingerprint_matrix, lgb, mo, np, spearmanr, test, train, y_test, y_train):
+    N_BITS = 2048  # the usual default, as in most first models
     Xm_train = fingerprint_matrix(train["smiles"].to_list(), 2, N_BITS).astype(np.float32)
     Xm_test = fingerprint_matrix(test["smiles"].to_list(), 2, N_BITS).astype(np.float32)
     with mo.status.spinner(f"Training LightGBM on {N_BITS}-bit ECFP4…"):
@@ -1249,15 +1237,71 @@ def _(fingerprint_matrix, lgb, model_bits, mo, np, spearmanr, test, train, y_tes
         "MAE": float(np.abs(pred_test - y_test).mean()),
         "rho": float(spearmanr(pred_test, y_test)[0]),
     }
-    return N_BITS, model, model_scores, pred_test
+    return N_BITS, Xm_test, Xm_train, model, model_scores, pred_test
+
+
+@app.cell
+def _(N_BITS, Xm_train, model, np):
+    # per-bit importance of the model: LightGBM gain, and TreeSHAP over the training set
+    bit_gain = model.booster_.feature_importance("gain")
+    _abs, _on_sum = np.zeros(N_BITS), np.zeros(N_BITS)
+    for _s in range(0, len(Xm_train), 500):  # in chunks: at 8192 bits the full matrix is large
+        _x = Xm_train[_s : _s + 500]
+        _c = model.predict(_x, pred_contrib=True)[:, :-1]  # last column = expected value
+        _abs += np.abs(_c).sum(0)
+        _on_sum += (_c * _x).sum(0)
+    bit_shap = _abs / len(Xm_train)
+    _n_on = Xm_train.sum(0)
+    bit_effect = np.divide(_on_sum, _n_on, out=np.zeros(N_BITS), where=_n_on > 0)
+    return bit_effect, bit_gain, bit_shap
 
 
 @app.cell(hide_code=True)
-def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
+def _(mo):
+    mo.md(r"""
+    ### The most important bits, and what is inside them
+
+    The table below ranks the model's bits by importance.
+
+    * **gain** / **mean |SHAP|**: the importance (share of the total over all bits); rank by either
+    * **mean SHAP (bit on)**: the bit's average contribution in the molecules that set it; red raises the prediction, blue lowers it
+    * **main substructure**: the bit's most common substructure, and the share of the bit's molecules that contain it
+    * click a row to see the substructures inside the bit and the molecules that set it
+    * click a column header again to flip the order and see the bits the model never used (gain 0)
+
+    /// details | Definitions
+    * **gain**: total loss reduction from the splits on the bit during training (LightGBM [`feature_importance(importance_type="gain")`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.feature_importance))
+    * **mean |SHAP|**: the absolute TreeSHAP contribution of the bit (LightGBM [`predict(pred_contrib=True)`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.predict)), averaged over all train molecules ([SHAP](https://shap.readthedocs.io/en/latest/))
+    * **mean SHAP (bit on)**: the same contribution, signed, averaged over the molecules that set the bit
+    * bits with gain 0 are ordered by how many molecules set them
+    ///
+    """)
+    return
+
+
+@app.cell
+def _(BitImportance, bit_effect, bit_gain, bit_shap, mo, train):
+    bit_importance = mo.ui.anywidget(
+        BitImportance(
+            train["smiles"].to_list(),
+            importance={"gain": bit_gain, "mean |SHAP|": bit_shap},
+            effect=bit_effect,
+            effect_label="mean SHAP (bit on)",
+            ids=train["id"].to_list(),
+            y=train["pEC50"].to_numpy(),
+            y_label="pEC50",
+        )
+    )
+    bit_importance
+    return
+
+
+@app.cell(hide_code=True)
+def _(N_BITS, Xm_test, bit_gain, census_for, mo, np, pl, pred_test, spearmanr, train, y_test):
     _census = census_for(train["smiles"].to_list(), 2, N_BITS)
-    _gain = model.booster_.feature_importance("gain")
+    _gain = bit_gain
     _top = np.argsort(-_gain)[:15]
-    top_bits = pl.DataFrame(
+    _top_bits = pl.DataFrame(
         {
             "rank": np.arange(1, 16),
             "bit": _top.astype(int),
@@ -1271,28 +1315,18 @@ def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
             ],
         }
     )
-    _chart = (
-        alt.Chart(top_bits)
-        .mark_bar()
-        .encode(
-            y=alt.Y("bit:N", sort=None, title=f"top bits ({N_BITS})"),
-            x=alt.X("# environments in bit:Q", title="distinct substructures sharing the bit"),
-            color=alt.Color(
-                "gain:Q", scale=alt.Scale(scheme="reds"), legend=alt.Legend(title="share of gain")
-            ),
-            tooltip=[
-                "rank",
-                "bit",
-                alt.Tooltip("gain:Q", format=".1%"),
-                "# environments in bit",
-                "# training molecules with bit",
-            ],
-        )
-        .properties(width=340, height=300)
-    )
-    _envs = np.median(top_bits["# environments in bit"])
-    _share = np.median(top_bits["top substructure share"])
-    _mixed = top_bits.filter(pl.col("top substructure share") < 0.8)["bit"].to_list()
+    _envs = np.median(_top_bits["# environments in bit"])
+    _n_on = _census.on.sum(0)
+    _unused = np.flatnonzero(_gain == 0)
+    _n0, _n0_bit = len(_unused), int(_unused[np.argmax(_n_on[_unused])]) if len(_unused) else -1
+    _n0_mols = int(_n_on[_n0_bit]) if len(_unused) else 0
+    # does a test molecule with many ignored bits get a worse prediction?
+    _k = (Xm_test[:, _unused] > 0).sum(1)
+    _err = np.abs(pred_test - y_test)
+    _rho0 = spearmanr(_k, _err)[0]
+    _mae_lo, _mae_hi = _err[_k <= 2].mean(), _err[_k >= 7].mean()
+    _share = np.median(_top_bits["top substructure share"])
+    _mixed = _top_bits.filter(pl.col("top substructure share") < 0.8)["bit"].to_list()
     _mixed_note = (
         f"* the exceptions are bits where a second substructure is also common ({' '.join(map(str, _mixed))}); for these the importance cannot be pinned on one substructure"
         if _mixed
@@ -1300,59 +1334,27 @@ def _(N_BITS, alt, census_for, mo, model, model_scores, np, pl, train):
     )
     mo.vstack(
         [
+            mo.md("""
+    **Each top bit holds many substructures, but in most of them one substructure dominates.**
+    """),
             mo.hstack(
                 [
-                    _chart,
-                    mo.vstack(
-                        [
-                            mo.stat(f"{model_scores['MAE']:.2f}", label="test MAE"),
-                            mo.stat(f"{model_scores['rho']:.2f}", label="test Spearman ρ"),
-                            mo.stat(f"{_envs:.0f}", label="substructures per top-15 bit (median)"),
-                            mo.stat(
-                                f"{_share:.0%}",
-                                label="share of the most common substructure (median)",
-                            ),
-                        ]
+                    mo.stat(f"{_envs:.0f}", label="substructures per top-15 bit (median)"),
+                    mo.stat(
+                        f"{_share:.0%}",
+                        label="share of the most common substructure (median)",
                     ),
                 ],
-                widths=[1.1, 1],
-                align="center",
+                widths="equal",
+                gap=0.5,
             ),
             mo.md(f"""
-    **Each top bit holds many substructures, but in most of them one substructure dominates.**
-
-    * bars: the 15 most important bits; length: distinct substructures in the bit (train)
-    * at {N_BITS} bits a bit holds about {_envs:.0f} substructures, yet in the median bit {_share:.0%} of the molecules that set it contain its most common one
+    * at {N_BITS} bits a top-15 bit holds about {_envs:.0f} substructures, yet in the median bit {_share:.0%} of the molecules that set it contain its most common one
     {_mixed_note}
-    * at 8192 bits the top bits are dominated by almost the same substructures, which is why accuracy barely changes
-    * pick a bit below to see what is inside
+    * the model never uses {_n0:,} bits; the most frequent of them is set in {_n0_mols:,} molecules (bit {_n0_bit}). Retraining without them gives about the same test score (MAE 0.59)
+    * test molecules with more of these bits have slightly larger errors (Spearman {_rho0:.2f}; MAE {_mae_lo:.2f} with 0–2 of them, {_mae_hi:.2f} with 7 or more)
     """),
         ]
-    )
-    return (top_bits,)
-
-
-@app.cell(hide_code=True)
-def _(mo, top_bits):
-    top_bit_pick = mo.ui.dropdown(
-        {f"#{r} · bit {b}": int(b) for r, b in zip(top_bits["rank"], top_bits["bit"])},
-        value=f"#1 · bit {top_bits['bit'][0]}",
-        label="look inside a top bit",
-    )
-    top_bit_pick
-    return (top_bit_pick,)
-
-
-@app.cell(hide_code=True)
-def _(N_BITS, bit_gallery, mo, top_bit_pick, train):
-    mo.Html(
-        bit_gallery(
-            top_bit_pick.value,
-            train["smiles"].to_list(),
-            ids=train["id"].to_list(),
-            radius=2,
-            n_bits=N_BITS,
-        )
     )
     return
 
