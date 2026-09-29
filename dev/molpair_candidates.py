@@ -468,12 +468,12 @@ def _(
         al = pair_alignment(a["smiles"], b["smiles"]) if analysed else None
         ma, mb = (al["mol_a"], al["mol_b"]) if al else plain
         # each molecule centred in its own panel, both at one scale. The frame also covers
-        # B's un-analysed layout and is rounded up to whole Å, so pressing the button
+        # B's un-analysed layout and is rounded up to half an Å, so pressing the button
         # re-lays out B without moving or rescaling A (unless the new B is larger)
         pos = [m.GetConformer().GetPositions()[:, :2] for m in (ma, mb)]
         centre = [(p.min(0) + p.max(0)) / 2 for p in pos]
         extent = pos + [plain[1].GetConformer().GetPositions()[:, :2]]
-        half = np.ceil(np.max([(p.max(0) - p.min(0)) / 2 for p in extent], axis=0) + 0.7)
+        half = np.ceil(2 * (np.max([(p.max(0) - p.min(0)) / 2 for p in extent], axis=0) + 0.45)) / 2
         size = (width, int(width * min(0.85, max(0.5, half[1] / half[0]))))
         cols = [{}, {}], [{}, {}]
         if al:
@@ -663,14 +663,27 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
     COMPARE_JS = r"""
     const CSS = `
     .c-root { --track:#eef1f4; } .c-root.dark { --track:#2c3139; }
-    .mc-bar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-bottom:8px; font-size:12.5px; }
+    .mc-bar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; font-size:12.5px; }
     .mc-btn { font:inherit; font-size:12.5px; border:1px solid var(--border); background:var(--soft); color:var(--fg);
       border-radius:6px; padding:3px 12px; cursor:pointer; }
     .mc-btn:disabled { opacity:.6; cursor:default; }
     .mc-grp i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; }
-    .mc-cols { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(260px, 300px); gap:12px; align-items:start; }
-    @media (max-width: 860px) { .mc-cols { grid-template-columns: 1fr 1fr; } .mc-cols > .pp { grid-column: 1 / -1; } }
+    /* the molecules stretch to the height of the property panel and are drawn to fill it */
+    .mc-cols { display:grid; grid-template-columns: minmax(0,1fr) minmax(260px, 300px); gap:12px; align-items:stretch; }
+    .mc-left { display:flex; flex-direction:column; gap:8px; min-width:0; }
+    .mc-mols { flex:1; display:grid; grid-template-columns: 1fr 1fr; gap:12px; min-height:220px; }
+    .mc-card { display:flex; flex-direction:column; min-height:0; }
     .mc-card .c-id { margin-bottom:3px; }
+    .mc-card .c-mol { flex:1; position:relative; min-height:170px; }
+    .mc-card .c-mol svg { position:absolute; inset:0; width:100%; height:100%; }
+    .mc-left .mc-bar { margin:0; }
+    .mc-cols > .pp { display:flex; flex-direction:column; }
+    .mc-cols > .pp > .pp-sec { flex:1; display:flex; flex-direction:column; }
+    .mc-cols > .pp .rd-wrap { flex:1; display:flex; flex-direction:column; justify-content:space-between; }
+    .mc-sum { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; }
+    .mc-sum .pp-act .vals b { font-size:20px; }
+    .pp.pp-sec + .pp.pp-sec { border-top:1px solid var(--border); }
+    @media (max-width: 760px) { .mc-cols { grid-template-columns: 1fr; } }
 
     /* property panel */
     .pp { border:1px solid var(--border); border-radius:8px; background:var(--card); overflow:hidden; font-variant-numeric:tabular-nums; }
@@ -817,32 +830,37 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
         });
       });
       idle();
-      const wrap = el("div");
+      const wrap = el("div", "rd-wrap");
       wrap.append(box, read);
       return wrap;
     }
 
-    function panel(d) {
-      const pp = el("div", "pp");
-      const sim = el("div", "pp-sec");
+    // similarity and activity, as small cards under the molecules
+    function summary(d) {
+      const row = el("div", "mc-sum");
+      const sim = el("div", "pp pp-sec");
       sim.innerHTML =
         `<div class="pp-h">Similarity · Tanimoto on ECFP4</div><div class="pp-sim"><b>${d.tanimoto.toFixed(2)}</b>` +
         `<div class="meter"><div class="track"><i style="width:${100 * d.tanimoto}%"></i></div>` +
         `<div class="ticks"><span>0</span><span>1</span></div></div></div>`;
-      pp.append(sim);
+      row.append(sim);
 
       const acts = d.props.filter((p) => p.value);
       if (acts.length) {
-        const sec = el("div", "pp-sec");
+        const sec = el("div", "pp pp-sec");
         sec.innerHTML = `<div class="pp-h">Activity</div>` + acts.map((p) => {
           const dv = p.b - p.a;
           return `<div class="pp-act"><div class="name">${esc(p.name)}</div><div class="vals">` +
             `<b style="color:${SIDE.a}">${num(p.a, p.name)}</b><span class="to">→</span><b style="color:${SIDE.b}">${num(p.b, p.name)}</b></div>` +
             `<span class="chip">Δ (B − A) <b>${signed(dv, p.name)}</b></span></div>`;
         }).join("");
-        pp.append(sec);
+        row.append(sec);
       }
+      return row;
+    }
 
+    function panel(d) {
+      const pp = el("div", "pp");
       const sec = el("div", "pp-sec");
       const head = el("div", "pp-hrow", `<div class="pp-h">Properties</div>`);
       const sw = el("div", "pp-sw");
@@ -851,6 +869,7 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
         view = v;
         sw.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
         body.replaceChildren(v === "radar" ? radar(d) : table(d));
+        body.style.cssText = "flex:1; display:flex; flex-direction:column;";
       };
       for (const [v, label] of [["radar", "chart"], ["table", "table"]]) {
         const b = el("button", "", label);
@@ -878,9 +897,13 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
           return c;
         };
         const g = el("div", "mc-cols");
-        g.append(card("a", 0, A), card("b", 1, B), panel(d));
-
+        const left = el("div", "mc-left");
+        const mols = el("div", "mc-mols");
+        mols.append(card("a", 0, A), card("b", 1, B));
         const bar = el("div", "mc-bar");
+        left.append(mols, summary(d), bar);
+        g.append(left, panel(d));
+
         const btn = el("button", "mc-btn", d.analysed ? "hide structure comparison" : "compare structures");
         btn.addEventListener("click", () => {
           btn.disabled = true;
@@ -889,7 +912,7 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
           model.save_changes();
         });
         bar.append(btn);
-        r.append(g, bar);
+        r.append(g);
         if (!d.analysed) return;
 
         const c = d.counts;
@@ -904,9 +927,9 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
         bar.append(info);
 
         const cmp = el("div", "mc-cmp");
-        const left = el("div");
-        left.append(el("h4", "", "Common scaffold"));
-        if (d.scaffold) left.append(el("div", "c-mol", d.scaffold));
+        const scaf = el("div");
+        scaf.append(el("h4", "", "Common scaffold"));
+        if (d.scaffold) scaf.append(el("div", "c-mol", d.scaffold));
         const right = el("div");
         right.append(el("h4", "", "A → B"));
         const small = c.shared < 0.5 * Math.max(...c.n);
@@ -928,7 +951,7 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
           }
           right.append(list);
         }
-        cmp.append(left, right);
+        cmp.append(scaf, right);
         r.append(cmp);
       }
       model.on("change:data", draw);
