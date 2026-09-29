@@ -647,8 +647,8 @@ def _(Chem, mo, rdFingerprintGenerator, train):
     from rdkit.Chem.Draw import rdMolDraw2D
 
     # a clean cliff: both compounds well measured (95% CI < 1 log unit), one methyl apart
-    _ids = ["OADMET-0001944", "OADMET-0002007"]
-    _rows = [train.filter(train["id"] == i).row(0, named=True) for i in _ids]
+    cliff_example = ["OADMET-0001944", "OADMET-0002007"]
+    _rows = [train.filter(train["id"] == i).row(0, named=True) for i in cliff_example]
     _mols = [Chem.MolFromSmiles(r["smiles"]) for r in _rows]
     _gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
     _sim = DataStructs.TanimotoSimilarity(*[_gen.GetFingerprint(m) for m in _mols])
@@ -675,10 +675,10 @@ def _(Chem, mo, rdFingerprintGenerator, train):
     _dy = abs(_rows[1]["pEC50"] - _rows[0]["pEC50"])
     mo.vstack(
         [
-            mo.md(r"""
+            mo.md(f"""
     ### 3b · Browsing activity cliffs
 
-    An **activity cliff** is a pair of compounds that look alike but differ a lot in pEC50. The two below differ only by one methyl on the benzene ring (orange).
+    An **activity cliff** is a pair of compounds that look alike but differ a lot in activity (here pEC50). The two below differ only by one methyl on the benzene ring (orange), yet their EC50 values are about {10**_dy:.0f}-fold apart.
     """),
             mo.hstack(
                 [
@@ -695,7 +695,7 @@ def _(Chem, mo, rdFingerprintGenerator, train):
             ),
         ]
     )
-    return
+    return (cliff_example,)
 
 
 @app.cell(hide_code=True)
@@ -810,6 +810,8 @@ def _(mo, pl, train):
 
     Set what "similar" and "different" mean with the sliders, pick a pair from the table, and compare the two fingerprints bit by bit below. The only bits a fingerprint model can use to explain the difference are the ones present in just one molecule, and they are usually a few common substructures.
 
+    The table is sorted by **SALI** (structure–activity landscape index, Guha & Van Drie 2008): SALI = |Δ pEC50| / (1 − Tanimoto). It grows when the activity gap is large and the structural difference small, so the steepest cliffs come first.
+
     * **only A / only B**: show the bits present in one molecule only
     * **# mols / # envs**: molecules that set the bit / distinct substructures in it
     * **Δ pEC50**: mean pEC50 of molecules with the bit minus those without
@@ -829,7 +831,7 @@ def _(mo, pl, train):
 
 
 @app.cell
-def _(Crippen, Chem, min_dy, min_sim, np, pair_dy, pair_i, pair_j, pair_sim, pl, train):
+def _(Chem, Crippen, min_dy, min_sim, np, pair_dy, pair_i, pair_j, pair_sim, pl, train):
     _m = (pair_sim >= min_sim.value) & (pair_dy >= min_dy.value)
     _logp = np.array([Crippen.MolLogP(Chem.MolFromSmiles(s)) for s in train["smiles"]])
     _ids, _y = train["id"].to_numpy(), train["pEC50"].to_numpy()
@@ -852,18 +854,31 @@ def _(Crippen, Chem, min_dy, min_sim, np, pair_dy, pair_i, pair_j, pair_sim, pl,
         )
         .with_columns((pl.col("Δ pEC50") / (1 - pl.col("Tanimoto") + 1e-3)).round(1).alias("SALI"))
         .sort("SALI", descending=True)
+        .with_row_index("rank", offset=1)
     )
+    cliffs = cliffs.select("rank", pl.exclude("rank", "SALI"), "SALI")
     return (cliffs,)
 
 
 @app.cell
-def _(cliffs, mo):
+def _(cliff_example, cliffs, mo):
+    # where the example pair from 3b sits in the table (0 when the sliders leave it out)
+    _rank = next(
+        (
+            r
+            for r, a, b in cliffs.select("rank", "A", "B").iter_rows()
+            if {a, b} == set(cliff_example)
+        ),
+        0,
+    )
     cliff_table = mo.ui.table(
         cliffs,
         selection="single",
         initial_selection=[0] if cliffs.height else None,
         page_size=6,
-        label=f"{cliffs.height:,} pairs · SALI = |Δ pEC50| / (1 − similarity)",
+        freeze_columns_right=["SALI"],
+        label=f"{cliffs.height:,} pairs · highest SALI first"
+        + (f" · the example above is rank {_rank}" if _rank else ""),
     )
     cliff_table
     return (cliff_table,)

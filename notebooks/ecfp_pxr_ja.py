@@ -682,8 +682,8 @@ def _(Chem, mo, rdFingerprintGenerator, train):
     from rdkit.Chem.Draw import rdMolDraw2D
 
     # a clean cliff: both compounds well measured (95% CI < 1 log unit), one methyl apart
-    _ids = ["OADMET-0001944", "OADMET-0002007"]
-    _rows = [train.filter(train["id"] == i).row(0, named=True) for i in _ids]
+    cliff_example = ["OADMET-0001944", "OADMET-0002007"]
+    _rows = [train.filter(train["id"] == i).row(0, named=True) for i in cliff_example]
     _mols = [Chem.MolFromSmiles(r["smiles"]) for r in _rows]
     _gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
     _sim = DataStructs.TanimotoSimilarity(*[_gen.GetFingerprint(m) for m in _mols])
@@ -710,11 +710,11 @@ def _(Chem, mo, rdFingerprintGenerator, train):
     _dy = abs(_rows[1]["pEC50"] - _rows[0]["pEC50"])
     mo.vstack(
         [
-            mo.md(r"""
+            mo.md(f"""
     ### 3b · activity cliff を眺める
 
-    **activity cliff** とは、見た目は似ているのに pEC50 が大きく違うペアのことです。たとえば次の 2
-    つは、ベンゼン環のメチル 1 つ (オレンジ) しか違いません。
+    **activity cliff** とは、見た目は似ているのに活性値 (このデータでは pEC50) が大きく違うペアのことです。たとえば次の 2
+    つは、ベンゼン環のメチル 1 つ (オレンジ) しか違いませんが、EC50 は約 {10**_dy:.0f} 倍違います。
     """),
             mo.hstack(
                 [
@@ -731,7 +731,7 @@ def _(Chem, mo, rdFingerprintGenerator, train):
             ),
         ]
     )
-    return
+    return (cliff_example,)
 
 
 @app.cell(hide_code=True)
@@ -854,6 +854,9 @@ def _(mo, pl, train):
     bit ごとに比べられます。fingerprint モデルがこの差の説明に使えるのは片方にしかない bit
     だけで、たいていありふれた部分構造が数個です。
 
+    表は **SALI** (Structure–Activity Landscape Index, Guha & Van Drie 2008) の大きい順に並んでいます。
+    SALI = |Δ pEC50| / (1 − Tanimoto) で、構造の違いが小さいのに活性の差が大きいほど大きくなります。上にあるペアほど「崖」が急です。
+
     * **only A / only B**: 片方にしかない bit だけ表示
     * **# mols / # envs**: その bit が立つ分子数 / 入っている部分構造の種類数
     * **Δ pEC50**: その bit がある分子とない分子の平均 pEC50 の差
@@ -877,7 +880,7 @@ def _(mo, pl, train):
 
 
 @app.cell
-def _(Crippen, Chem, min_dy, min_sim, np, pair_dy, pair_i, pair_j, pair_sim, pl, train):
+def _(Chem, Crippen, min_dy, min_sim, np, pair_dy, pair_i, pair_j, pair_sim, pl, train):
     _m = (pair_sim >= min_sim.value) & (pair_dy >= min_dy.value)
     _logp = np.array([Crippen.MolLogP(Chem.MolFromSmiles(s)) for s in train["smiles"]])
     _ids, _y = train["id"].to_numpy(), train["pEC50"].to_numpy()
@@ -900,18 +903,31 @@ def _(Crippen, Chem, min_dy, min_sim, np, pair_dy, pair_i, pair_j, pair_sim, pl,
         )
         .with_columns((pl.col("Δ pEC50") / (1 - pl.col("Tanimoto") + 1e-3)).round(1).alias("SALI"))
         .sort("SALI", descending=True)
+        .with_row_index("rank", offset=1)
     )
+    cliffs = cliffs.select("rank", pl.exclude("rank", "SALI"), "SALI")
     return (cliffs,)
 
 
 @app.cell
-def _(cliffs, mo):
+def _(cliff_example, cliffs, mo):
+    # where the example pair from 3b sits in the table (0 when the sliders leave it out)
+    _rank = next(
+        (
+            r
+            for r, a, b in cliffs.select("rank", "A", "B").iter_rows()
+            if {a, b} == set(cliff_example)
+        ),
+        0,
+    )
     cliff_table = mo.ui.table(
         cliffs,
         selection="single",
         initial_selection=[0] if cliffs.height else None,
         page_size=6,
-        label=f"{cliffs.height:,} ペア · SALI = |Δ pEC50| / (1 − 類似度)",
+        freeze_columns_right=["SALI"],
+        label=f"{cliffs.height:,} ペア · SALI の大きい順"
+        + (f" · 上の例は rank {_rank}" if _rank else ""),
     )
     cliff_table
     return (cliff_table,)
@@ -1488,12 +1504,12 @@ def _(
                 {
                     "id": _ids[0],
                     "smiles": _smi[_ids[0]],
-                    "label": f"test · 実測 {_y[_ids[0]]:.2f} · 予測 {_pred[0]:.2f}",
+                    "label": f"test · true {_y[_ids[0]]:.2f} · predicted {_pred[0]:.2f}",
                 },
                 {
                     "id": _ids[1],
                     "smiles": _smi[_ids[1]],
-                    "label": f"train · 実測 {_y[_ids[1]]:.2f} · 予測 {_pred[1]:.2f}",
+                    "label": f"train · true {_y[_ids[1]]:.2f} · predicted {_pred[1]:.2f}",
                 },
             ],
             reference=train["smiles"].to_list(),
@@ -1504,7 +1520,7 @@ def _(
             contrib_label="SHAP",
             contrib_radius=2,
             contrib_n_bits=N_BITS,
-            pair_note=f"ベースライン (予測の平均) {pair_contrib[0, -1]:.2f}",
+            pair_note=f"baseline (mean prediction) {pair_contrib[0, -1]:.2f}",
         )
     )
     shap_explorer
