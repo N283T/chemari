@@ -697,7 +697,7 @@ def _(MolPair, mo, train):
     **activity cliff** とは、見た目は似ているのに活性値 (このデータでは pEC50) が大きく違うペアのことです。たとえば次の 2
     つは、ベンゼン環のメチル 1 つしか違いませんが (青は共通部分)、EC50 は約 {10**_dy:.0f} 倍違います。
     """),
-            mo.ui.anywidget(MolPair(_rows[0], _rows[1], value_cols=["pEC50"])),
+            mo.ui.anywidget(MolPair(_rows[0], _rows[1], value_cols=["pEC50"], show_common=True)),
         ]
     )
     return (cliff_example,)

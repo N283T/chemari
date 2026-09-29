@@ -237,7 +237,10 @@ def test_mol_pair_widget():
         value_cols=["pEC50"],
     )
     d = w.data
-    assert d["mcs_atoms"] == 11 and 0 < d["similarity"] < 1
+    assert not d["searched"] and d["mcs_atoms"] == 0 and 0 < d["similarity"] < 1
+    w.show_common = True
+    d = w.data
+    assert d["searched"] and d["mcs_atoms"] == 11
     assert d["sides"][1]["values"] == {"pEC50": 6.0}
     assert d["sides"][0]["props"]["HBD"] == 2
     w.align = True

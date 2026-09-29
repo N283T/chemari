@@ -816,13 +816,16 @@ class MolPair(_Computing):
     the Tanimoto similarity, and a table of properties with B − A.
 
     ``a`` and ``b`` are dicts (a DataFrame row works) or SMILES strings. ``value_cols`` are
-    further values of each compound (e.g. a measured pEC50) listed first in the table. The
-    "align B to A" button (``align``) redraws B in A's orientation along the common part.
+    further values of each compound (e.g. a measured pEC50) listed first in the table. Two
+    switches, both off by default: "common part" (``show_common``) highlights the maximum
+    common substructure, and "align B to A" (``align``) redraws B in A's orientation along it.
+    The common substructure is searched only while one of them is on.
     """
 
     _esm = _bundle("molpair.js")
 
     molecules = traitlets.List(traitlets.Dict()).tag(sync=True)
+    show_common = traitlets.Bool(False).tag(sync=True)
     align = traitlets.Bool(False).tag(sync=True)
     data = traitlets.Dict().tag(sync=True)
 
@@ -840,8 +843,8 @@ class MolPair(_Computing):
         self._value_cols = list(value_cols or [])
         self._timeout = mcs_timeout
         super().__init__(molecules=[self._as_dict(a, "A"), self._as_dict(b, "B")], **kwargs)
-        self.observe(self._compute, names=["molecules", "align"])
-        self._signal_done(["molecules", "align"])
+        self.observe(self._compute, names=["molecules", "show_common", "align"])
+        self._signal_done(["molecules", "show_common", "align"])
         self._compute()
 
     def _as_dict(self, m: Any, fallback_id: str) -> dict:
@@ -885,6 +888,7 @@ class MolPair(_Computing):
             "sides": sides,
             "property_meta": [{"key": k, "label": lbl, "digits": d} for k, lbl, _, d in props],
             "similarity": None,
+            "searched": False,
             "mcs_atoms": 0,
             "mcs_smiles": "",
         }
@@ -895,11 +899,15 @@ class MolPair(_Computing):
             data["similarity"] = DataStructs.TanimotoSimilarity(
                 gen.GetFingerprint(ma), gen.GetFingerprint(mb)
             )
-            pairs, bonds_a, bonds_b = common_substructure(ma, mb, self._timeout)
+            pairs, bonds_a, bonds_b = [], [], []
+            if self.show_common or self.align:
+                pairs, bonds_a, bonds_b = common_substructure(ma, mb, self._timeout)
+                data["searched"] = True
             if pairs:
-                highlight = [([i for i, _ in pairs], bonds_a), ([j for _, j in pairs], bonds_b)]
+                if self.show_common:
+                    highlight = [([i for i, _ in pairs], bonds_a), ([j for _, j in pairs], bonds_b)]
                 data["mcs_atoms"] = len(pairs)
-                data["mcs_smiles"] = Chem.MolFragmentToSmiles(ma, atomsToUse=highlight[0][0])
+                data["mcs_smiles"] = Chem.MolFragmentToSmiles(ma, atomsToUse=[i for i, _ in pairs])
                 if self.align and len(pairs) >= 3:
                     rdDepictor.GenerateDepictionMatching2DStructure(mb, ma, pairs)
         for side, mol, (atoms, bonds) in zip(sides, mols, highlight):

@@ -14,9 +14,9 @@ components are used throughout.
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
-  - `MolPair`: two compounds side by side with their common substructure highlighted, the
-    Tanimoto similarity (ECFP4) and a table of properties (plus any values you pass, such as a
-    measured pEC50) with B − A; a toggle redraws B in A's orientation along the common part
+  - `MolPair`: two compounds side by side with the Tanimoto similarity (ECFP4) and a table of
+    properties (plus any values you pass, such as a measured pEC50) with B − A. Two switches,
+    both off by default, highlight the common substructure and redraw B in A's orientation
   - `ECFPMovie`: an ~80 s animated explainer of ECFP4 (radius 0 → 2, duplicates, folding,
     collisions, Tanimoto) for N-methylacetamide, built on real RDKit identifiers; a self-contained
     HTML page (`static/ecfp_movie.html`) shown in an iframe
