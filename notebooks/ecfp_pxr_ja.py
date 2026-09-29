@@ -687,10 +687,7 @@ def _(alt, mo, pair_dy, pair_sim, pl, random_pair_dy, similarity_curve):
 def _(MolPair, mo, train):
     # a clean cliff: both compounds well measured (95% CI < 1 log unit), one methyl apart
     cliff_example = ["OADMET-0001944", "OADMET-0002007"]
-    _rows = [
-        train.filter(train["id"] == i).rename({"ci_width": "CI"}).row(0, named=True)
-        for i in cliff_example
-    ]
+    _rows = [train.filter(train["id"] == i).row(0, named=True) for i in cliff_example]
     _dy = abs(_rows[1]["pEC50"] - _rows[0]["pEC50"])
     mo.vstack(
         [
@@ -698,20 +695,9 @@ def _(MolPair, mo, train):
     ### 3b · activity cliff を眺める
 
     **activity cliff** とは、見た目は似ているのに活性値 (このデータでは pEC50) が大きく違うペアのことです。たとえば次の 2
-    つは、ベンゼン環のメチル 1 つ (オレンジ) しか違いませんが、EC50 は約 {10**_dy:.0f} 倍違います。
-
-    原子にカーソルを合わせると、もう一方の分子で対応する原子が分かります。
+    つは、ベンゼン環のメチル 1 つしか違いませんが (青は共通部分)、EC50 は約 {10**_dy:.0f} 倍違います。
     """),
-            mo.ui.anywidget(
-                MolPair(
-                    _rows[0],
-                    _rows[1],
-                    value_cols=["pEC50", "CI"],
-                    delta_cols=["pEC50"],
-                    fold_cols=["pEC50"],
-                    formats={"CI": 1},
-                )
-            ),
+            mo.ui.anywidget(MolPair(_rows[0], _rows[1], value_cols=["pEC50"])),
         ]
     )
     return (cliff_example,)

@@ -14,12 +14,9 @@ components are used throughout.
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
-  - `MolPair`: two molecules side by side, B drawn in A's orientation. A maximum common
-    substructure (any element may match any other) maps the atoms: atoms in one molecule only are
-    orange, matched atoms whose element, charge or R/S label differ are violet (E/Z too), and
-    hovering an atom rings its partner. Below: Tanimoto and the size of each atom group (hover to
-    ring its atoms), then one table of the given values and RDKit descriptors for A, B and B − A
-    (with fold change for log units)
+  - `MolPair`: two compounds side by side with their common substructure highlighted, the
+    Tanimoto similarity (ECFP4) and a table of properties (plus any values you pass, such as a
+    measured pEC50) with B − A; a toggle redraws B in A's orientation along the common part
   - `ECFPMovie`: an ~80 s animated explainer of ECFP4 (radius 0 → 2, duplicates, folding,
     collisions, Tanimoto) for N-methylacetamide, built on real RDKit identifiers; a self-contained
     HTML page (`static/ecfp_movie.html`) shown in an iframe
@@ -74,9 +71,7 @@ from molwidgets import MolGrid, MolPair, MorganExplorer
 grid = mo.ui.anywidget(MolGrid(df, id_col="id", smiles_col="smiles", color_by="pEC50"))
 grid.value["selection"]  # ids of the selected molecules
 
-pair = mo.ui.anywidget(
-    MolPair(row_a, row_b, value_cols=["pEC50"], fold_cols=["pEC50"])  # dicts or SMILES
-)
+pair = mo.ui.anywidget(MolPair(row_a, row_b, value_cols=["pEC50"]))  # dicts or SMILES
 
 explorer = mo.ui.anywidget(
     MorganExplorer(

@@ -3,10 +3,10 @@
 from .chem import (
     BitCensus,
     bit_census,
+    common_substructure,
     fingerprint_matrix,
     molecule_bit_tiles,
     morgan_bits,
-    pair_alignment,
     standardize_smiles,
     tanimoto_matrix,
 )
@@ -37,11 +37,11 @@ __all__ = [
     "bit_census",
     "bit_gallery",
     "census_for",
+    "common_substructure",
     "ecfp_trace",
     "fingerprint_matrix",
     "molecule_bit_tiles",
     "morgan_bits",
-    "pair_alignment",
     "standardize_smiles",
     "tanimoto_matrix",
 ]

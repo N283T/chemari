@@ -5,7 +5,6 @@ from molwidgets import (
     bit_census,
     fingerprint_matrix,
     morgan_bits,
-    pair_alignment,
     standardize_smiles,
     tanimoto_matrix,
 )
@@ -213,36 +212,35 @@ def test_bit_importance_ranks_bits_and_shows_their_substructures():
     assert w.rows[0]["rank"] == 11 and len(w.order) == 64  # every bit is ranked, a page at a time
 
 
-def test_pair_alignment_added_methyl_is_only_in_b():
-    r = pair_alignment("Cc1ccccc1NC(C)=O", "Cc1ccc(C)cc1NC(C)=O")
-    assert r["only_a"] == [] and len(r["only_b"]) == 1
-    assert r["changed_a"] == [] and len(r["mapping"]) == r["mol_a"].GetNumAtoms()
+def test_common_substructure_maps_atoms_and_bonds():
+    from rdkit import Chem
+
+    from molwidgets import common_substructure
+
+    a, b = Chem.MolFromSmiles("Cc1ccccc1NC(C)=O"), Chem.MolFromSmiles("Cc1ccc(C)cc1NC(C)=O")
+    pairs, bonds_a, bonds_b = common_substructure(a, b)
+    assert len(pairs) == a.GetNumAtoms() and len(bonds_a) == len(bonds_b) == a.GetNumBonds()
+    assert all(a.GetAtomWithIdx(i).GetSymbol() == b.GetAtomWithIdx(j).GetSymbol() for i, j in pairs)
+    assert common_substructure(Chem.MolFromSmiles("CCO"), Chem.MolFromSmiles("[Na+]")) == (
+        [],
+        [],
+        [],
+    )
 
 
-def test_pair_alignment_ring_ch_to_n_is_changed_not_missing():
-    r = pair_alignment("c1ccccc1CCO", "c1ccncc1CCO")
-    assert r["only_a"] == r["only_b"] == []
-    (i,) = r["changed_a"]
-    assert r["mol_a"].GetAtomWithIdx(i).GetSymbol() == "C"
-    assert r["mol_b"].GetAtomWithIdx(r["changed_b"][0]).GetSymbol() == "N"
-
-
-def test_pair_alignment_flags_stereo_differences():
-    assert len(pair_alignment("C[C@H](N)C(=O)O", "C[C@@H](N)C(=O)O")["changed_a"]) == 1
-    assert len(pair_alignment("C/C=C/C", "C/C=C\\C")["changed_bonds_a"]) == 1
-
-
-def test_mol_pair_widget_summary():
+def test_mol_pair_widget():
     from molwidgets import MolPair
 
     w = MolPair(
-        {"id": "a", "smiles": "c1ccccc1CCO", "pEC50": 5.0},
-        {"id": "b", "smiles": "c1ccncc1CCO", "pEC50": 6.0},
+        {"id": "a", "smiles": "CC(=O)Nc1ccc(O)cc1", "pEC50": 5.0},
+        {"id": "b", "smiles": "CCOc1ccc(NC(C)=O)cc1", "pEC50": 6.0},
         value_cols=["pEC50"],
-        fold_cols=["pEC50"],
     )
-    s = w.view["summary"]
-    assert s["changed"] == 1 and s["deltas"][0]["fold"] == 10.0
-    assert len(w.view["panels"]) == 2
-    w.set_pair("CCO", "CCN")
-    assert w.view["summary"]["changed"] == 1
+    d = w.data
+    assert d["mcs_atoms"] == 11 and 0 < d["similarity"] < 1
+    assert d["sides"][1]["values"] == {"pEC50": 6.0}
+    assert d["sides"][0]["props"]["HBD"] == 2
+    w.align = True
+    assert w.data["mcs_atoms"] == 11
+    w.set_pair("CCO", "not a smiles")
+    assert w.data["sides"][1]["valid"] is False and w.data["similarity"] is None

@@ -229,98 +229,32 @@ def molecule_bit_tiles(smiles: str, radius: int = 2, n_bits: int = 2048) -> list
     return tiles
 
 
-def _stereo_labels(mol: Chem.Mol) -> dict[int, str]:
-    """CIP label (R/S, or ? when unassigned) of every stereocentre."""
-    centres = Chem.FindMolChiralCenters(mol, includeUnassigned=True, useLegacyImplementation=False)
-    return {int(i): label for i, label in centres}
+def common_substructure(
+    mol_a: Chem.Mol, mol_b: Chem.Mol, timeout: float = 2.0
+) -> tuple[list[tuple[int, int]], list[int], list[int]]:
+    """Maximum common substructure of two molecules (elements and bond orders must match,
+    rings only with rings and only whole). Returns the atom pairs ``[(a, b), ...]`` and the
+    matched bonds of A and of B; all empty when nothing is shared."""
+    from rdkit.Chem import rdFMCS
 
-
-def pair_alignment(smiles_a: str, smiles_b: str, timeout: float = 2.0) -> dict[str, Any]:
-    """Match two molecules atom by atom and lay B out in A's orientation.
-
-    The maximum common substructure is searched with any element matching any other (bond
-    orders and ring membership must agree), so a benzene CH that became a pyridine N stays
-    matched and is reported as *changed* rather than as a missing ring. Returns the two
-    molecules with 2D coordinates, the atom ``mapping`` as ``[(a, b), ...]``, and per molecule
-    the atoms and bonds in no match (``only_*``) and the matched ones whose element, charge or
-    stereo label differ (``changed_*``). ``mcs_smarts`` is the common core as SMARTS.
-    """
-    from rdkit.Chem import rdDepictor, rdFMCS
-
-    ma, mb = Chem.MolFromSmiles(smiles_a), Chem.MolFromSmiles(smiles_b)
-    if ma is None or mb is None:
-        raise ValueError(
-            f"cannot parse {'A' if ma is None else 'B'}: {smiles_a if ma is None else smiles_b}"
-        )
-    rdDepictor.Compute2DCoords(ma)
     res = rdFMCS.FindMCS(
-        [ma, mb],
-        atomCompare=rdFMCS.AtomCompare.CompareAny,
-        bondCompare=rdFMCS.BondCompare.CompareOrder,
+        [mol_a, mol_b],
+        timeout=int(max(1, timeout)),
         ringMatchesRingOnly=True,
         completeRingsOnly=True,
-        timeout=int(max(1, timeout)),
+        atomCompare=rdFMCS.AtomCompare.CompareElements,
+        bondCompare=rdFMCS.BondCompare.CompareOrder,
     )
-    mapping: list[tuple[int, int]] = []
-    core = Chem.MolFromSmarts(res.smartsString) if res.numAtoms else None
-    if core is not None:
-        hit_a = ma.GetSubstructMatch(core)
-        # of B's symmetric matches, keep the one that pairs the most identical elements
-        best = max(
-            mb.GetSubstructMatches(core, uniquify=False, maxMatches=500),
-            key=lambda hit_b: sum(
-                ma.GetAtomWithIdx(i).GetAtomicNum() == mb.GetAtomWithIdx(j).GetAtomicNum()
-                for i, j in zip(hit_a, hit_b)
-            ),
-            default=(),
-        )
-        mapping = [(int(i), int(j)) for i, j in zip(hit_a, best)]
-    if len(mapping) >= 3:
-        rdDepictor.GenerateDepictionMatching2DStructure(mb, ma, [(i, j) for i, j in mapping])
-    else:
-        rdDepictor.Compute2DCoords(mb)
-
-    a2b = dict(mapping)
-    cip_a, cip_b = _stereo_labels(ma), _stereo_labels(mb)
-    changed_a: set[int] = set()
-    for i, j in mapping:
-        x, y = ma.GetAtomWithIdx(i), mb.GetAtomWithIdx(j)
-        if (
-            x.GetAtomicNum() != y.GetAtomicNum()
-            or x.GetFormalCharge() != y.GetFormalCharge()
-            or cip_a.get(i) != cip_b.get(j)
-        ):
-            changed_a.add(i)
-    changed_bonds_a, changed_bonds_b, bonds_b = set(), set(), set()
-    for bond in ma.GetBonds():
-        s, e = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-        if s in a2b and e in a2b:
-            other = mb.GetBondBetweenAtoms(a2b[s], a2b[e])
-            if other is None:
-                continue
-            bonds_b.add(other.GetIdx())
-            if bond.GetStereo() != other.GetStereo():  # E/Z differs
-                changed_bonds_a.add(bond.GetIdx())
-                changed_bonds_b.add(other.GetIdx())
-    matched_bonds_a = {
-        b.GetIdx()
-        for b in ma.GetBonds()
-        if b.GetBeginAtomIdx() in a2b
-        and b.GetEndAtomIdx() in a2b
-        and mb.GetBondBetweenAtoms(a2b[b.GetBeginAtomIdx()], a2b[b.GetEndAtomIdx()]) is not None
-    }
-    return {
-        "mol_a": ma,
-        "mol_b": mb,
-        "mapping": mapping,
-        "mcs_smarts": res.smartsString if res.numAtoms else "",
-        "timed_out": bool(res.canceled),
-        "only_a": sorted(set(range(ma.GetNumAtoms())) - set(a2b)),
-        "only_b": sorted(set(range(mb.GetNumAtoms())) - set(a2b.values())),
-        "only_bonds_a": sorted(set(range(ma.GetNumBonds())) - matched_bonds_a),
-        "only_bonds_b": sorted(set(range(mb.GetNumBonds())) - bonds_b),
-        "changed_a": sorted(changed_a),
-        "changed_b": sorted(a2b[i] for i in changed_a),
-        "changed_bonds_a": sorted(changed_bonds_a),
-        "changed_bonds_b": sorted(changed_bonds_b),
-    }
+    query = Chem.MolFromSmarts(res.smartsString) if res.numAtoms else None
+    if query is None:
+        return [], [], []
+    hits = [m.GetSubstructMatch(query) for m in (mol_a, mol_b)]
+    if not all(hits):
+        return [], [], []
+    bonds: list[list[int]] = [[], []]
+    for qb in query.GetBonds():
+        for k, (m, hit) in enumerate(zip((mol_a, mol_b), hits)):
+            b = m.GetBondBetweenAtoms(hit[qb.GetBeginAtomIdx()], hit[qb.GetEndAtomIdx()])
+            if b is not None:
+                bonds[k].append(b.GetIdx())
+    return [(int(i), int(j)) for i, j in zip(*hits)], bonds[0], bonds[1]

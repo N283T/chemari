@@ -652,30 +652,16 @@ def _(alt, mo, pair_dy, pair_sim, pl, random_pair_dy, similarity_curve):
 def _(MolPair, mo, train):
     # a clean cliff: both compounds well measured (95% CI < 1 log unit), one methyl apart
     cliff_example = ["OADMET-0001944", "OADMET-0002007"]
-    _rows = [
-        train.filter(train["id"] == i).rename({"ci_width": "CI"}).row(0, named=True)
-        for i in cliff_example
-    ]
+    _rows = [train.filter(train["id"] == i).row(0, named=True) for i in cliff_example]
     _dy = abs(_rows[1]["pEC50"] - _rows[0]["pEC50"])
     mo.vstack(
         [
             mo.md(f"""
     ### 3b · Browsing activity cliffs
 
-    An **activity cliff** is a pair of compounds that look alike but differ a lot in activity (here pEC50). The two below differ only by one methyl on the benzene ring (orange), yet their EC50 values are about {10**_dy:.0f}-fold apart.
-
-    Hover an atom to see its partner in the other molecule.
+    An **activity cliff** is a pair of compounds that look alike but differ a lot in activity (here pEC50). The two below differ only by one methyl on the benzene ring (the common part is blue), yet their EC50 values are about {10**_dy:.0f}-fold apart.
     """),
-            mo.ui.anywidget(
-                MolPair(
-                    _rows[0],
-                    _rows[1],
-                    value_cols=["pEC50", "CI"],
-                    delta_cols=["pEC50"],
-                    fold_cols=["pEC50"],
-                    formats={"CI": 1},
-                )
-            ),
+            mo.ui.anywidget(MolPair(_rows[0], _rows[1], value_cols=["pEC50"])),
         ]
     )
     return (cliff_example,)
