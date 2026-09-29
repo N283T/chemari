@@ -1528,7 +1528,7 @@ def _(mo):
     * **include chirality**: tells stereoisomers apart (3c)
     * **whole-molecule descriptors**: cover what substructures cannot (3d)
 
-    LightGBM is trained on train and scored on the 513 test compounds. The three reference settings are precomputed; change the settings and press **Train** to add a row to the scoreboard.
+    LightGBM is trained on train and scored on the 513 test compounds. The three reference settings are precomputed; change the settings and press **Train** to add a row to the scoreboard. The "precomputed" row uses CheMeleon (see below) and was computed outside the notebook under the same conditions.
     """)
     return
 
@@ -1649,6 +1649,34 @@ def _(evaluate, mo):
 
 
 @app.cell
+def _(np, pl, spearmanr, test, y_test):
+    # CheMeleon (a GNN pretrained to predict Mordred descriptors) needs PyTorch, so its runs were
+    # computed outside the notebook with the same split and LightGBM settings (results/)
+    from pathlib import Path as _Path
+
+    _file = "chemeleon_test_predictions.csv"
+    _local = _Path("results") / _file
+    _url = "https://raw.githubusercontent.com/N283T/openadmet-marimo/main/results/" + _file
+    try:
+        _preds = test.select("id").join(pl.read_csv(_local if _local.exists() else _url), on="id")
+    except (OSError, pl.exceptions.PolarsError):
+        _preds = None  # offline and no local copy: the scoreboard shows only the notebook's runs
+    reference_runs = []
+    for _col in [] if _preds is None else _preds.columns[1:]:
+        _pred = _preds[_col].to_numpy()
+        reference_runs.append(
+            {
+                "features": _col,
+                "MAE": round(float(np.abs(_pred - y_test).mean()), 3),
+                "Spearman ρ": round(float(spearmanr(_pred, y_test)[0]), 3),
+                "pred. SD": round(float(_pred.std()), 2),
+                "_pred": _pred,
+            }
+        )
+    return (reference_runs,)
+
+
+@app.cell
 def _(mo):
     get_runs, set_runs = mo.state([])
     return get_runs, set_runs
@@ -1665,19 +1693,21 @@ def _(evaluate, lab_bits, lab_chiral, lab_features, lab_radius, lab_run, mo, set
 
 
 @app.cell(hide_code=True)
-def _(baseline_runs, get_runs, mo, pl, y_test):
-    all_runs = baseline_runs + get_runs()
+def _(baseline_runs, get_runs, mo, pl, reference_runs, y_test):
+    all_runs = baseline_runs + reference_runs + get_runs()
+    _nb, _nr = len(baseline_runs), len(reference_runs)
     _board = pl.DataFrame(
         [
             {k: v for k, v in r.items() if not k.startswith("_")}
-            | {"source": "reference" if i < len(baseline_runs) else "yours"}
+            | {"source": "reference" if i < _nb else "precomputed" if i < _nb + _nr else "yours"}
             for i, r in enumerate(all_runs)
         ]
     )
     run_pick = mo.ui.table(
         _board,
         selection="single",
-        initial_selection=[len(all_runs) - 1],
+        # the newest run of your own, else the best baseline
+        initial_selection=[len(all_runs) - 1 if get_runs() else _nb - 1],
         label=f"Scoreboard (SD of the true test pEC50 = {y_test.std():.2f}; pick a row to inspect it)",
         page_size=8,
     )
@@ -1757,8 +1787,9 @@ def _(mo):
     * **fold size**: 256 bits is clearly worse (0.64), while 2048 and 8192 are close (0.59 → 0.58)
     * **include chirality**: few compounds change, so the score hardly moves, but the stereo groups from 3c become separable
     * **RDKit descriptors**: the 217 descriptors alone reach 0.56, better than ECFP4 (0.59); combined with ECFP4, 0.53
+    * **a pretrained GNN's embeddings** (for reference): with the output of [CheMeleon](https://github.com/JacksonBurns/chemeleon), a GNN pretrained to predict Mordred descriptors, as features: [0.54](https://github.com/N283T/openadmet-marimo/blob/main/results/chemeleon_lightgbm.csv)
 
-    Adding descriptors to ECFP4 helps most, but every model still pulls its predictions toward the mean.
+    Combining substructures (a fingerprint) with whole-molecule properties (descriptors) helps most. CheMeleon, a GNN pretrained to predict descriptors, is in a sense that combination too, and pretrained GNNs also helped in [my challenge report](https://n283t.github.io/openadmet-pxr-model-report/). Still, every model pulls its predictions toward the mean.
 
     ## 6 · Take-aways
 

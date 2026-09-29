@@ -1,0 +1,5 @@
+features,test MAE,test Spearman rho,prediction SD,seed
+ECFP4 bit,0.592,0.612,0.54,0
+RDKit descriptors,0.562,0.676,0.62,0
+ECFP4 bit + RDKit descriptors,0.531,0.714,0.63,0
+CheMeleon,0.536,0.706,0.57,0
