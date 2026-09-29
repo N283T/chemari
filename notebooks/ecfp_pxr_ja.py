@@ -1603,7 +1603,8 @@ def _(mo):
     * **分子全体の記述子**: 部分構造では表せない性質を補う (3d)
 
     LightGBM を train で学習し、test の 513 化合物で評価します。3
-    つの基準設定は計算済みで、設定を変えて**学習**を押すとスコアボードに行が追加されます。
+    つの基準設定は計算済みで、設定を変えて**学習**を押すとスコアボードに行が追加されます。「参考」の行は
+    CheMeleon (後述) を使ったもので、notebook の外で同じ条件で計算した結果です。
     """)
     return
 
@@ -1724,6 +1725,34 @@ def _(evaluate, mo):
 
 
 @app.cell
+def _(np, pl, spearmanr, test, y_test):
+    # CheMeleon (a GNN pretrained to predict Mordred descriptors) needs PyTorch, so its runs were
+    # computed outside the notebook with the same split and LightGBM settings (results/)
+    from pathlib import Path as _Path
+
+    _file = "chemeleon_test_predictions.csv"
+    _local = _Path("results") / _file
+    _url = "https://raw.githubusercontent.com/N283T/openadmet-marimo/main/results/" + _file
+    try:
+        _preds = test.select("id").join(pl.read_csv(_local if _local.exists() else _url), on="id")
+    except (OSError, pl.exceptions.PolarsError):
+        _preds = None  # offline and no local copy: the scoreboard shows only the notebook's runs
+    reference_runs = []
+    for _col in [] if _preds is None else _preds.columns[1:]:
+        _pred = _preds[_col].to_numpy()
+        reference_runs.append(
+            {
+                "features": _col,
+                "MAE": round(float(np.abs(_pred - y_test).mean()), 3),
+                "Spearman ρ": round(float(spearmanr(_pred, y_test)[0]), 3),
+                "pred. SD": round(float(_pred.std()), 2),
+                "_pred": _pred,
+            }
+        )
+    return (reference_runs,)
+
+
+@app.cell
 def _(mo):
     get_runs, set_runs = mo.state([])
     return get_runs, set_runs
@@ -1740,19 +1769,21 @@ def _(evaluate, lab_bits, lab_chiral, lab_features, lab_radius, lab_run, mo, set
 
 
 @app.cell(hide_code=True)
-def _(baseline_runs, get_runs, mo, pl, y_test):
-    all_runs = baseline_runs + get_runs()
+def _(baseline_runs, get_runs, mo, pl, reference_runs, y_test):
+    all_runs = baseline_runs + reference_runs + get_runs()
+    _nb, _nr = len(baseline_runs), len(reference_runs)
     _board = pl.DataFrame(
         [
             {k: v for k, v in r.items() if not k.startswith("_")}
-            | {"source": "基準" if i < len(baseline_runs) else "追加"}
+            | {"source": "基準" if i < _nb else "参考" if i < _nb + _nr else "追加"}
             for i, r in enumerate(all_runs)
         ]
     )
     run_pick = mo.ui.table(
         _board,
         selection="single",
-        initial_selection=[len(all_runs) - 1],
+        # the newest run of your own, else the best baseline
+        initial_selection=[len(all_runs) - 1 if get_runs() else _nb - 1],
         label=f"スコアボード (test の実測 pEC50 の SD = {y_test.std():.2f}。行を選ぶと詳しく見られます)",
         page_size=8,
     )
@@ -1834,8 +1865,12 @@ def _(mo):
       の立体のグループは区別できるようになる
     * **RDKit 記述子**: 記述子だけ (217 種) で 0.56 と ECFP4 (0.59) を上回り ECFP4 と組み合わせると
       0.53
+    * **事前学習済み GNN の埋め込み** (参考): Mordred 記述子の予測で事前学習した GNN [CheMeleon](https://github.com/JacksonBurns/chemeleon)
+      の出力を特徴量にすると [0.54](https://github.com/N283T/openadmet-marimo/blob/main/results/chemeleon_lightgbm.csv)
 
-    ECFP4 に記述子を足すのが一番効きますが、どのモデルでも予測が平均に寄る傾向は残ります。
+    部分構造 (fingerprint) と分子全体の性質 (記述子) を組み合わせるのが一番効きます。記述子を予測するように事前学習した
+    CheMeleon もある意味その組み合わせで、[チャレンジでの私のレポート](https://n283t.github.io/openadmet-pxr-model-report/) でも GNN
+    の事前学習モデルが効きました。ただ、どのモデルでも予測が平均に寄る傾向は残ります。
 
     ## 6 · まとめ
 

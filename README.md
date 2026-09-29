@@ -41,6 +41,9 @@ components are used throughout.
 - `src/molwidgets/ecfp.py` — a readable re-implementation of ECFP, and `ecfp_story`, which collects
   RDKit's identifiers for every atom and radius for `ECFPStepper`
 
+- `results/` — reference results computed outside the notebook (LightGBM on CheMeleon
+  fingerprints, compared with the notebook's baselines)
+
 Molecules are drawn in the browser with RDKit.js; standardization, fingerprints, bit environments
 and collision statistics are computed with RDKit in Python. When a click needs Python to recompute (a new
 page, radius or bit), the widget dims and shows "computing…" until the answer arrives.
