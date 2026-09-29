@@ -136,6 +136,7 @@ def _():
         ECFPMovie,
         ECFPStepper,
         MolGrid,
+        MolPair,
         MorganBitTiles,
         MorganExplorer,
         census_for,
@@ -153,6 +154,7 @@ def _():
         ECFPMovie,
         ECFPStepper,
         MolGrid,
+        MolPair,
         MorganBitTiles,
         MorganExplorer,
         alt,
@@ -682,37 +684,10 @@ def _(alt, mo, pair_dy, pair_sim, pl, random_pair_dy, similarity_curve):
 
 
 @app.cell(hide_code=True)
-def _(Chem, mo, rdFingerprintGenerator, train):
-    from rdkit import DataStructs
-    from rdkit.Chem import rdFMCS
-    from rdkit.Chem.Draw import rdMolDraw2D
-
+def _(MolPair, mo, train):
     # a clean cliff: both compounds well measured (95% CI < 1 log unit), one methyl apart
     cliff_example = ["OADMET-0001944", "OADMET-0002007"]
     _rows = [train.filter(train["id"] == i).row(0, named=True) for i in cliff_example]
-    _mols = [Chem.MolFromSmiles(r["smiles"]) for r in _rows]
-    _gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
-    _sim = DataStructs.TanimotoSimilarity(*[_gen.GetFingerprint(m) for m in _mols])
-    _core = Chem.MolFromSmarts(rdFMCS.FindMCS(_mols, timeout=5).smartsString)
-
-    def _draw(mol):
-        keep = set(mol.GetSubstructMatch(_core))
-        extra = [a.GetIdx() for a in mol.GetAtoms() if a.GetIdx() not in keep]
-        d = rdMolDraw2D.MolDraw2DSVG(260, 190)
-        d.drawOptions().clearBackground = False
-        d.DrawMolecule(
-            mol, highlightAtoms=extra, highlightAtomColors={a: (1, 0.72, 0.3) for a in extra}
-        )
-        d.FinishDrawing()
-        return d.GetDrawingText()
-
-    def _card(row, mol):
-        return mo.Html(
-            f"<div style='border:1px solid #d0d7de;border-radius:8px;padding:4px 8px;background:#fff;color:#1f2328'>"
-            f"<div style='display:flex;justify-content:space-between;font-size:12px'><b>{row['id']}</b>"
-            f"<span>pEC50 <b>{row['pEC50']:.2f}</b> (CI {row['ci_width']:.1f})</span></div>{_draw(mol)}</div>"
-        )
-
     _dy = abs(_rows[1]["pEC50"] - _rows[0]["pEC50"])
     mo.vstack(
         [
@@ -720,21 +695,9 @@ def _(Chem, mo, rdFingerprintGenerator, train):
     ### 3b · activity cliff を眺める
 
     **activity cliff** とは、見た目は似ているのに活性値 (このデータでは pEC50) が大きく違うペアのことです。たとえば次の 2
-    つは、ベンゼン環のメチル 1 つ (オレンジ) しか違いませんが、EC50 は約 {10**_dy:.0f} 倍違います。
+    つは、ベンゼン環のメチル 1 つしか違いませんが (青は共通部分)、EC50 は約 {10**_dy:.0f} 倍違います。
     """),
-            mo.hstack(
-                [
-                    _card(_rows[0], _mols[0]),
-                    mo.md(
-                        f"<div style='text-align:center'>Tanimoto <b>{_sim:.2f}</b><br>"
-                        f"Δ pEC50 <b>{_dy:.2f}</b><br>(約 {10**_dy:.0f} 倍)</div>"
-                    ),
-                    _card(_rows[1], _mols[1]),
-                ],
-                justify="center",
-                align="center",
-                gap=1,
-            ),
+            mo.ui.anywidget(MolPair(_rows[0], _rows[1], value_cols=["pEC50"], show_common=True)),
         ]
     )
     return (cliff_example,)

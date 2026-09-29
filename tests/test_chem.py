@@ -210,3 +210,40 @@ def test_bit_importance_ranks_bits_and_shows_their_substructures():
     w.page_size = 10
     w.page = 1
     assert w.rows[0]["rank"] == 11 and len(w.order) == 64  # every bit is ranked, a page at a time
+
+
+def test_common_substructure_maps_atoms_and_bonds():
+    from rdkit import Chem
+
+    from molwidgets import common_substructure
+
+    a, b = Chem.MolFromSmiles("Cc1ccccc1NC(C)=O"), Chem.MolFromSmiles("Cc1ccc(C)cc1NC(C)=O")
+    pairs, bonds_a, bonds_b = common_substructure(a, b)
+    assert len(pairs) == a.GetNumAtoms() and len(bonds_a) == len(bonds_b) == a.GetNumBonds()
+    assert all(a.GetAtomWithIdx(i).GetSymbol() == b.GetAtomWithIdx(j).GetSymbol() for i, j in pairs)
+    assert common_substructure(Chem.MolFromSmiles("CCO"), Chem.MolFromSmiles("[Na+]")) == (
+        [],
+        [],
+        [],
+    )
+
+
+def test_mol_pair_widget():
+    from molwidgets import MolPair
+
+    w = MolPair(
+        {"id": "a", "smiles": "CC(=O)Nc1ccc(O)cc1", "pEC50": 5.0},
+        {"id": "b", "smiles": "CCOc1ccc(NC(C)=O)cc1", "pEC50": 6.0},
+        value_cols=["pEC50"],
+    )
+    d = w.data
+    assert not d["searched"] and d["mcs_atoms"] == 0 and 0 < d["similarity"] < 1
+    w.show_common = True
+    d = w.data
+    assert d["searched"] and d["mcs_atoms"] == 11
+    assert d["sides"][1]["values"] == {"pEC50": 6.0}
+    assert d["sides"][0]["props"]["HBD"] == 2
+    w.align = True
+    assert w.data["mcs_atoms"] == 11
+    w.set_pair("CCO", "not a smiles")
+    assert w.data["sides"][1]["valid"] is False and w.data["similarity"] is None

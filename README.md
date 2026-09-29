@@ -14,6 +14,9 @@ components are used throughout.
 - `src/molwidgets/` — the widget package
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
+  - `MolPair`: two compounds side by side with the Tanimoto similarity (ECFP4) and a table of
+    properties (plus any values you pass, such as a measured pEC50) with B − A. Two switches,
+    both off by default, highlight the common substructure and redraw B in A's orientation
   - `ECFPMovie`: an ~80 s animated explainer of ECFP4 (radius 0 → 2, duplicates, folding,
     collisions, Tanimoto) for N-methylacetamide, built on real RDKit identifiers; a self-contained
     HTML page (`static/ecfp_movie.html`) shown in an iframe
@@ -63,10 +66,12 @@ CC-BY-4.0). If `data/` contains the CSV files it uses them instead.
 
 ```python
 import marimo as mo
-from molwidgets import MolGrid, MorganExplorer
+from molwidgets import MolGrid, MolPair, MorganExplorer
 
 grid = mo.ui.anywidget(MolGrid(df, id_col="id", smiles_col="smiles", color_by="pEC50"))
 grid.value["selection"]  # ids of the selected molecules
+
+pair = mo.ui.anywidget(MolPair(row_a, row_b, value_cols=["pEC50"]))  # dicts or SMILES
 
 explorer = mo.ui.anywidget(
     MorganExplorer(

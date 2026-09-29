@@ -227,3 +227,34 @@ def molecule_bit_tiles(smiles: str, radius: int = 2, n_bits: int = 2048) -> list
         t["collides"] = bits.count(int(t["uid"]) % n_bits) > 1
     tiles.sort(key=lambda t: (t["radius"], t["bit"], t["uid"]))
     return tiles
+
+
+def common_substructure(
+    mol_a: Chem.Mol, mol_b: Chem.Mol, timeout: float = 2.0
+) -> tuple[list[tuple[int, int]], list[int], list[int]]:
+    """Maximum common substructure of two molecules (elements and bond orders must match,
+    rings only with rings and only whole). Returns the atom pairs ``[(a, b), ...]`` and the
+    matched bonds of A and of B; all empty when nothing is shared."""
+    from rdkit.Chem import rdFMCS
+
+    res = rdFMCS.FindMCS(
+        [mol_a, mol_b],
+        timeout=int(max(1, timeout)),
+        ringMatchesRingOnly=True,
+        completeRingsOnly=True,
+        atomCompare=rdFMCS.AtomCompare.CompareElements,
+        bondCompare=rdFMCS.BondCompare.CompareOrder,
+    )
+    query = Chem.MolFromSmarts(res.smartsString) if res.numAtoms else None
+    if query is None:
+        return [], [], []
+    hits = [m.GetSubstructMatch(query) for m in (mol_a, mol_b)]
+    if not all(hits):
+        return [], [], []
+    bonds: list[list[int]] = [[], []]
+    for qb in query.GetBonds():
+        for k, (m, hit) in enumerate(zip((mol_a, mol_b), hits)):
+            b = m.GetBondBetweenAtoms(hit[qb.GetBeginAtomIdx()], hit[qb.GetEndAtomIdx()])
+            if b is not None:
+                bonds[k].append(b.GetIdx())
+    return [(int(i), int(j)) for i, j in zip(*hits)], bonds[0], bonds[1]

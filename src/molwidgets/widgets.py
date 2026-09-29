@@ -792,6 +792,150 @@ class BitImportance(_Computing):
         }
 
 
+def _pair_properties() -> list[tuple[str, str, Any, int]]:
+    """(key, label, fn(mol), decimals) of every property MolPair lists."""
+    from rdkit.Chem import QED, Crippen, Descriptors, Lipinski, rdMolDescriptors
+
+    return [
+        ("MW", "Mol. weight", Descriptors.MolWt, 1),  # ty: ignore[unresolved-attribute]
+        ("cLogP", "Crippen logP", Crippen.MolLogP, 2),  # ty: ignore[unresolved-attribute]
+        ("TPSA", "Polar surface area", rdMolDescriptors.CalcTPSA, 1),
+        ("HBD", "H-bond donors", Lipinski.NumHDonors, 0),  # ty: ignore[unresolved-attribute]
+        ("HBA", "H-bond acceptors", Lipinski.NumHAcceptors, 0),  # ty: ignore[unresolved-attribute]
+        ("RotB", "Rotatable bonds", Lipinski.NumRotatableBonds, 0),  # ty: ignore[unresolved-attribute]
+        ("Rings", "Ring count", rdMolDescriptors.CalcNumRings, 0),
+        ("AroRings", "Aromatic rings", rdMolDescriptors.CalcNumAromaticRings, 0),
+        ("HeavyAtoms", "Heavy atoms", lambda m: m.GetNumHeavyAtoms(), 0),
+        ("Fsp3", "Fraction sp3 C", rdMolDescriptors.CalcFractionCSP3, 2),
+        ("QED", "QED", QED.qed, 2),
+    ]
+
+
+class MolPair(_Computing):
+    """Two compounds side by side: their drawings with the common substructure highlighted,
+    the Tanimoto similarity, and a table of properties with B − A.
+
+    ``a`` and ``b`` are dicts (a DataFrame row works) or SMILES strings. ``value_cols`` are
+    further values of each compound (e.g. a measured pEC50) listed first in the table. Two
+    switches, both off by default: "common part" (``show_common``) highlights the maximum
+    common substructure, and "align B to A" (``align``) redraws B in A's orientation along it.
+    The common substructure is searched only while one of them is on.
+    """
+
+    _esm = _bundle("molpair.js")
+
+    molecules = traitlets.List(traitlets.Dict()).tag(sync=True)
+    show_common = traitlets.Bool(False).tag(sync=True)
+    align = traitlets.Bool(False).tag(sync=True)
+    data = traitlets.Dict().tag(sync=True)
+
+    def __init__(
+        self,
+        a: Any,
+        b: Any,
+        id_col: str = "id",
+        smiles_col: str = "smiles",
+        value_cols: list[str] | None = None,
+        mcs_timeout: float = 2.0,
+        **kwargs: Any,
+    ) -> None:
+        self._id_col, self._smiles_col = id_col, smiles_col
+        self._value_cols = list(value_cols or [])
+        self._timeout = mcs_timeout
+        super().__init__(molecules=[self._as_dict(a, "A"), self._as_dict(b, "B")], **kwargs)
+        self.observe(self._compute, names=["molecules", "show_common", "align"])
+        self._signal_done(["molecules", "show_common", "align"])
+        self._compute()
+
+    def _as_dict(self, m: Any, fallback_id: str) -> dict:
+        if isinstance(m, str):
+            m = {self._smiles_col: m}
+        m = {k: _clean(v) for k, v in dict(m).items()}
+        return {
+            "id": str(m.get(self._id_col, fallback_id)),
+            "smiles": m[self._smiles_col],
+            "values": {c: m.get(c) for c in self._value_cols},
+        }
+
+    def set_pair(self, a: Any, b: Any) -> None:
+        """Show another pair in the same widget."""
+        self.molecules = [self._as_dict(a, "A"), self._as_dict(b, "B")]
+
+    def _compute(self, _change=None) -> None:
+        from rdkit import DataStructs
+        from rdkit.Chem import rdMolDescriptors
+        from rdkit.Chem.Draw import rdMolDraw2D
+
+        from .chem import _generator, common_substructure
+
+        props = _pair_properties()
+        mols = [Chem.MolFromSmiles(m["smiles"]) for m in self.molecules]
+        sides = []
+        for m, mol in zip(self.molecules, mols):
+            side = {
+                "id": m["id"],
+                "smiles": m["smiles"],
+                "values": m["values"],
+                "valid": mol is not None,
+            }
+            if mol is not None:
+                rdDepictor.Compute2DCoords(mol)
+                side["smiles"] = Chem.MolToSmiles(mol)
+                side["formula"] = rdMolDescriptors.CalcMolFormula(mol)
+                side["props"] = {k: round(float(fn(mol)), d) for k, _, fn, d in props}
+            sides.append(side)
+        data: dict[str, Any] = {
+            "sides": sides,
+            "property_meta": [{"key": k, "label": lbl, "digits": d} for k, lbl, _, d in props],
+            "similarity": None,
+            "searched": False,
+            "mcs_atoms": 0,
+            "mcs_smiles": "",
+        }
+        highlight: list[tuple[list[int], list[int]]] = [([], []), ([], [])]
+        ma, mb = mols
+        if ma is not None and mb is not None:
+            gen = _generator(2, 2048)
+            data["similarity"] = DataStructs.TanimotoSimilarity(
+                gen.GetFingerprint(ma), gen.GetFingerprint(mb)
+            )
+            pairs, bonds_a, bonds_b = [], [], []
+            if self.show_common or self.align:
+                pairs, bonds_a, bonds_b = common_substructure(ma, mb, self._timeout)
+                data["searched"] = True
+            if pairs:
+                if self.show_common:
+                    highlight = [([i for i, _ in pairs], bonds_a), ([j for _, j in pairs], bonds_b)]
+                data["mcs_atoms"] = len(pairs)
+                data["mcs_smiles"] = Chem.MolFragmentToSmiles(ma, atomsToUse=[i for i, _ in pairs])
+                if self.align and len(pairs) >= 3:
+                    rdDepictor.GenerateDepictionMatching2DStructure(mb, ma, pairs)
+        for side, mol, (atoms, bonds) in zip(sides, mols, highlight):
+            if mol is None:
+                continue
+            drawer = rdMolDraw2D.MolDraw2DSVG(320, 240)
+            opts = drawer.drawOptions()
+            opts.clearBackground = False
+            opts.highlightBondWidthMultiplier = 12
+            # every other atom gets an invisible highlight, so the layout does not depend on
+            # which atoms are shared
+            colours = {i: (1.0, 1.0, 1.0, 0.0) for i in range(mol.GetNumAtoms())}
+            colours.update({i: _MCS_COLOUR for i in atoms})
+            drawer.DrawMolecule(
+                mol,
+                highlightAtoms=list(colours),
+                highlightAtomColors=colours,
+                highlightBonds=bonds,
+                highlightBondColors={i: _MCS_COLOUR for i in bonds},
+            )
+            drawer.FinishDrawing()
+            side["svg"] = drawer.GetDrawingText()
+        self.data = data
+
+
+_MCS_COLOUR = (0.55, 0.78, 1.0, 0.6)
+
+
 # Colour key for Draw.DrawMorganEnv's default colours (same as MORGAN_ENV_KEY in rdkit_loader.js).
 _ENV_KEY_HTML = (
     '<i style="background:rgb(153,153,230);margin-left:0"></i>centre atom'
