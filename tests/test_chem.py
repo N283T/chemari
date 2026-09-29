@@ -79,10 +79,41 @@ def test_stepper_renders_click_targets():
     from molwidgets import ECFPStepper
 
     w = ECFPStepper("CCO", max_radius=2)
-    assert w.steps[1][1]["recipe_text"].startswith("B = hash(b |")
     assert w.svg.count('class="es-hit"') == 3
     w.atom, w.radius = 1, 2
     assert "<svg" in w.svg
+    w.smiles = "not a smiles"
+    assert w.error and w.steps  # the last good molecule stays
+
+
+def test_ecfp_story_uses_rdkit_identifiers():
+    from rdkit import Chem
+    from rdkit.Chem import rdFingerprintGenerator
+
+    from molwidgets.ecfp import ecfp_story
+
+    smi = "CC(=O)NC"  # the movie's molecule: letters a-j are its kept identifiers
+    story = ecfp_story(smi, 2)
+    kept = {
+        row["label"]: row["id"]
+        for layer in story["layers"]
+        for row in layer
+        if row["status"] == "new"
+    }
+    assert sorted(kept) == list("abcdefghij")
+    gen = rdFingerprintGenerator.GetMorganGenerator(radius=2)
+    assert set(kept.values()) == set(
+        gen.GetSparseCountFingerprint(Chem.MolFromSmiles(smi)).GetNonzeroElements()
+    )
+    # the N-methyl carbon at radius 2 covers the same bonds as N at radius 1
+    assert story["layers"][2][4]["status"] == "duplicate" and story["layers"][2][4]["dup_of"] == "h"
+
+
+def test_ecfp_story_sorts_aromatic_bonds_last():
+    from molwidgets.ecfp import ecfp_story
+
+    row = ecfp_story("CC(=O)Nc1ccc(O)cc1", 1)["layers"][1][4]  # the aromatic C bonded to N
+    assert [order for order, _ in row["nbrs"]] == [1.0, 1.5, 1.5]
 
 
 def test_bit_tiles_merge_symmetry_and_flag_collisions():

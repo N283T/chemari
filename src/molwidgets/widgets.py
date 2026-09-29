@@ -173,148 +173,162 @@ class MorganExplorer(anywidget.AnyWidget):
         self.bit_examples = rows
 
 
-def _id_colour(identifier: int) -> tuple[float, float, float]:
-    """A stable pastel colour per identifier, so equal identifiers look equal."""
+# the ECFPMovie palette, so the same letters look the same in the movie and the stepper
+_PALETTE = [
+    "#8b5cf6",
+    "#3b82f6",
+    "#f97316",
+    "#10b981",
+    "#ec4899",
+    "#6366f1",
+    "#f59e0b",
+    "#22c55e",
+    "#e11d48",
+    "#a855f7",
+]
+_DROPPED = "#94a3b8"
+
+ECFP_EXAMPLES = [
+    ["N-methylacetamide", "CC(=O)NC"],
+    ["paracetamol", "CC(=O)Nc1ccc(O)cc1"],
+    ["aspirin", "CC(=O)Oc1ccccc1C(=O)O"],
+    ["caffeine", "Cn1cnc2c1c(=O)n(C)c(=O)n2C"],
+    ["ibuprofen", "CC(C)Cc1ccc(cc1)C(C)C(=O)O"],
+]
+
+
+def _label_colours(layers: list[list[dict]]) -> dict[str, str]:
+    """Kept identifiers get the movie's colours in order of appearance; dropped ones are grey."""
     import colorsys
 
-    hue = (identifier * 0.618033988749895) % 1.0
-    return colorsys.hls_to_rgb(hue, 0.72, 0.75)
+    colours: dict[str, str] = {}
+    for layer in layers:
+        for row in layer:
+            if row["status"] == "new" and row["label"] not in colours:
+                n = len(colours)
+                if n < len(_PALETTE):
+                    colours[row["label"]] = _PALETTE[n]
+                else:
+                    rgb = colorsys.hls_to_rgb((n * 0.381966 + 0.1) % 1.0, 0.55, 0.7)
+                    colours[row["label"]] = "#" + "".join(f"{round(255 * c):02x}" for c in rgb)
+    for layer in layers:
+        for row in layer:
+            colours.setdefault(row["label"], _DROPPED)
+    return colours
 
 
-_BOND_NAMES = {2: "single", 3: "aromatic", 4: "double", 6: "triple"}  # bond order x 2
-_INVARIANT_TEXT = ("Z", "degree", "H", "charge", "isotope", "ring")
+def _pastel(hex_colour: str, amount: float = 0.55) -> tuple[float, float, float]:
+    r, g, b = (int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    return (r + (1 - r) * amount, g + (1 - g) * amount, b + (1 - b) * amount)
 
 
-def _iteration_labels(radius: int, n: int) -> list[str]:
-    """a, b, c … for iteration 0; A, B … for 1; A', B' … for 2; A'' … for 3.
-
-    ASCII primes, because RDKit's drawing font has no U+2032.
-    """
-    import string
-
-    letters = string.ascii_lowercase if radius == 0 else string.ascii_uppercase
-    primes = "" if radius <= 1 else "'" * (radius - 1)
-    return [(letters[i] if i < 26 else f"{letters[i % 26]}{i // 26}") + primes for i in range(n)]
-
-
-def _readable_steps(mol: Chem.Mol, trace) -> list[list[dict]]:
-    """Add human-readable labels, environment SMILES and explanations to an ECFP trace."""
-
-    def env_text(step) -> str:
-        atom = mol.GetAtomWithIdx(step.atom)
-        if not step.bonds:
-            h = atom.GetTotalNumHs()
-            text = atom.GetSymbol() + (f"H{h if h > 1 else ''}" if h else "")
-            return text + (" (ring)" if atom.IsInRing() else "")
-        return Chem.MolFragmentToSmiles(
-            mol, atomsToUse=step.atoms, bondsToUse=step.bonds, rootedAtAtom=step.atom
-        )
-
-    out: list[list[dict]] = []
-    prev_label: dict[int, str] = {}
-    for r, layer in enumerate(trace.steps):
-        order: list[int] = []
-        for s in layer:  # label identifiers in order of first appearance
-            if s.identifier not in order:
-                order.append(s.identifier)
-        label_of = dict(zip(order, _iteration_labels(r, len(order))))
-        rows = []
-        for s in layer:
-            d = dict(s.__dict__)
-            d["label"] = label_of[s.identifier]
-            d["env"] = env_text(s)
-            atom = mol.GetAtomWithIdx(s.atom)
-            if r == 0:
-                values = [*s.recipe[:5], "yes" if s.recipe[5] else "no"]
-                parts = ", ".join(f"{n} {v}" for n, v in zip(_INVARIANT_TEXT, values))
-                d["recipe_text"] = f"{d['label']} = hash({atom.GetSymbol()}: {parts})"
-            else:
-                own = prev_label[s.recipe[1]]
-                nbrs = ", ".join(
-                    f"{_BOND_NAMES.get(bo, bo)}→{prev_label[i]}" for bo, i in s.recipe[2]
-                )
-                d["recipe_text"] = f"{d['label']} = hash({own} | {nbrs})"
-            if s.status == "new":
-                d["why"] = "A new environment: its identifier joins the fingerprint."
-            elif s.status == "duplicate":
-                d["why"] = (
-                    f"Covers exactly the same bonds as atom {s.duplicate_of}'s environment, "
-                    "which is already in the fingerprint, so it is dropped."
-                )
-            else:
-                d["why"] = (
-                    "The environment did not grow (it already covers everything), so it is dropped."
-                )
-            rows.append(d)
-        out.append(rows)
-        prev_label = label_of
-    return out
+def _env_text(mol: Chem.Mol, row: dict) -> str:
+    atom = mol.GetAtomWithIdx(row["atom"])
+    if not row["bonds"]:
+        h = atom.GetTotalNumHs()
+        text = atom.GetSymbol() + (f"H{h if h > 1 else ''}" if h else "")
+        return text + (" (ring)" if atom.IsInRing() else "")
+    return Chem.MolFragmentToSmiles(
+        mol, atomsToUse=row["atoms"], bondsToUse=row["bonds"], rootedAtAtom=row["atom"]
+    )
 
 
 class ECFPStepper(anywidget.AnyWidget):
-    """Step through the ECFP/Morgan algorithm for one molecule.
+    """Step through the ECFP/Morgan algorithm for any molecule, following the ECFPMovie story.
 
-    In guided mode, "next" walks atom by atom through every iteration, showing what was hashed
-    (as readable labels: a, b… for iteration 0, A, B… for iteration 1, A'… for 2), which
-    substructure the identifier describes, whether the environment is kept, and the growing
-    set of features, both as identifiers and folded into a bit vector (``n_bits``). Explore mode
-    lets you jump between iterations and click atoms.
-    Identifiers come from :func:`molwidgets.ecfp.ecfp_trace` (same features as RDKit, different
-    hash function).
+    Guided mode walks atom by atom through every radius: the six invariants hashed at radius 0,
+    the atom's own identifier plus its sorted (bond, neighbour) pairs at larger radii, dropped
+    duplicate environments, the growing set of features, and finally folding into ``n_bits``
+    bits and the collisions that folding causes. It can play itself (like the movie) or be
+    stepped by hand; explore mode jumps between radii and lets you click atoms. Identifiers and
+    letters are RDKit's own values, labelled as in the movie. Type a SMILES into the widget or
+    set ``smiles``.
     """
 
     _esm = _bundle("stepper.js")
 
+    smiles = traitlets.Unicode("CC(=O)Nc1ccc(O)cc1").tag(sync=True)
+    max_radius = traitlets.Int(2).tag(sync=True)
+    n_bits = traitlets.Int(64).tag(sync=True)
+    examples = traitlets.List().tag(sync=True)
+    guided = traitlets.Bool(True).tag(sync=True)
     radius = traitlets.Int(0).tag(sync=True)
     atom = traitlets.Int(0).tag(sync=True)
-    guided = traitlets.Bool(True).tag(sync=True)
-    n_bits = traitlets.Int(64).tag(sync=True)
+    # environments to light up instead of `atom` (e.g. the two sides of a collision): [[atom, radius]]
+    envs = traitlets.List().tag(sync=True)
     steps = traitlets.List().tag(sync=True)
     colours = traitlets.Dict().tag(sync=True)
     svg = traitlets.Unicode("").tag(sync=True)
-    invariant_names = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    error = traitlets.Unicode("").tag(sync=True)
+    max_atoms = 60
 
-    def __init__(self, smiles: str, max_radius: int = 3, **kwargs):
-        from .ecfp import INVARIANT_NAMES, ecfp_trace
+    def __init__(self, smiles: str | None = None, max_radius: int = 2, **kwargs: Any) -> None:
+        if smiles is not None:
+            kwargs["smiles"] = smiles
+        kwargs.setdefault("examples", ECFP_EXAMPLES)
+        super().__init__(max_radius=max_radius, **kwargs)
+        self.observe(self._build, names=["smiles", "max_radius"])
+        self.observe(self._render, names=["radius", "atom", "envs", "guided"])
+        self._build()
 
-        self._mol = Chem.MolFromSmiles(smiles)
-        trace = ecfp_trace(smiles, max_radius)
-        steps = _readable_steps(self._mol, trace)
-        colours = {
-            str(d["identifier"]): "rgb({:.0f},{:.0f},{:.0f})".format(
-                *(255 * c for c in _id_colour(d["identifier"]))
+    def _build(self, _change=None) -> None:
+        from .ecfp import ecfp_story
+
+        mol = Chem.MolFromSmiles(self.smiles) if self.smiles.strip() else None
+        if mol is None:
+            self.error = f"Cannot parse SMILES: {self.smiles}"
+            return
+        if mol.GetNumAtoms() > self.max_atoms:
+            self.error = (
+                f"{mol.GetNumAtoms()} heavy atoms: too many to step through (max {self.max_atoms})."
             )
-            for layer in steps
-            for d in layer
-        }
-        super().__init__(
-            steps=steps, colours=colours, invariant_names=list(INVARIANT_NAMES), **kwargs
-        )
-        self.observe(self._render, names=["radius", "atom"])
+            return
+        self.error = ""
+        story = ecfp_story(self.smiles, self.max_radius)
+        self._mol = mol
+        for layer in story["layers"]:
+            for row in layer:
+                row["env"] = _env_text(mol, row)
+        with self.hold_sync():
+            self.colours = _label_colours(story["layers"])
+            self.steps = story["layers"]
+            self.radius, self.atom, self.envs = 0, 0, []
         self._render()
 
     def _render(self, _change=None) -> None:
         from rdkit.Chem.Draw import rdMolDraw2D
 
+        if not self.steps:
+            return
         mol = Chem.Mol(self._mol)
-        layer = self.steps[min(self.radius, len(self.steps) - 1)]
+        r = min(self.radius, len(self.steps) - 1)
+        layer = self.steps[r]
+        walking = self.guided and not self.envs and self.atom >= 0
         for s in layer:
+            if walking and s["atom"] > self.atom:
+                # not reached yet: no letter at radius 0, last round's letter afterwards
+                if not r:
+                    continue
+                s = self.steps[r - 1][s["atom"]]
             mol.GetAtomWithIdx(s["atom"]).SetProp("atomNote", s["label"])
-        colours = {s["atom"]: _id_colour(s["identifier"]) for s in layer}
+        colours = {s["atom"]: _pastel(self.colours[s["label"]]) for s in layer}
         atoms = list(colours)
         bond_colours: dict[int, tuple[float, float, float]] = {}
         radii = {a: 0.32 for a in atoms}
-        if self.atom >= 0:
+        fade = (0.93, 0.93, 0.93)
+        if self.envs:
+            colours = {a: fade for a in atoms}
+            for a, rr in self.envs:
+                row = self.steps[rr][a]
+                c = _pastel(self.colours[row["label"]], 0.35)
+                colours.update({x: c for x in row["atoms"]})
+                bond_colours.update({b: c for b in row["bonds"]})
+                radii[a] = 0.42
+        elif self.atom >= 0:
             sel = layer[self.atom]
-            focus = set(sel["atoms"])
-            c = _id_colour(sel["identifier"])
-            fade = (0.93, 0.93, 0.93)
-            colours = {a: (c if a in focus else fade) for a in atoms}
-            colours[self.atom] = (
-                max(0.0, c[0] - 0.25),
-                max(0.0, c[1] - 0.25),
-                max(0.0, c[2] - 0.25),
-            )
+            c = _pastel(self.colours[sel["label"]], 0.35)
+            colours = {a: (c if a in set(sel["atoms"]) else fade) for a in atoms}
+            colours[self.atom] = _pastel(self.colours[sel["label"]], 0.05)
             bond_colours = {b: c for b in sel["bonds"]}
             radii = {a: (0.42 if a == self.atom else 0.32) for a in atoms}
         drawer = rdMolDraw2D.MolDraw2DSVG(460, 340)
