@@ -711,6 +711,29 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
     .dbar i { position:absolute; top:2px; height:6px; border-radius:2px; background:var(--fg); opacity:.55; }
     .dbar i.big { opacity:.85; }
 
+    /* radar: A and B as two polygons on the typical ranges */
+    .pp-hrow { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
+    .pp-hrow .pp-h { margin:0; }
+    .pp-sw { display:inline-flex; border:1px solid var(--border); border-radius:5px; overflow:hidden; }
+    .pp-sw button { font:inherit; font-size:11px; color:var(--muted); background:var(--card); border:0; padding:0 7px; cursor:pointer; line-height:18px; }
+    .pp-sw button + button { border-left:1px solid var(--border); }
+    .pp-sw button.on { background:var(--soft); color:var(--fg); font-weight:600; }
+    .rd svg { width:100%; height:auto; display:block; overflow:visible; }
+    .rd .grid { fill:none; stroke:var(--border); }
+    .rd .spoke { stroke:var(--border); }
+    .rd .spoke.on { stroke:var(--fg); stroke-width:1.5; }
+    .rd .lab { font-size:11px; fill:var(--muted); }
+    .rd .lab.on { fill:var(--fg); font-weight:700; }
+    .rd .lab.diff { fill:var(--fg); }
+    .rd .poly { stroke-width:2; stroke-linejoin:round; }
+    .rd .pt { stroke:var(--card); stroke-width:1.5; }
+    .rd .pt.on { r:5; }
+    .rd .hit { fill:transparent; cursor:default; }
+    .rd-read { height:34px; border-top:1px solid var(--border); padding-top:5px; font-size:12px; font-variant-numeric:tabular-nums; }
+    .rd-read .t { font-weight:600; }
+    .rd-read .u { color:var(--muted); font-size:11px; }
+    .rd-read .row { display:flex; gap:12px; align-items:baseline; }
+
     /* structure comparison */
     .mc-cmp { display:grid; grid-template-columns: minmax(0, 320px) minmax(0,1fr); gap:12px; margin-top:10px; align-items:start; }
     @media (max-width: 760px) { .mc-cmp { grid-template-columns: 1fr; } }
@@ -727,9 +750,77 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
     .mc-edit .s { font:11px ui-monospace, monospace; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     `;
     const GROUP = { core: "rgb(204,237,204)", a: "rgb(168,204,255)", b: "rgb(255,204,115)", c: "rgb(214,158,255)" };
-    // values in log units (pEC50, pIC50, …) also get the fold change
-    const isLog = (p) => p.value && /^p[A-Z]/.test(p.name);
-    const fmtFold = (f) => (f >= 100 ? Math.round(f).toLocaleString("en-US") : f >= 10 ? f.toFixed(0) : f.toFixed(1));
+    let view = "radar"; // kept across redraws (e.g. after compare structures)
+    const unit = (p) => (p.unit ? `<span class="unit">${esc(p.unit)}</span>` : "");
+
+    function table(d) {
+      const rows = d.props.filter((p) => !p.value).map((p) => {
+        const dv = p.b - p.a, same = Math.abs(dv) < 1e-9, t = Math.min(1, Math.abs(dv) / p.scale), big = t >= 0.5;
+        const fill = same ? "" : `<i class="${big ? "big" : ""}" style="${dv > 0 ? "left:50%" : `left:${50 - 50 * t}%`};width:${Math.max(2, 50 * t)}%"></i>`;
+        return `<tr class="${same ? "same" : ""}" title="${esc(p.label)}${p.unit ? ` (${esc(p.unit)})` : ""}"><td>${esc(p.name)}${unit(p)}</td>` +
+          `<td class="${p.a > p.b ? "hi" : ""}">${num(p.a, p.name)}</td><td class="${p.b > p.a ? "hi" : ""}">${num(p.b, p.name)}</td>` +
+          `<td><span class="dlt"><span class="dbar">${fill}</span><span class="v${big ? " big" : ""}">${same ? "–" : signed(dv, p.name)}</span></span></td></tr>`;
+      }).join("");
+      return el("table", "pp-t", `<thead><tr><th></th><th style="color:${SIDE.a}">A</th><th style="color:${SIDE.b}">B</th><th>B − A</th></tr></thead><tbody>${rows}</tbody>`);
+    }
+
+    // one spoke per property, each on its typical range; hovering a spoke reads out A, B and Δ.
+    // Every highlight element exists from the start and is only switched on, so nothing moves.
+    function radar(d) {
+      const ps = d.props.filter((p) => !p.value);
+      const W = 280, H = 234, cx = W / 2, cy = 117, R = 92, n = ps.length;
+      const ang = (k) => -Math.PI / 2 + (2 * Math.PI * k) / n;
+      const at = (k, f) => [cx + R * f * Math.cos(ang(k)), cy + R * f * Math.sin(ang(k))];
+      const frac = (p, v) => Math.max(0.02, Math.min(1, (v - p.range[0]) / (p.range[1] - p.range[0])));
+      const ring = (f) => ps.map((_, k) => at(k, f).join(",")).join(" ");
+      let svg = `<svg viewBox="0 0 ${W} ${H}">`;
+      for (const f of [0.25, 0.5, 0.75, 1]) svg += `<polygon class="grid" points="${ring(f)}"/>`;
+      ps.forEach((p, k) => {
+        const [x, y] = at(k, 1);
+        svg += `<line class="spoke" data-k="${k}" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}"/>`;
+        const [lx, ly] = at(k, 1.13);
+        const anchor = Math.abs(lx - cx) < 4 ? "middle" : lx > cx ? "start" : "end";
+        const diff = Math.abs(p.b - p.a) >= 0.5 * p.scale ? " diff" : "";
+        svg += `<text class="lab${diff}" data-k="${k}" x="${lx}" y="${ly + 3.5}" text-anchor="${anchor}">${esc(p.name)}</text>`;
+      });
+      for (const side of ["a", "b"]) {
+        const pts = ps.map((p, k) => at(k, frac(p, p[side])).join(",")).join(" ");
+        svg += `<polygon class="poly" points="${pts}" fill="${SIDE[side]}" fill-opacity=".14" stroke="${SIDE[side]}"/>`;
+      }
+      for (const side of ["a", "b"])
+        ps.forEach((p, k) => {
+          const [x, y] = at(k, frac(p, p[side]));
+          svg += `<circle class="pt" data-k="${k}" cx="${x}" cy="${y}" r="3.2" fill="${SIDE[side]}"/>`;
+        });
+      // wide invisible wedges, so a spoke is easy to hit
+      ps.forEach((_, k) => {
+        const [x1, y1] = at(k - 0.5, 1.35), [x2, y2] = at(k + 0.5, 1.35);
+        svg += `<path class="hit" data-k="${k}" d="M${cx},${cy} L${x1},${y1} A${R * 1.35},${R * 1.35} 0 0 1 ${x2},${y2} Z"/>`;
+      });
+      svg += `</svg>`;
+      const box = el("div", "rd", svg);
+      const read = el("div", "rd-read");
+      const idle = () => (read.innerHTML = `<span class="c-muted">hover a spoke for A, B and Δ · bold labels differ most</span>`);
+      box.querySelectorAll(".hit").forEach((h) => {
+        const k = Number(h.dataset.k), p = ps[k];
+        h.addEventListener("mouseenter", () => {
+          box.querySelectorAll("[data-k]").forEach((e) => e.classList.toggle("on", Number(e.dataset.k) === k && !e.classList.contains("hit")));
+          const dv = p.b - p.a;
+          read.innerHTML =
+            `<div class="row"><span class="t">${esc(p.label)}</span>${p.unit ? `<span class="u">${esc(p.unit)}</span>` : ""}</div>` +
+            `<div class="row"><span><b style="color:${SIDE.a}">A</b> ${num(p.a, p.name)}</span><span><b style="color:${SIDE.b}">B</b> ${num(p.b, p.name)}</span>` +
+            `<span>Δ <b>${Math.abs(dv) < 1e-9 ? "0" : signed(dv, p.name)}</b></span></div>`;
+        });
+        h.addEventListener("mouseleave", () => {
+          box.querySelectorAll(".on").forEach((e) => e.classList.remove("on"));
+          idle();
+        });
+      });
+      idle();
+      const wrap = el("div");
+      wrap.append(box, read);
+      return wrap;
+    }
 
     function panel(d) {
       const pp = el("div", "pp");
@@ -745,24 +836,31 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
         const sec = el("div", "pp-sec");
         sec.innerHTML = `<div class="pp-h">Activity</div>` + acts.map((p) => {
           const dv = p.b - p.a;
-          const fold = isLog(p) && Math.abs(dv) > 1e-9 ? ` · ${fmtFold(Math.pow(10, Math.abs(dv)))}× ${dv > 0 ? "higher" : "lower"} in B` : "";
           return `<div class="pp-act"><div class="name">${esc(p.name)}</div><div class="vals">` +
             `<b style="color:${SIDE.a}">${num(p.a, p.name)}</b><span class="to">→</span><b style="color:${SIDE.b}">${num(p.b, p.name)}</b></div>` +
-            `<span class="chip">Δ <b>${signed(dv, p.name)}</b>${fold}</span></div>`;
+            `<span class="chip">Δ (B − A) <b>${signed(dv, p.name)}</b></span></div>`;
         }).join("");
         pp.append(sec);
       }
 
       const sec = el("div", "pp-sec");
-      const rows = d.props.filter((p) => !p.value).map((p) => {
-        const dv = p.b - p.a, same = Math.abs(dv) < 1e-9, t = Math.min(1, Math.abs(dv) / p.scale), big = t >= 0.5;
-        const fill = same ? "" : `<i class="${big ? "big" : ""}" style="${dv > 0 ? "left:50%" : `left:${50 - 50 * t}%`};width:${Math.max(2, 50 * t)}%"></i>`;
-        return `<tr class="${same ? "same" : ""}" title="${esc(p.label)}${p.unit ? ` (${esc(p.unit)})` : ""}"><td>${esc(p.name)}${p.unit ? `<span class="unit">${esc(p.unit)}</span>` : ""}</td>` +
-          `<td class="${p.a > p.b ? "hi" : ""}">${num(p.a, p.name)}</td><td class="${p.b > p.a ? "hi" : ""}">${num(p.b, p.name)}</td>` +
-          `<td><span class="dlt"><span class="dbar">${fill}</span><span class="v${big ? " big" : ""}">${same ? "–" : signed(dv, p.name)}</span></span></td></tr>`;
-      }).join("");
-      sec.innerHTML = `<div class="pp-h">Properties</div><table class="pp-t"><thead><tr><th></th>` +
-        `<th style="color:${SIDE.a}">A</th><th style="color:${SIDE.b}">B</th><th>B − A</th></tr></thead><tbody>${rows}</tbody></table>`;
+      const head = el("div", "pp-hrow", `<div class="pp-h">Properties</div>`);
+      const sw = el("div", "pp-sw");
+      const body = el("div");
+      const show = (v) => {
+        view = v;
+        sw.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+        body.replaceChildren(v === "radar" ? radar(d) : table(d));
+      };
+      for (const [v, label] of [["radar", "chart"], ["table", "table"]]) {
+        const b = el("button", "", label);
+        b.dataset.v = v;
+        b.addEventListener("click", () => show(v));
+        sw.append(b);
+      }
+      head.append(sw);
+      sec.append(head, body);
+      show(view);
       pp.append(sec);
       return pp;
     }
