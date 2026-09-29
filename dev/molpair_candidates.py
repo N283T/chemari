@@ -164,6 +164,16 @@ def _(
         "heavy atoms": (lambda m: m.GetNumHeavyAtoms(), (0, 45)),
     }
     VALUE_RANGES = {"pEC50": (2, 8)}
+    # name shown, unit, and the difference that counts as large (the Δ bar is full there)
+    PROP_INFO = {
+        "MW": ("molecular weight", "g/mol", 100),
+        "cLogP": ("calculated logP (Crippen)", "", 1.0),
+        "TPSA": ("topological polar surface area", "Å²", 20),
+        "HBD": ("H-bond donors", "", 2),
+        "HBA": ("H-bond acceptors", "", 2),
+        "RotB": ("rotatable bonds", "", 3),
+        "heavy atoms": ("heavy atoms", "", 6),
+    }
 
     def draw(mol, frame, size, atom_cols=None, bond_cols=None):
         """Draw in a fixed frame (shared by both molecules), with every atom highlighted
@@ -361,9 +371,22 @@ def _(
             if vb is None:
                 continue
             lo, hi = VALUE_RANGES.get(name, (min(va, vb) - 1, max(va, vb) + 1))
-            props.append({"name": name, "a": va, "b": vb, "range": [lo, hi], "value": True})
+            props.append(
+                {"name": name, "a": va, "b": vb, "range": [lo, hi], "value": True, "scale": 1.0}
+            )
         for name, (fn, rng) in PROPS.items():
-            props.append({"name": name, "a": float(fn(ma)), "b": float(fn(mb)), "range": list(rng)})
+            label, unit, scale = PROP_INFO[name]
+            props.append(
+                {
+                    "name": name,
+                    "label": label,
+                    "unit": unit,
+                    "scale": scale,
+                    "a": float(fn(ma)),
+                    "b": float(fn(mb)),
+                    "range": list(rng),
+                }
+            )
         return props
 
     CORE = (0.8, 0.93, 0.8)  # the common part, when both are shown
@@ -639,50 +662,59 @@ def _(mo):
 def _(PRELUDE, anywidget, compare_data, traitlets):
     COMPARE_JS = r"""
     const CSS = `
+    .c-root { --track:#eef1f4; } .c-root.dark { --track:#2c3139; }
     .mc-bar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-bottom:8px; font-size:12.5px; }
-    .mc-seg { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
-    .mc-seg button { font:inherit; font-size:12px; color:var(--fg); background:var(--soft); border:0; padding:3px 10px; cursor:pointer; }
-    .mc-seg button + button { border-left:1px solid var(--border); }
-    .mc-seg button.on { background:var(--fg); color:var(--card); }
     .mc-btn { font:inherit; font-size:12.5px; border:1px solid var(--border); background:var(--soft); color:var(--fg);
       border-radius:6px; padding:3px 12px; cursor:pointer; }
     .mc-btn:disabled { opacity:.6; cursor:default; }
     .mc-grp i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; }
-    /* layout "columns": A | B | properties */
-    .mc-cols { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(240px, 300px); gap:10px; align-items:start; }
-    /* layout "stacked": A above B | properties of both */
-    .mc-stack { display:grid; grid-template-columns: minmax(0, 380px) minmax(0,1fr); gap:10px 16px; align-items:center; }
-    .mc-stack > .mols { display:flex; flex-direction:column; gap:8px; }
-    @media (max-width: 760px) { .mc-cols, .mc-stack { grid-template-columns: 1fr; } }
-    .pt { display:grid; grid-template-columns: auto auto auto auto; gap:0 10px; font-variant-numeric:tabular-nums; font-size:12px; align-items:center; }
-    .pt .h { color:var(--muted); font-size:11px; text-align:right; }
-    .pt .n { color:var(--muted); }
-    .pt .n.value { color:var(--fg); font-weight:600; }
-    .pt .v { text-align:right; }
-    .pt .bar { grid-column: 1 / -1; height:12px; position:relative; margin-bottom:3px; }
-    .bar .ax { position:absolute; left:0; right:0; top:5px; height:2px; background:var(--border); border-radius:1px; }
-    .bar .seg { position:absolute; top:4px; height:4px; background:#9ca3af; border-radius:2px; }
-    .bar .dot { position:absolute; top:1px; width:10px; height:10px; margin-left:-5px; border-radius:50%; border:1.5px solid var(--card); box-sizing:border-box; }
-    /* table: plain numbers */
-    .tb { border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:12.5px; width:100%; }
-    .tb th { font-size:11px; color:var(--muted); font-weight:600; text-align:right; padding:2px 8px; border-bottom:1px solid var(--border); }
-    .tb td { text-align:right; padding:3px 8px; border-bottom:1px solid var(--border); }
-    .tb td:first-child, .tb th:first-child { text-align:left; color:var(--muted); }
-    .tb tr.value td:first-child { color:var(--fg); font-weight:600; }
-    .tb td.big { font-weight:700; }
-    .tb td.same { color:var(--muted); }
-    /* paired bars: A's bar over B's, on the typical range */
-    .pb { display:grid; grid-template-columns: 84px 1fr 78px; gap:0 10px; align-items:center; font-variant-numeric:tabular-nums; font-size:12px; }
-    .pb .n { color:var(--muted); grid-row: span 2; }
-    .pb .n.value { color:var(--fg); font-weight:600; }
-    .pb .d { grid-row: span 2; text-align:right; white-space:nowrap; }
-    .pb .b { position:relative; height:13px; }
-    .pb .b i { position:absolute; left:0; top:2px; bottom:2px; border-radius:2px; }
-    .pb .b span { position:absolute; top:-1px; font-size:11px; line-height:15px; padding-left:4px; }
-    .pb .gap { grid-column: 1 / -1; height:6px; }
-    .mc-cmp { display:grid; grid-template-columns: minmax(0, 320px) minmax(0,1fr); gap:10px; margin-top:10px; align-items:start; }
+    .mc-cols { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(260px, 300px); gap:12px; align-items:start; }
+    @media (max-width: 860px) { .mc-cols { grid-template-columns: 1fr 1fr; } .mc-cols > .pp { grid-column: 1 / -1; } }
+    .mc-card .c-id { margin-bottom:3px; }
+
+    /* property panel */
+    .pp { border:1px solid var(--border); border-radius:8px; background:var(--card); overflow:hidden; font-variant-numeric:tabular-nums; }
+    .pp-sec { padding:9px 12px 10px; }
+    .pp-sec + .pp-sec { border-top:1px solid var(--border); }
+    .pp-h { font-size:10.5px; font-weight:700; letter-spacing:.7px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
+    .pp-sim { display:flex; align-items:center; gap:12px; }
+    .pp-sim b { font-size:24px; font-weight:700; line-height:1; min-width:52px; }
+    .pp-sim .meter { flex:1; }
+    .pp-sim .track { height:8px; border-radius:4px; background:var(--track); overflow:hidden; }
+    .pp-sim .track i { display:block; height:100%; background:var(--fg); opacity:.55; border-radius:4px; }
+    .pp-sim .ticks { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); margin-top:2px; }
+    .pp-act + .pp-act { margin-top:8px; }
+    .pp-act .name { font-size:12px; font-weight:600; margin-bottom:2px; }
+    .pp-act .vals { display:flex; align-items:baseline; gap:10px; }
+    .pp-act .vals b { font-size:22px; font-weight:700; line-height:1.1; }
+    .pp-act .vals .to { color:var(--muted); font-size:16px; }
+    .pp-act .chip { display:inline-block; margin-top:4px; font-size:12px; padding:1px 8px; border-radius:999px; background:var(--soft);
+      border:1px solid var(--border); }
+    .pp-t { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .pp-t th { font-size:11px; font-weight:600; color:var(--muted); text-align:right; padding:0 6px 4px; }
+    .pp-t th:first-child { text-align:left; padding-left:0; }
+    .pp-t td { padding:4px 5px; text-align:right; border-top:1px solid var(--border); white-space:nowrap; }
+    .pp-t td:first-child { text-align:left; padding-left:0; }
+    .pp-t td:last-child { padding-right:0; }
+    .pp-t .unit { color:var(--muted); font-size:11px; margin-left:3px; }
+    .pp-t td.hi { font-weight:700; }
+    .pp-t tr.same td { color:var(--muted); }
+    .pp-t tr.same td.hi { font-weight:400; }
+    .pp-t tr:hover td { background:var(--soft); }
+    .dlt { display:inline-flex; align-items:center; gap:6px; justify-content:flex-end; }
+    .dlt .v { min-width:36px; text-align:right; }
+    .dlt .v.big { font-weight:700; }
+    /* diverging bar: centre = no change, full half = the difference that counts as large */
+    .dbar { position:relative; width:40px; height:10px; }
+    .dbar::before { content:""; position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--border); }
+    .dbar::after { content:""; position:absolute; left:0; right:0; top:4px; height:2px; background:var(--track); z-index:-1; }
+    .dbar i { position:absolute; top:2px; height:6px; border-radius:2px; background:var(--fg); opacity:.55; }
+    .dbar i.big { opacity:.85; }
+
+    /* structure comparison */
+    .mc-cmp { display:grid; grid-template-columns: minmax(0, 320px) minmax(0,1fr); gap:12px; margin-top:10px; align-items:start; }
     @media (max-width: 760px) { .mc-cmp { grid-template-columns: 1fr; } }
-    .mc-cmp h4 { margin:0 0 4px; font-size:12px; color:var(--muted); font-weight:600; }
+    .mc-cmp h4 { margin:0 0 4px; font-size:10.5px; font-weight:700; letter-spacing:.7px; text-transform:uppercase; color:var(--muted); }
     .mc-edits { display:flex; flex-direction:column; gap:4px; }
     .mc-edit { display:grid; grid-template-columns: 76px 84px 16px 84px 1fr; align-items:center; gap:8px;
       border:1px solid var(--border); border-radius:8px; padding:2px 10px; font-size:12px; }
@@ -695,69 +727,62 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
     .mc-edit .s { font:11px ui-monospace, monospace; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     `;
     const GROUP = { core: "rgb(204,237,204)", a: "rgb(168,204,255)", b: "rgb(255,204,115)", c: "rgb(214,158,255)" };
-    const pos = (p, v) => 100 * Math.max(0, Math.min(1, (v - p.range[0]) / (p.range[1] - p.range[0])));
-    const foldOf = (p, dv) => (p.value && p.name.startsWith("p") ? ` · ${Math.pow(10, Math.abs(dv)).toFixed(0)}×` : "");
-    const dText = (p, dv) => (Math.abs(dv) < 1e-9 ? '<span class="c-muted">same</span>' : `<b>${signed(dv, p.name)}</b>${foldOf(p, dv)}`);
-    function propsTable(d) {
-      const rows = d.props.map((p) => {
-        const dv = p.b - p.a, big = (v, o) => (v > o ? " big" : "");
-        return `<tr class="${p.value ? "value" : ""}"><td>${esc(p.name)}</td><td class="${big(p.a, p.b)}" style="color:${SIDE.a}">${num(p.a, p.name)}</td>` +
-          `<td class="${big(p.b, p.a)}" style="color:${SIDE.b}">${num(p.b, p.name)}</td><td class="${Math.abs(dv) < 1e-9 ? "same" : ""}">${dText(p, dv)}</td></tr>`;
+    // values in log units (pEC50, pIC50, …) also get the fold change
+    const isLog = (p) => p.value && /^p[A-Z]/.test(p.name);
+    const fmtFold = (f) => (f >= 100 ? Math.round(f).toLocaleString("en-US") : f >= 10 ? f.toFixed(0) : f.toFixed(1));
+
+    function panel(d) {
+      const pp = el("div", "pp");
+      const sim = el("div", "pp-sec");
+      sim.innerHTML =
+        `<div class="pp-h">Similarity · Tanimoto on ECFP4</div><div class="pp-sim"><b>${d.tanimoto.toFixed(2)}</b>` +
+        `<div class="meter"><div class="track"><i style="width:${100 * d.tanimoto}%"></i></div>` +
+        `<div class="ticks"><span>0</span><span>1</span></div></div></div>`;
+      pp.append(sim);
+
+      const acts = d.props.filter((p) => p.value);
+      if (acts.length) {
+        const sec = el("div", "pp-sec");
+        sec.innerHTML = `<div class="pp-h">Activity</div>` + acts.map((p) => {
+          const dv = p.b - p.a;
+          const fold = isLog(p) && Math.abs(dv) > 1e-9 ? ` · ${fmtFold(Math.pow(10, Math.abs(dv)))}× ${dv > 0 ? "higher" : "lower"} in B` : "";
+          return `<div class="pp-act"><div class="name">${esc(p.name)}</div><div class="vals">` +
+            `<b style="color:${SIDE.a}">${num(p.a, p.name)}</b><span class="to">→</span><b style="color:${SIDE.b}">${num(p.b, p.name)}</b></div>` +
+            `<span class="chip">Δ <b>${signed(dv, p.name)}</b>${fold}</span></div>`;
+        }).join("");
+        pp.append(sec);
+      }
+
+      const sec = el("div", "pp-sec");
+      const rows = d.props.filter((p) => !p.value).map((p) => {
+        const dv = p.b - p.a, same = Math.abs(dv) < 1e-9, t = Math.min(1, Math.abs(dv) / p.scale), big = t >= 0.5;
+        const fill = same ? "" : `<i class="${big ? "big" : ""}" style="${dv > 0 ? "left:50%" : `left:${50 - 50 * t}%`};width:${Math.max(2, 50 * t)}%"></i>`;
+        return `<tr class="${same ? "same" : ""}" title="${esc(p.label)}${p.unit ? ` (${esc(p.unit)})` : ""}"><td>${esc(p.name)}${p.unit ? `<span class="unit">${esc(p.unit)}</span>` : ""}</td>` +
+          `<td class="${p.a > p.b ? "hi" : ""}">${num(p.a, p.name)}</td><td class="${p.b > p.a ? "hi" : ""}">${num(p.b, p.name)}</td>` +
+          `<td><span class="dlt"><span class="dbar">${fill}</span><span class="v${big ? " big" : ""}">${same ? "–" : signed(dv, p.name)}</span></span></td></tr>`;
       }).join("");
-      return el("table", "tb",
-        `<thead><tr><th></th><th style="color:${SIDE.a}">A</th><th style="color:${SIDE.b}">B</th><th>B − A</th></tr></thead>` +
-        `<tbody><tr><td>Tanimoto</td><td colspan="3"><b>${d.tanimoto.toFixed(2)}</b> <span class="c-muted">ECFP4</span></td></tr>${rows}</tbody>`);
+      sec.innerHTML = `<div class="pp-h">Properties</div><table class="pp-t"><thead><tr><th></th>` +
+        `<th style="color:${SIDE.a}">A</th><th style="color:${SIDE.b}">B</th><th>B − A</th></tr></thead><tbody>${rows}</tbody></table>`;
+      pp.append(sec);
+      return pp;
     }
-    function propsBars(d) {
-      const t = el("div", "pb");
-      t.innerHTML = `<span class="n" style="grid-row:auto">Tanimoto</span><span><b>${d.tanimoto.toFixed(2)}</b> <span class="c-muted">ECFP4</span></span><span></span><span class="gap"></span>`;
-      for (const p of d.props) {
-        const dv = p.b - p.a;
-        const bar = (side) => `<span class="b"><i style="width:${Math.max(1, pos(p, p[side]))}%;background:${SIDE[side]}"></i>` +
-          `<span style="left:${Math.max(1, pos(p, p[side]))}%">${num(p[side], p.name)}</span></span>`;
-        t.innerHTML += `<span class="n${p.value ? " value" : ""}">${esc(p.name)}</span>${bar("a")}<span class="d">${dText(p, dv)}</span>${bar("b")}<span class="gap"></span>`;
-      }
-      return t;
-    }
-    // name, A, B, Δ, and under each a dumbbell on the typical range
-    function propsDumbbell(d) {
-      const t = el("div", "pt");
-      t.innerHTML =
-        `<span class="h"></span><span class="h" style="color:${SIDE.a}">A</span><span class="h" style="color:${SIDE.b}">B</span><span class="h">Δ</span>` +
-        `<span class="n">Tanimoto</span><span class="v" style="grid-column: span 3"><b>${d.tanimoto.toFixed(2)}</b></span><span class="bar"></span>`;
-      for (const p of d.props) {
-        const dv = p.b - p.a, [xa, xb] = [pos(p, p.a), pos(p, p.b)];
-        t.innerHTML +=
-          `<span class="n${p.value ? " value" : ""}">${esc(p.name)}</span><span class="v">${num(p.a, p.name)}</span>` +
-          `<span class="v">${num(p.b, p.name)}</span><span class="v">${Math.abs(dv) < 1e-9 ? '<span class="c-muted">0</span>' : `<b>${signed(dv, p.name)}</b>`}</span>` +
-          `<span class="bar"><i class="ax"></i><i class="seg" style="left:${Math.min(xa, xb)}%;width:${Math.abs(xb - xa)}%"></i>` +
-          `<i class="dot" style="left:${xa}%;background:${SIDE.a}"></i><i class="dot" style="left:${xb}%;background:${SIDE.b}"></i></span>`;
-      }
-      return t;
-    }
-    const PROPS_VIEW = { table: propsTable, bars: propsBars, dumbbell: propsDumbbell };
+
     function render({ model, el: host }) {
       const r = root(host, CSS);
       function draw() {
         r.querySelectorAll(":scope > :not(style)").forEach((n) => n.remove());
-        const d = model.get("data"), layout = model.get("layout");
+        const d = model.get("data");
         if (!d.panels) return;
         const A = molBox(d.panels[0], "a"), B = molBox(d.panels[1], "b");
-        const head = (side, k) => el("div", "c-id", `<i style="background:${SIDE[side]}"></i>${side.toUpperCase()} · ${esc(d.ids[k])}`);
-        const card = (side, k, box) => { const c = el("div"); c.append(head(side, k), box.box); return c; };
+        const card = (side, k, box) => {
+          const c = el("div", "mc-card");
+          c.append(el("div", "c-id", `<i style="background:${SIDE[side]}"></i>${side.toUpperCase()} · ${esc(d.ids[k])}`), box.box);
+          return c;
+        };
+        const g = el("div", "mc-cols");
+        g.append(card("a", 0, A), card("b", 1, B), panel(d));
 
         const bar = el("div", "mc-bar");
-        const toggle = (name, options) => {
-          const seg = el("div", "mc-seg");
-          for (const [v, label] of options) {
-            const b = el("button", model.get(name) === v ? "on" : "", label);
-            b.addEventListener("click", () => { model.set(name, v); model.save_changes(); });
-            seg.append(b);
-          }
-          bar.append(seg);
-        };
-        toggle("layout", [["columns", "A  B | properties"], ["stacked", "A / B | properties"]]);
-        toggle("style", [["table", "table"], ["bars", "bars"], ["dumbbell", "dumbbells"]]);
         const btn = el("button", "mc-btn", d.analysed ? "hide structure comparison" : "compare structures");
         btn.addEventListener("click", () => {
           btn.disabled = true;
@@ -766,38 +791,23 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
           model.save_changes();
         });
         bar.append(btn);
-        r.append(bar);
-
-        const props = PROPS_VIEW[model.get("style")](d);
-        if (layout === "stacked") {
-          const g = el("div", "mc-stack");
-          const mols = el("div", "mols");
-          mols.append(card("a", 0, A), card("b", 1, B));
-          g.append(mols, props);
-          r.append(g);
-        } else {
-          const g = el("div", "mc-cols");
-          g.append(card("a", 0, A), card("b", 1, B), props);
-          r.append(g);
-        }
-
+        r.append(g, bar);
         if (!d.analysed) return;
+
         const c = d.counts;
-        const sum = el("div", "mc-bar");
-        const grp = (colour, text) => sum.append(el("span", "mc-grp", `<i style="background:${colour}"></i>${text}`));
+        const grp = (colour, text) => bar.append(el("span", "mc-grp", `<i style="background:${colour}"></i>${text}`));
         grp(GROUP.core, `common part ${c.shared} of ${c.n[0]} / ${c.n[1]} atoms`);
         if (c.only_a) grp(GROUP.a, `${c.only_a} only in A`);
         if (c.only_b) grp(GROUP.b, `${c.only_b} only in B`);
         if (c.changed) grp(GROUP.c, `${c.changed} changed`);
-        if (c.timed_out) sum.append(el("span", "c-muted", "(search timed out)"));
+        if (c.timed_out) bar.append(el("span", "c-muted", "(search timed out)"));
         const info = el("div", "c-info");
         const clear = linkBoxes(A, B, d, info);
-        sum.append(info);
-        r.append(sum);
+        bar.append(info);
 
         const cmp = el("div", "mc-cmp");
         const left = el("div");
-        left.append(el("h4", "", "common scaffold (* = where they differ)"));
+        left.append(el("h4", "", "Common scaffold"));
         if (d.scaffold) left.append(el("div", "c-mol", d.scaffold));
         const right = el("div");
         right.append(el("h4", "", "A → B"));
@@ -824,8 +834,6 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
         r.append(cmp);
       }
       model.on("change:data", draw);
-      model.on("change:layout", draw);
-      model.on("change:style", draw);
       draw();
     }
     export default { render };
@@ -835,8 +843,6 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
         _esm = PRELUDE + COMPARE_JS
         data = traitlets.Dict().tag(sync=True)
         analysed = traitlets.Bool(False).tag(sync=True)
-        layout = traitlets.Unicode("columns").tag(sync=True)  # "columns" | "stacked"
-        style = traitlets.Unicode("bars").tag(sync=True)  # "table" | "bars" | "dumbbell"
 
         def __init__(self, a, b, **kwargs):
             self._pair = (a, b)
