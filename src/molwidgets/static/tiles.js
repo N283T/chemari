@@ -93,7 +93,8 @@ async function render({ model, el: host }) {
   root.appendChild(el("div", { className: "bt-muted" }, "loading RDKit.js…"));
   const RDKit = await loadRDKit();
   const get = (k) => model.get(k);
-  const set = (obj) => { for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
+  const busy = busyIndicator(model, host, ["radius", "n_bits", "selected"]);
+  const set = (obj) => { busy(obj); for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
   let hover = null; // uid under the mouse
   let onlyHits = false; // list filter: only rows that collide inside the molecule
 

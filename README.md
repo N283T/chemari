@@ -37,7 +37,8 @@ components are used throughout.
   RDKit's identifiers for every atom and radius for `ECFPStepper`
 
 Molecules are drawn in the browser with RDKit.js; standardization, fingerprints, bit environments
-and collision statistics are computed with RDKit in Python.
+and collision statistics are computed with RDKit in Python. When a click needs Python to recompute (a new
+page, radius or bit), the widget dims and shows "computing…" until the answer arrives.
 
 ## Run locally
 

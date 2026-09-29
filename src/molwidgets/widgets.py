@@ -95,7 +95,24 @@ class MolGrid(anywidget.AnyWidget):
         self.data = _records(data)
 
 
-class MorganExplorer(anywidget.AnyWidget):
+class _Computing(anywidget.AnyWidget):
+    """A widget whose browser side waits for Python to recompute after some changes.
+
+    `rev` goes up once Python has handled a change to any name passed to `_signal_done`; the
+    browser shows a "computing" indicator from its own change until then (see busyIndicator).
+    """
+
+    rev = traitlets.Int(0).tag(sync=True)
+
+    def _signal_done(self, names: list[str]) -> None:
+        # registered after the widget's own observers, so it runs once they have finished
+        self.observe(self._bump_rev, names=names)
+
+    def _bump_rev(self, _change=None) -> None:
+        self.rev += 1
+
+
+class MorganExplorer(_Computing):
     """Explain a Morgan fingerprint bit by bit, for one molecule or a pair.
 
     Pass `reference` SMILES (and optionally activities `y`) to get dataset context:
@@ -135,6 +152,7 @@ class MorganExplorer(anywidget.AnyWidget):
         super().__init__(**kwargs)
         self.observe(self._refresh, names=["molecules", "radius", "n_bits"])
         self.observe(self._refresh_examples, names=["selected_bit"])
+        self._signal_done(["radius", "n_bits", "selected_bit"])
         self.molecules = molecules or []
         self._refresh()
 
@@ -233,7 +251,7 @@ def _env_text(mol: Chem.Mol, row: dict) -> str:
     )
 
 
-class ECFPStepper(anywidget.AnyWidget):
+class ECFPStepper(_Computing):
     """Step through the ECFP/Morgan algorithm for any molecule, following the ECFPMovie story.
 
     Guided mode walks atom by atom through every radius: the six invariants hashed at radius 0,
@@ -269,6 +287,7 @@ class ECFPStepper(anywidget.AnyWidget):
         super().__init__(max_radius=max_radius, **kwargs)
         self.observe(self._build, names=["smiles", "max_radius"])
         self.observe(self._render, names=["radius", "atom", "envs", "guided"])
+        self._signal_done(["smiles", "max_radius", "radius", "atom", "envs", "guided"])
         self._build()
 
     def _build(self, _change=None) -> None:
@@ -379,7 +398,7 @@ def _env_svg(mol: Chem.Mol, center: int, radius: int, size: tuple[int, int] = (1
     return svg if isinstance(svg, str) else svg.data
 
 
-class MorganBitTiles(anywidget.AnyWidget):
+class MorganBitTiles(_Computing):
     """A molecule next to its Morgan bits, each drawn like RDKit's DrawMorganBit.
 
     The right-hand list has one row per distinct identifier with its ``Draw.DrawMorganEnv``
@@ -416,6 +435,7 @@ class MorganBitTiles(anywidget.AnyWidget):
         super().__init__(smiles=smiles, **kwargs)  # same atom order as self._mol
         self.observe(self._refresh, names=["radius", "n_bits"])
         self.observe(self._refresh_gallery, names=["selected"])
+        self._signal_done(["radius", "n_bits", "selected"])
         self._refresh()
 
     def _census(self) -> BitCensus | None:
@@ -461,7 +481,7 @@ class MorganBitTiles(anywidget.AnyWidget):
         self.gallery = rows
 
 
-class BitAtlas(anywidget.AnyWidget):
+class BitAtlas(_Computing):
     """Every folded bit of a reference set, one row per bit.
 
     Each row lists the distinct substructures (Morgan environments) from the reference set that
@@ -491,6 +511,7 @@ class BitAtlas(anywidget.AnyWidget):
         super().__init__(**kwargs)
         self.observe(self._reset, names=["radius", "n_bits", "sort"])
         self.observe(self._refresh, names=["page", "page_size", "per_row"])
+        self._signal_done(["radius", "n_bits", "sort", "page", "page_size", "per_row"])
         self._reset()
 
     def _census(self) -> BitCensus:

@@ -151,7 +151,8 @@ function render({ model, el: host }) {
   host.appendChild(root);
 
   const get = (k) => model.get(k);
-  const set = (obj) => { for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
+  const busy = busyIndicator(model, host, ["smiles", "max_radius", "radius", "atom", "envs", "guided"]);
+  const set = (obj) => { busy(obj); for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
   const chip = (l, cls = "") => `<span class="es-k ${cls}" style="background:${get("colours")[l] || "#94a3b8"}">${esc(l)}</span>`;
 
   // Guided tour, in the movie's order: each radius atom by atom, then a collect step; then folding.
