@@ -36,13 +36,40 @@ const CSS = `
 .mp-card svg { width:100%; height:auto; display:block; }
 .mp-hit { fill:transparent; cursor:pointer; }
 .mp-ring { fill:none; stroke-width:2.5; pointer-events:none; }
-.mp-mid { display:flex; flex-direction:column; justify-content:center; gap:6px; text-align:center;
-  font-variant-numeric:tabular-nums; padding:4px 6px; }
-.mp-big { font-size:20px; font-weight:700; line-height:1.1; }
-.mp-sub { color:var(--mp-muted); font-size:11.5px; }
-.mp-arrow { color:var(--mp-muted); font-size:12px; }
-.mp-hover { min-height:2.8em; font-size:12px; color:var(--mp-muted); }
+.mp-mid { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
+  text-align:center; font-variant-numeric:tabular-nums; padding:4px 2px; min-width:170px; }
+.mp-gauge { position:relative; width:108px; height:108px; }
+.mp-gauge svg { width:100%; height:100%; transform:rotate(-90deg); }
+.mp-gauge .track { stroke:var(--mp-soft); }
+.mp-gauge .arc { transition: stroke-dashoffset 1s cubic-bezier(.2,.8,.2,1); }
+.mp-gauge .val { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.mp-gauge .val b { font-size:26px; font-weight:800; letter-spacing:-.5px; line-height:1; }
+.mp-gauge .val span { font-size:10px; color:var(--mp-muted); text-transform:uppercase; letter-spacing:.8px; margin-top:3px; }
+.mp-cap { font-size:10.5px; color:var(--mp-muted); margin-top:-6px; }
+.mp-delta { width:100%; display:flex; flex-direction:column; align-items:center; gap:3px; }
+.mp-flow { position:relative; width:100%; height:30px; display:flex; align-items:center; }
+.mp-flow .band { position:absolute; left:14px; right:14px; top:50%; height:6px; margin-top:-3px; border-radius:3px;
+  background:linear-gradient(90deg, ${SIDE.a}, ${SIDE.b}); opacity:.85; }
+.mp-flow .band::after { content:""; position:absolute; right:-9px; top:50%; margin-top:-7px; border:7px solid transparent;
+  border-left:10px solid ${SIDE.b}; border-right:0; }
+.mp-flow .end { position:relative; z-index:1; width:22px; height:22px; border-radius:50%; color:#fff; font:800 11px/22px system-ui;
+  box-shadow:0 0 0 3px var(--mp-card, #fff); }
+.mp-flow .num { position:relative; z-index:1; margin:0 auto; padding:1px 10px; border-radius:999px; background:var(--mp-bg, #fff);
+  border:1.5px solid var(--mp-border); font-size:17px; font-weight:800; }
+.mp-root.dark .mp-flow .num { background:#1c1f24; }
+.mp-dname { font-size:10.5px; color:var(--mp-muted); }
+.mp-fold { display:inline-flex; align-items:baseline; gap:4px; padding:3px 12px; border-radius:999px; color:#fff;
+  background:linear-gradient(135deg, #e8590c, #d6336c); box-shadow:0 3px 10px rgba(214,51,108,.35); }
+.mp-fold b { font-size:20px; font-weight:900; letter-spacing:-.5px; }
+.mp-fold span { font-size:11px; font-weight:600; opacity:.9; }
+.mp-chips { display:flex; flex-wrap:wrap; justify-content:center; gap:4px; }
+.mp-chip { font-size:11px; padding:1px 8px; border-radius:999px; color:#1f2328; font-weight:600; cursor:default;
+  transition:transform .12s, box-shadow .12s; }
+.mp-chip:hover { transform:translateY(-1px); box-shadow:0 2px 6px rgba(0,0,0,.18); }
+.mp-hover { min-height:2.6em; font-size:12px; color:var(--mp-muted); }
 .mp-hover b { color:var(--mp-fg); }
+.mp-root .pop { animation: mp-pop .5s cubic-bezier(.3,1.6,.5,1) both; }
+@keyframes mp-pop { 0% { transform:scale(.3); opacity:0; } 100% { transform:scale(1); opacity:1; } }
 .mp-table-wrap { overflow-x:auto; margin-top:8px; }
 .mp-table { border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; width:100%; }
 .mp-table th, .mp-table td { padding:3px 8px; text-align:right; border-bottom:1px solid var(--mp-border); white-space:nowrap; }
@@ -187,27 +214,84 @@ async function render({ model, el: host }) {
     return c;
   }
 
-  function middle(s, formats) {
+  // count a number up from 0 (only when a new pair arrives, not on every redraw)
+  function countUp(node, to, render, animate) {
+    if (!animate) return void (node.textContent = render(to));
+    const t0 = performance.now();
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / 900), e = 1 - Math.pow(1 - k, 3);
+      node.textContent = render(to * e);
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function gauge(value, label, animate) {
+    const R = 44, C = 2 * Math.PI * R;
+    const g = el(
+      "div",
+      { className: "mp-gauge" },
+      `<svg viewBox="0 0 108 108"><defs><linearGradient id="mp-grad" x1="0" y1="0" x2="1" y2="1">` +
+        `<stop offset="0" stop-color="${SIDE.a}"/><stop offset="1" stop-color="${SIDE.b}"/></linearGradient></defs>` +
+        `<circle class="track" cx="54" cy="54" r="${R}" fill="none" stroke-width="10"/>` +
+        `<circle class="arc" cx="54" cy="54" r="${R}" fill="none" stroke="url(#mp-grad)" stroke-width="10" stroke-linecap="round"` +
+        ` stroke-dasharray="${C}" stroke-dashoffset="${animate ? C : C * (1 - value)}"/></svg>` +
+        `<div class="val"><b></b><span>${esc(label)}</span></div>`
+    );
+    countUp(g.querySelector(".val b"), value, (v) => v.toFixed(2), animate);
+    if (animate) requestAnimationFrame(() => requestAnimationFrame(() => g.querySelector(".arc").setAttribute("stroke-dashoffset", C * (1 - value))));
+    return g;
+  }
+
+  function middle(s, formats, animate) {
     const mid = el("div", { className: "mp-mid" });
-    let html = `<div><div class="mp-big">${s.tanimoto.toFixed(2)}</div><div class="mp-sub">Tanimoto (${esc(s.fp)})</div></div>`;
+    mid.appendChild(gauge(s.tanimoto, "Tanimoto", animate));
+    mid.appendChild(el("div", { className: "mp-cap" }, esc(s.fp)));
     for (const d of s.deltas) {
-      html +=
-        `<div><div class="mp-big">${signed(d.delta, formats[d.name] ?? 2)}</div>` +
-        `<div class="mp-sub">Δ ${esc(d.name)} (B − A)${d.fold ? ` · ${fold(d.fold)}-fold` : ""}</div></div>`;
+      const box = el("div", { className: "mp-delta" });
+      const flow = el(
+        "div",
+        { className: "mp-flow" },
+        `<div class="band"></div><span class="end" style="background:${SIDE.a}">A</span>` +
+          `<span class="num"></span><span class="end" style="background:${SIDE.b}">B</span>`
+      );
+      countUp(flow.querySelector(".num"), d.delta, (v) => signed(v, formats[d.name] ?? 2), animate);
+      box.append(flow, el("div", { className: "mp-dname" }, `Δ ${esc(d.name)} (B − A)`));
+      if (d.fold) {
+        const f = el("div", { className: "mp-fold" + (animate ? " pop" : "") }, `<b>×${fold(d.fold)}</b><span>fold difference</span>`);
+        if (animate) f.style.animationDelay = ".6s";
+        box.appendChild(f);
+      }
+      mid.appendChild(box);
     }
-    const diff = [];
-    if (s.only[0]) diff.push(`${s.only[0]} only in A`);
-    if (s.only[1]) diff.push(`${s.only[1]} only in B`);
-    if (s.changed) diff.push(`${s.changed} changed`);
-    if (s.changed_bonds) diff.push(`${s.changed_bonds} bond${s.changed_bonds > 1 ? "s" : ""} E/Z`);
-    html +=
-      `<div class="mp-sub">common part ${s.core} of ${s.n_a} / ${s.n_b} atoms` +
-      `${diff.length ? `<br>${diff.join(" · ")}` : "<br>no difference in the graph"}` +
-      `${s.timed_out ? "<br>(MCS search timed out)" : ""}</div>`;
-    mid.innerHTML = html;
+    // chips in the highlight colours double as a legend; hovering one rings its atoms
+    const chips = el("div", { className: "mp-chips" });
+    const chip = (text, colour, group) => {
+      const c = el("span", { className: "mp-chip", textContent: text });
+      c.style.background = colour;
+      if (group) {
+        c.addEventListener("mouseenter", () => ringGroup(group));
+        c.addEventListener("mouseleave", () => hover(null));
+      }
+      chips.appendChild(c);
+    };
+    chip(`${s.core} shared`, RGB([0.62, 0.8, 1.0]), s.groups.core);
+    if (s.only[0]) chip(`+${s.only[0]} only A`, RGB([1.0, 0.72, 0.3]), [s.groups.only[0], []]);
+    if (s.only[1]) chip(`+${s.only[1]} only B`, RGB([1.0, 0.72, 0.3]), [[], s.groups.only[1]]);
+    if (s.changed) chip(`${s.changed} changed`, RGB([0.84, 0.6, 1.0]), s.groups.changed);
+    if (s.changed_bonds) chip(`${s.changed_bonds} E/Z`, RGB([0.84, 0.6, 1.0]));
+    if (!s.only[0] && !s.only[1] && !s.changed && !s.changed_bonds) chip("same graph", "#d0d7de");
+    if (s.timed_out) chip("MCS timed out", "#ffd8a8");
+    mid.appendChild(chips);
     hoverBox = el("div", { className: "mp-hover" });
     mid.appendChild(hoverBox);
     return mid;
+  }
+
+  function ringGroup([atomsA, atomsB]) {
+    hover(null);
+    atomsA.forEach((i) => ringAt("a", i, SIDE.a));
+    atomsB.forEach((i) => ringAt("b", i, SIDE.b));
   }
 
   function table(s) {
@@ -231,6 +315,7 @@ async function render({ model, el: host }) {
     );
   }
 
+  let lastPair = "";
   function draw() {
     drawBar();
     const view = get("view");
@@ -238,9 +323,12 @@ async function render({ model, el: host }) {
     main.innerHTML = "";
     if (!view?.panels) return;
     const formats = view.formats || {};
+    const pairKey = mols.map((m) => m.smiles).join(">");
+    const animate = pairKey !== lastPair;
+    lastPair = pairKey;
     main.append(
       card("a", mols[0], view.panels[0], formats),
-      middle(view.summary, formats),
+      middle(view.summary, formats, animate),
       card("b", mols[1], view.panels[1], formats)
     );
     tableWrap.innerHTML = table(view.summary);

@@ -941,6 +941,12 @@ class MolPair(_Computing):
             "changed": len(al["changed_a"]),
             "changed_bonds": len(al["changed_bonds_a"]),
             "timed_out": al["timed_out"],
+            # atom groups, so the summary chips can point at them in the drawings
+            "groups": {
+                "core": [[p[0] for p in al["mapping"]], [p[1] for p in al["mapping"]]],
+                "only": [al["only_a"], al["only_b"]],
+                "changed": [al["changed_a"], al["changed_b"]],
+            },
         }
         if self.view:
             self.view = {**self.view, "summary": self._summary}
