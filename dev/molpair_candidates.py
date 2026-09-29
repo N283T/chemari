@@ -650,9 +650,10 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
     .mc-grp i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; }
     /* layout "columns": A | B | properties */
     .mc-cols { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(240px, 300px); gap:10px; align-items:start; }
-    /* layout "rows": A | its properties, B | its properties */
-    .mc-rows { display:grid; grid-template-columns: minmax(0, 360px) minmax(0,1fr); gap:8px 14px; align-items:center; }
-    @media (max-width: 760px) { .mc-cols, .mc-rows { grid-template-columns: 1fr; } }
+    /* layout "stacked": A above B | properties of both */
+    .mc-stack { display:grid; grid-template-columns: minmax(0, 380px) minmax(0,1fr); gap:10px 16px; align-items:center; }
+    .mc-stack > .mols { display:flex; flex-direction:column; gap:8px; }
+    @media (max-width: 760px) { .mc-cols, .mc-stack { grid-template-columns: 1fr; } }
     .pt { display:grid; grid-template-columns: auto auto auto auto; gap:0 10px; font-variant-numeric:tabular-nums; font-size:12px; align-items:center; }
     .pt .h { color:var(--muted); font-size:11px; text-align:right; }
     .pt .n { color:var(--muted); }
@@ -662,13 +663,23 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
     .bar .ax { position:absolute; left:0; right:0; top:5px; height:2px; background:var(--border); border-radius:1px; }
     .bar .seg { position:absolute; top:4px; height:4px; background:#9ca3af; border-radius:2px; }
     .bar .dot { position:absolute; top:1px; width:10px; height:10px; margin-left:-5px; border-radius:50%; border:1.5px solid var(--card); box-sizing:border-box; }
-    .bar .dot.faint { opacity:.3; }
-    .rp { display:grid; grid-template-columns: 90px 64px minmax(80px, 1fr) 70px; gap:2px 10px; align-items:center;
-      font-variant-numeric:tabular-nums; font-size:12px; }
-    .rp .n { color:var(--muted); } .rp .n.value { color:var(--fg); font-weight:600; }
-    .rp .v { text-align:right; font-weight:600; }
-    .rp .bar { height:12px; position:relative; }
-    .rp .d { color:var(--muted); white-space:nowrap; }
+    /* table: plain numbers */
+    .tb { border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:12.5px; width:100%; }
+    .tb th { font-size:11px; color:var(--muted); font-weight:600; text-align:right; padding:2px 8px; border-bottom:1px solid var(--border); }
+    .tb td { text-align:right; padding:3px 8px; border-bottom:1px solid var(--border); }
+    .tb td:first-child, .tb th:first-child { text-align:left; color:var(--muted); }
+    .tb tr.value td:first-child { color:var(--fg); font-weight:600; }
+    .tb td.big { font-weight:700; }
+    .tb td.same { color:var(--muted); }
+    /* paired bars: A's bar over B's, on the typical range */
+    .pb { display:grid; grid-template-columns: 84px 1fr 78px; gap:0 10px; align-items:center; font-variant-numeric:tabular-nums; font-size:12px; }
+    .pb .n { color:var(--muted); grid-row: span 2; }
+    .pb .n.value { color:var(--fg); font-weight:600; }
+    .pb .d { grid-row: span 2; text-align:right; white-space:nowrap; }
+    .pb .b { position:relative; height:13px; }
+    .pb .b i { position:absolute; left:0; top:2px; bottom:2px; border-radius:2px; }
+    .pb .b span { position:absolute; top:-1px; font-size:11px; line-height:15px; padding-left:4px; }
+    .pb .gap { grid-column: 1 / -1; height:6px; }
     .mc-cmp { display:grid; grid-template-columns: minmax(0, 320px) minmax(0,1fr); gap:10px; margin-top:10px; align-items:start; }
     @media (max-width: 760px) { .mc-cmp { grid-template-columns: 1fr; } }
     .mc-cmp h4 { margin:0 0 4px; font-size:12px; color:var(--muted); font-weight:600; }
@@ -686,8 +697,30 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
     const GROUP = { core: "rgb(204,237,204)", a: "rgb(168,204,255)", b: "rgb(255,204,115)", c: "rgb(214,158,255)" };
     const pos = (p, v) => 100 * Math.max(0, Math.min(1, (v - p.range[0]) / (p.range[1] - p.range[0])));
     const foldOf = (p, dv) => (p.value && p.name.startsWith("p") ? ` · ${Math.pow(10, Math.abs(dv)).toFixed(0)}×` : "");
-    // A | B | properties: name, A, B, Δ, and under each a dumbbell on the typical range
-    function propColumn(d) {
+    const dText = (p, dv) => (Math.abs(dv) < 1e-9 ? '<span class="c-muted">same</span>' : `<b>${signed(dv, p.name)}</b>${foldOf(p, dv)}`);
+    function propsTable(d) {
+      const rows = d.props.map((p) => {
+        const dv = p.b - p.a, big = (v, o) => (v > o ? " big" : "");
+        return `<tr class="${p.value ? "value" : ""}"><td>${esc(p.name)}</td><td class="${big(p.a, p.b)}" style="color:${SIDE.a}">${num(p.a, p.name)}</td>` +
+          `<td class="${big(p.b, p.a)}" style="color:${SIDE.b}">${num(p.b, p.name)}</td><td class="${Math.abs(dv) < 1e-9 ? "same" : ""}">${dText(p, dv)}</td></tr>`;
+      }).join("");
+      return el("table", "tb",
+        `<thead><tr><th></th><th style="color:${SIDE.a}">A</th><th style="color:${SIDE.b}">B</th><th>B − A</th></tr></thead>` +
+        `<tbody><tr><td>Tanimoto</td><td colspan="3"><b>${d.tanimoto.toFixed(2)}</b> <span class="c-muted">ECFP4</span></td></tr>${rows}</tbody>`);
+    }
+    function propsBars(d) {
+      const t = el("div", "pb");
+      t.innerHTML = `<span class="n" style="grid-row:auto">Tanimoto</span><span><b>${d.tanimoto.toFixed(2)}</b> <span class="c-muted">ECFP4</span></span><span></span><span class="gap"></span>`;
+      for (const p of d.props) {
+        const dv = p.b - p.a;
+        const bar = (side) => `<span class="b"><i style="width:${Math.max(1, pos(p, p[side]))}%;background:${SIDE[side]}"></i>` +
+          `<span style="left:${Math.max(1, pos(p, p[side]))}%">${num(p[side], p.name)}</span></span>`;
+        t.innerHTML += `<span class="n${p.value ? " value" : ""}">${esc(p.name)}</span>${bar("a")}<span class="d">${dText(p, dv)}</span>${bar("b")}<span class="gap"></span>`;
+      }
+      return t;
+    }
+    // name, A, B, Δ, and under each a dumbbell on the typical range
+    function propsDumbbell(d) {
       const t = el("div", "pt");
       t.innerHTML =
         `<span class="h"></span><span class="h" style="color:${SIDE.a}">A</span><span class="h" style="color:${SIDE.b}">B</span><span class="h">Δ</span>` +
@@ -702,20 +735,7 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
       }
       return t;
     }
-    // one molecule's properties: its value and dot solid, the other's dot faint, Δ vs the other on B's row
-    function propRow(d, side) {
-      const t = el("div", "rp");
-      const me = side, other = side === "a" ? "b" : "a";
-      for (const p of d.props) {
-        const [x, y] = [pos(p, p[me]), pos(p, p[other])];
-        const dv = p.b - p.a;
-        t.innerHTML +=
-          `<span class="n${p.value ? " value" : ""}">${esc(p.name)}</span><span class="v" style="color:${SIDE[me]}">${num(p[me], p.name)}</span>` +
-          `<span class="bar"><i class="ax"></i><i class="dot faint" style="left:${y}%;background:${SIDE[other]}"></i><i class="dot" style="left:${x}%;background:${SIDE[me]}"></i></span>` +
-          `<span class="d">${me === "b" ? (Math.abs(dv) < 1e-9 ? "same" : `${signed(dv, p.name)}${foldOf(p, dv)}`) : ""}</span>`;
-      }
-      return t;
-    }
+    const PROPS_VIEW = { table: propsTable, bars: propsBars, dumbbell: propsDumbbell };
     function render({ model, el: host }) {
       const r = root(host, CSS);
       function draw() {
@@ -727,12 +747,17 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
         const card = (side, k, box) => { const c = el("div"); c.append(head(side, k), box.box); return c; };
 
         const bar = el("div", "mc-bar");
-        const seg = el("div", "mc-seg");
-        for (const [v, label] of [["columns", "A  B | properties"], ["rows", "A | properties, B | properties"]]) {
-          const b = el("button", layout === v ? "on" : "", label);
-          b.addEventListener("click", () => { model.set("layout", v); model.save_changes(); });
-          seg.append(b);
-        }
+        const toggle = (name, options) => {
+          const seg = el("div", "mc-seg");
+          for (const [v, label] of options) {
+            const b = el("button", model.get(name) === v ? "on" : "", label);
+            b.addEventListener("click", () => { model.set(name, v); model.save_changes(); });
+            seg.append(b);
+          }
+          bar.append(seg);
+        };
+        toggle("layout", [["columns", "A  B | properties"], ["stacked", "A / B | properties"]]);
+        toggle("style", [["table", "table"], ["bars", "bars"], ["dumbbell", "dumbbells"]]);
         const btn = el("button", "mc-btn", d.analysed ? "hide structure comparison" : "compare structures");
         btn.addEventListener("click", () => {
           btn.disabled = true;
@@ -740,16 +765,19 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
           model.set("analysed", !d.analysed);
           model.save_changes();
         });
-        bar.append(seg, btn);
+        bar.append(btn);
         r.append(bar);
 
-        if (layout === "rows") {
-          const g = el("div", "mc-rows");
-          g.append(card("a", 0, A), propRow(d, "a"), card("b", 1, B), propRow(d, "b"));
-          r.append(g, el("div", "c-muted", `Tanimoto (ECFP4) <b style="color:var(--fg)">${d.tanimoto.toFixed(2)}</b>`));
+        const props = PROPS_VIEW[model.get("style")](d);
+        if (layout === "stacked") {
+          const g = el("div", "mc-stack");
+          const mols = el("div", "mols");
+          mols.append(card("a", 0, A), card("b", 1, B));
+          g.append(mols, props);
+          r.append(g);
         } else {
           const g = el("div", "mc-cols");
-          g.append(card("a", 0, A), card("b", 1, B), propColumn(d));
+          g.append(card("a", 0, A), card("b", 1, B), props);
           r.append(g);
         }
 
@@ -797,6 +825,7 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
       }
       model.on("change:data", draw);
       model.on("change:layout", draw);
+      model.on("change:style", draw);
       draw();
     }
     export default { render };
@@ -806,7 +835,8 @@ def _(PRELUDE, anywidget, compare_data, traitlets):
         _esm = PRELUDE + COMPARE_JS
         data = traitlets.Dict().tag(sync=True)
         analysed = traitlets.Bool(False).tag(sync=True)
-        layout = traitlets.Unicode("columns").tag(sync=True)  # "columns" | "rows"
+        layout = traitlets.Unicode("columns").tag(sync=True)  # "columns" | "stacked"
+        style = traitlets.Unicode("bars").tag(sync=True)  # "table" | "bars" | "dumbbell"
 
         def __init__(self, a, b, **kwargs):
             self._pair = (a, b)
