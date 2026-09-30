@@ -697,7 +697,17 @@ def _(MolPair, mo, train):
     **activity cliff** とは、見た目は似ているのに活性値 (このデータでは pEC50) が大きく違うペアのことです。たとえば次の 2
     つは、ベンゼン環のメチル 1 つしか違いませんが (青は共通部分)、EC50 は約 {10**_dy:.0f} 倍違います。
     """),
-            mo.ui.anywidget(MolPair(_rows[0], _rows[1], value_cols=["pEC50"], show_common=True)),
+            mo.ui.anywidget(
+                MolPair(
+                    _rows[0],
+                    _rows[1],
+                    value_cols=["pEC50"],
+                    # the dumbbell's axis: every train compound's pEC50
+                    value_ranges={"pEC50": (train["pEC50"].min(), train["pEC50"].max())},
+                    properties=["cLogP"],
+                    show_common=True,
+                )
+            ),
         ]
     )
     return (cliff_example,)
@@ -968,13 +978,7 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
         if len(flat) > 1:
             # Different constitution, same set of radius-2 environments: only repeat counts differ.
             return "環サイズ / 鎖長"
-        # Count specified stereo elements (tetrahedral centres and double-bond geometry).
-        n_specified = {
-            sum(a.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for a in m.GetAtoms())
-            + sum(b.GetStereo() != Chem.BondStereo.STEREONONE for b in m.GetBonds())
-            for m in mols
-        }
-        return "立体の指定あり / なし" if len(n_specified) > 1 else "立体異性体"
+        return "立体化学"  # same constitution: only stereo differs
 
     _groups = defaultdict(list)
     for _i, _fp in enumerate(X_train):
@@ -1056,16 +1060,19 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
 
     * RDKit の ECFP4 は `includeChirality=True` を渡さない限り キラリティも二重結合の E/Z も無視する
     * どのグループも 同じ化合物について立体を指定したレコードとしていないレコードの組
-    * 例: lansoprazole と dexlansoprazole (差 0.94) bupivacaine と levobupivacaine rifampicin の E/Z
-      表記あり/なし
+    * 例
+        * lansoprazole (OADMET-0003758) と dexlansoprazole (OADMET-0003782) 差 0.94
+        * bupivacaine (OADMET-0001982) と levobupivacaine (OADMET-0003731)
+        * rifampicin の E/Z 表記あり (OADMET-0002338) となし (OADMET-0003649)
     * `includeChirality=True` にすると {_n_stereo} グループ中 {_n_split} グループが分かれる
       lansoprazole のスルホキシドの立体中心は拾われない
 
     **環サイズ / 鎖長 ({len(_twins) - _n_stereo} グループ)**
 
-    * 例: シクロヘキシルアミンとシクロヘプチルアミン アゼパンとアゾカン ノナン酸とパルミチン酸
     * radius 2 の範囲ではどの原子も同じ周囲を見るので 部分構造の集合は同じで違うのは出てくる回数だけ
     * bit ベクトルは回数を持たないので区別できない count fingerprint なら区別できる
+    * ただし count fingerprint も同じように折りたたむので 別の部分構造が同じ bit に衝突すると
+      その回数も足し合わされる bit の値は「その部分構造が何回あるか」とは限らない
 
     bit ベクトルが同じ分子は、どのモデルでも同じ予測になります。立体 (デフォルトでは) と出現回数は ECFP4 からは読み取れません。
     """

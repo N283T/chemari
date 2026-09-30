@@ -661,7 +661,17 @@ def _(MolPair, mo, train):
 
     An **activity cliff** is a pair of compounds that look alike but differ a lot in activity (here pEC50). The two below differ only by one methyl on the benzene ring (the common part is blue), yet their EC50 values are about {10**_dy:.0f}-fold apart.
     """),
-            mo.ui.anywidget(MolPair(_rows[0], _rows[1], value_cols=["pEC50"], show_common=True)),
+            mo.ui.anywidget(
+                MolPair(
+                    _rows[0],
+                    _rows[1],
+                    value_cols=["pEC50"],
+                    # the dumbbell's axis: every train compound's pEC50
+                    value_ranges={"pEC50": (train["pEC50"].min(), train["pEC50"].max())},
+                    properties=["cLogP"],
+                    show_common=True,
+                )
+            ),
         ]
     )
     return (cliff_example,)
@@ -916,13 +926,7 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
         if len(flat) > 1:
             # Different constitution, same set of radius-2 environments: only repeat counts differ.
             return "ring size / chain length"
-        # Count specified stereo elements (tetrahedral centres and double-bond geometry).
-        n_specified = {
-            sum(a.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for a in m.GetAtoms())
-            + sum(b.GetStereo() != Chem.BondStereo.STEREONONE for b in m.GetBonds())
-            for m in mols
-        }
-        return "stereo specified / unspecified" if len(n_specified) > 1 else "stereoisomers"
+        return "stereochemistry"  # same constitution: only stereo differs
 
     _groups = defaultdict(list)
     for _i, _fp in enumerate(X_train):
@@ -1007,14 +1011,19 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
 
     * RDKit's ECFP4 ignores chirality and E/Z geometry unless you pass `includeChirality=True`
     * each group is one compound recorded once with its stereo specified and once without
-    * examples: lansoprazole and dexlansoprazole (Δ 0.94), bupivacaine and levobupivacaine, rifampicin with and without E/Z labels
+    * examples
+        * lansoprazole (OADMET-0003758) and dexlansoprazole (OADMET-0003782), Δ 0.94
+        * bupivacaine (OADMET-0001982) and levobupivacaine (OADMET-0003731)
+        * rifampicin with (OADMET-0002338) and without (OADMET-0003649) E/Z labels
     * `includeChirality=True` separates {_n_split} of the {_n_stereo} groups; the sulfoxide stereocentre of lansoprazole is not picked up either way
 
     **Ring size / chain length ({len(_twins) - _n_stereo} groups)**
 
-    * examples: cyclohexylamine and cycloheptylamine, azepane and azocane, nonanoic and palmitic acid
     * within radius 2 every atom sees the same surroundings, so the set of substructures is identical and only their counts differ
     * a bit vector keeps no counts and cannot tell them apart; a count fingerprint can
+    * but a count fingerprint is folded the same way: when different substructures collide in
+      one bit their counts are added, so a bit's value is not necessarily how often one
+      substructure occurs
 
     Molecules with the same bit vector get the same prediction from any model; ECFP4 does not see stereo (by default) or counts.
     """

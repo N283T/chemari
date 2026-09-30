@@ -60,7 +60,7 @@ const CSS = `
 .bi-mols { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; }
 .bi-mol { flex:0 0 160px; background:#fff; color:#1f2328; border:1px solid var(--bi-border); border-radius:6px; padding:2px 4px 3px; min-width:0; }
 .bi-mol svg { width:100% !important; height:auto !important; display:block; }
-.bi-mhead { display:flex; justify-content:space-between; font-size:10.5px; color:#6b7280; gap:4px; }
+.bi-mhead { padding-right:26px; display:flex; justify-content:space-between; font-size:10.5px; color:#6b7280; gap:4px; }
 .bi-mhead span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bi-chip { font:inherit; font-size:12px; padding:1px 9px; border-radius:999px; border:1px solid var(--bi-border);
   background:var(--bi-card); color:var(--bi-fg); cursor:pointer; }
@@ -97,6 +97,7 @@ const signed = (v) => `<b style="color:${v >= 0 ? "#d63333" : "#3366e6"}">${v >=
 
 async function render({ model, el: host }) {
   const root = el("div", { className: "bi-root" });
+  enableSmilesCopy(root, model);
   if (isDark(host)) root.classList.add("dark");
   root.appendChild(el("style", {}, CSS));
   host.appendChild(root);
@@ -220,7 +221,7 @@ async function render({ model, el: host }) {
       }
       const svg = drawSvg(RDKit, it.smiles, 220, 160, { atoms, bonds, atomColors, bondColors }, false);
       const y = it.y == null ? "" : `${esc(get("y_label"))} ${it.y.toFixed(2)}`;
-      grid.appendChild(el("div", { className: "bi-mol", title: it.smiles }, `<div class="bi-mhead"><span>${esc(it.id)}</span><span>${y}</span></div>${svg}`));
+      grid.appendChild(el("div", { className: "bi-mol mw-copyable", title: it.smiles }, `<div class="bi-mhead"><span>${esc(it.id)}</span><span>${y}</span></div>${svg}${smilesCopyHtml(it.smiles)}`));
     }
     box.appendChild(grid);
     return box;

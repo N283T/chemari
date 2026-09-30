@@ -39,7 +39,7 @@ const CSS = `
 .mg-card.sel { border-color: var(--mg-accent); box-shadow: 0 0 0 2px var(--mg-accent) inset; }
 .mg-card .mg-strip { position: absolute; left: 0; top: 0; bottom: 0; width: 5px; }
 .mg-card svg { display: block; width: 100%; height: auto; }
-.mg-card .mg-id { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mg-card .mg-id { padding-right: 26px; font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mg-card .mg-props { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; font-size: 11.5px; }
 .mg-card .mg-props span:nth-child(odd) { color: var(--mg-muted); }
 .mg-card .mg-props span:nth-child(even) { text-align: right; font-variant-numeric: tabular-nums; }
@@ -52,6 +52,7 @@ const CSS = `
 
 async function render({ model, el }) {
   const root = document.createElement("div");
+  enableSmilesCopy(root, model);
   root.className = "mg-root";
   if (isDark(el)) root.classList.add("dark");
   const style = document.createElement("style");
@@ -201,7 +202,7 @@ async function render({ model, el }) {
       const id = idOf(r);
       const smi = r[get("smiles_col")];
       const card = document.createElement("div");
-      card.className = "mg-card" + (sel.has(id) ? " sel" : "");
+      card.className = "mg-card mw-copyable" + (sel.has(id) ? " sel" : "");
       card.title = Object.entries(r)
         .map(([k, v]) => `${k}: ${fmt(v)}`)
         .join("\n");
@@ -213,7 +214,7 @@ async function render({ model, el }) {
         .filter((k) => k in r)
         .map((k) => `<span>${k}</span><span>${fmt(r[k])}</span>`)
         .join("");
-      card.innerHTML = `${strip}<div class="mg-id">${id}</div>${svgCache.get(ck)}<div class="mg-props">${props}</div>`;
+      card.innerHTML = `${strip}<div class="mg-id">${id}</div>${svgCache.get(ck)}${smilesCopyHtml(smi)}<div class="mg-props">${props}</div>`;
       card.addEventListener("click", (ev) => toggle(id, ev.shiftKey || ev.metaKey || ev.ctrlKey));
       grid.appendChild(card);
     }
