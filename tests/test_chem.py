@@ -306,3 +306,17 @@ def test_mol_pair_properties():
     assert [s["props"]["Carbons"] for s in w.data["sides"]] == [2, 3]
     with pytest.raises(ValueError, match="unknown property"):
         MolPair("CCO", "CCN", properties=["logP"])
+
+
+def test_explorer_chirality():
+    from molwidgets import MorganExplorer
+
+    r, s = "O=C1CC[C@@H](N2C(=O)c3ccccc3C2=O)C(=O)N1", "O=C1CC[C@H](N2C(=O)c3ccccc3C2=O)C(=O)N1"
+    w = MorganExplorer([{"smiles": r}, {"smiles": s}])
+
+    def bits(k):
+        return {b["bit"] for b in w.payload[k]["bits"]}
+
+    assert bits(0) == bits(1)
+    w.chirality = True
+    assert bits(0) != bits(1)

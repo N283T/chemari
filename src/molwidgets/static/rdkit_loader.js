@@ -160,6 +160,13 @@ const COPY_CSS = `
 .mw-copy:hover { color: #1f2328; border-color: #8c959f; }
 .mw-copy.done { color: #1a7f37; border-color: #1a7f37; opacity: 1; }
 .mw-nocopy .mw-copy { display: none; }
+/* the chirality switch of MorganExplorer / MorganBitTiles: a pill that stands out from the labels */
+.mw-chiral { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; padding: 2px 10px;
+  border: 1.5px solid #7c3aed; border-radius: 999px; color: #6d28d9; background: #faf5ff;
+  font: 600 13px/1.4 system-ui, sans-serif; cursor: pointer; user-select: none; }
+.mw-chiral input { width: 15px; height: 15px; margin: 0; accent-color: #7c3aed; cursor: pointer; }
+.mw-chiral.on { background: #7c3aed; color: #fff; }
+.mw-chiral.on input { accent-color: #fff; }
 .mw-copy svg.mw-ico { width: 14px; height: 14px; max-width: none; max-height: none; margin: 0; display: block; }
 `;
 
