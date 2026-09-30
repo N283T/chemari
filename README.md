@@ -17,7 +17,8 @@ components are used throughout.
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
   - `MolPair`: two compounds side by side with the Tanimoto similarity (ECFP4) and a table of
-    properties (plus any values you pass, such as a measured pEC50). Each row shows A and B as a
+    properties (plus any values you pass, such as a measured pEC50). `properties` picks the rows
+    from 11 built-in descriptors or your own functions; the default is the rule of five. Each row shows A and B as a
     dumbbell on the property's typical range and B − A as a bar; `value_ranges` sets the axis of
     your own values, and `show_formula` / `show_smiles` turn off the captions. Two switches,
     both off by default, highlight the common substructure and redraw B in A's orientation. Below

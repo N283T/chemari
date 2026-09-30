@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -802,9 +803,14 @@ class BitImportance(_Computing):
         }
 
 
+# MolPair's default rows: Lipinski's rule of five
+RO5 = ["MW", "cLogP", "HBD", "HBA"]
+
+
 def _pair_properties() -> list[tuple[str, str, Any, int, tuple[float, float]]]:
-    """(key, label, fn(mol), decimals, typical range) of every property MolPair lists. The range
-    (drug-like compounds) is the axis of the property's dumbbell, the same for every pair."""
+    """(key, label, fn(mol), decimals, typical range) of every built-in property MolPair can
+    list. The range (drug-like compounds) is the axis of the property's dumbbell, the same for
+    every pair."""
     from rdkit.Chem import QED, Crippen, Descriptors, Lipinski, rdMolDescriptors
 
     return [
@@ -822,6 +828,21 @@ def _pair_properties() -> list[tuple[str, str, Any, int, tuple[float, float]]]:
     ]
 
 
+def _resolve_properties(spec: Sequence[str | tuple]) -> list[tuple[str, str, Any, int, Any]]:
+    """MolPair's ``properties`` as (key, label, fn, decimals, range) rows."""
+    built_in = {p[0]: p for p in _pair_properties()}
+    rows = []
+    for item in spec:
+        if isinstance(item, str):
+            if item not in built_in:
+                raise ValueError(f"unknown property {item!r}; built-in: {', '.join(built_in)}")
+            rows.append(built_in[item])
+        else:
+            label, fn, digits, rng = item
+            rows.append((label, label, fn, int(digits), tuple(rng) if rng else None))
+    return rows
+
+
 class MolPair(_Computing):
     """Two compounds side by side: their drawings with the common substructure highlighted,
     the Tanimoto similarity, and a table of properties. Each row shows A and B as a dumbbell on
@@ -833,6 +854,11 @@ class MolPair(_Computing):
     SMILES (R<n> as ``[*:n]``) can be copied like any drawing's. ``mcs`` holds the search options of
     :func:`find_mcs` (e.g. ``{"atoms": "any"}`` so a ring CH → N stays matched and is shown as
     a changed element); changing it searches again.
+
+    ``properties`` picks the table's rows: keys of the built-in properties (MW, cLogP, TPSA, HBD,
+    HBA, RotB, Rings, AroRings, HeavyAtoms, Fsp3, QED) in the order given, and/or your own as
+    ``(label, fn(mol), decimals, (lo, hi))`` (the range may be ``None``). Default: the rule of
+    five (MW, cLogP, HBD, HBA).
 
     ``a`` and ``b`` are dicts (a DataFrame row works) or SMILES strings. ``value_cols`` are
     further values of each compound (e.g. a measured pEC50) listed first in the table;
@@ -864,9 +890,11 @@ class MolPair(_Computing):
         smiles_col: str = "smiles",
         value_cols: list[str] | None = None,
         value_ranges: dict[str, tuple[float, float]] | None = None,
+        properties: list[str | tuple] | None = None,
         mcs_timeout: float = 2.0,
         **kwargs: Any,
     ) -> None:
+        self._props = _resolve_properties(RO5 if properties is None else properties)
         self._id_col, self._smiles_col = id_col, smiles_col
         self._value_cols = list(value_cols or [])
         self._value_ranges = {
@@ -906,7 +934,7 @@ class MolPair(_Computing):
 
         from .chem import _generator, find_mcs
 
-        props = _pair_properties()
+        props = self._props
         mols = [Chem.MolFromSmiles(m["smiles"]) for m in self.molecules]
         sides = []
         for m, mol in zip(self.molecules, mols):
@@ -925,7 +953,8 @@ class MolPair(_Computing):
         data: dict[str, Any] = {
             "sides": sides,
             "property_meta": [
-                {"key": k, "label": lbl, "digits": d, "range": list(r)} for k, lbl, _, d, r in props
+                {"key": k, "label": lbl, "digits": d, "range": list(r) if r else None}
+                for k, lbl, _, d, r in props
             ],
             "value_ranges": self._value_ranges,
             "similarity": None,

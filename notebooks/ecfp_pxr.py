@@ -668,6 +668,7 @@ def _(MolPair, mo, train):
                     value_cols=["pEC50"],
                     # the dumbbell's axis: every train compound's pEC50
                     value_ranges={"pEC50": (train["pEC50"].min(), train["pEC50"].max())},
+                    properties=["cLogP"],
                     show_common=True,
                 )
             ),

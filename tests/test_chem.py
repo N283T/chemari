@@ -284,3 +284,25 @@ def test_copy_smiles_option():
     assert MolPair("CCO", "CCN").copy_smiles
     assert not MolPair("CCO", "CCN", copy_smiles=False).copy_smiles
     assert not MolGrid([{"id": "a", "smiles": "CCO"}], copy_smiles=False).copy_smiles
+
+
+def test_mol_pair_properties():
+    import pytest
+
+    from molwidgets import MolPair
+
+    keys = [m["key"] for m in MolPair("CCO", "CCN").data["property_meta"]]
+    assert keys == ["MW", "cLogP", "HBD", "HBA"]  # rule of five by default
+    w = MolPair(
+        "CCO",
+        "CCCO",
+        properties=[
+            "QED",
+            ("Carbons", lambda m: sum(a.GetSymbol() == "C" for a in m.GetAtoms()), 0, None),
+        ],
+    )
+    meta = w.data["property_meta"]
+    assert [m["key"] for m in meta] == ["QED", "Carbons"] and meta[1]["range"] is None
+    assert [s["props"]["Carbons"] for s in w.data["sides"]] == [2, 3]
+    with pytest.raises(ValueError, match="unknown property"):
+        MolPair("CCO", "CCN", properties=["logP"])
