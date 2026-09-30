@@ -1066,16 +1066,19 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
 
     * RDKit の ECFP4 は `includeChirality=True` を渡さない限り キラリティも二重結合の E/Z も無視する
     * どのグループも 同じ化合物について立体を指定したレコードとしていないレコードの組
-    * 例: lansoprazole と dexlansoprazole (差 0.94) bupivacaine と levobupivacaine rifampicin の E/Z
-      表記あり/なし
+    * 例
+        * lansoprazole (OADMET-0003758) と dexlansoprazole (OADMET-0003782) 差 0.94
+        * bupivacaine (OADMET-0001982) と levobupivacaine (OADMET-0003731)
+        * rifampicin の E/Z 表記あり (OADMET-0002338) となし (OADMET-0003649)
     * `includeChirality=True` にすると {_n_stereo} グループ中 {_n_split} グループが分かれる
       lansoprazole のスルホキシドの立体中心は拾われない
 
     **環サイズ / 鎖長 ({len(_twins) - _n_stereo} グループ)**
 
-    * 例: シクロヘキシルアミンとシクロヘプチルアミン アゼパンとアゾカン ノナン酸とパルミチン酸
     * radius 2 の範囲ではどの原子も同じ周囲を見るので 部分構造の集合は同じで違うのは出てくる回数だけ
     * bit ベクトルは回数を持たないので区別できない count fingerprint なら区別できる
+    * ただし count fingerprint も同じように折りたたむので 別の部分構造が同じ bit に衝突すると
+      その回数も足し合わされる bit の値は「その部分構造が何回あるか」とは限らない
 
     bit ベクトルが同じ分子は、どのモデルでも同じ予測になります。立体 (デフォルトでは) と出現回数は ECFP4 からは読み取れません。
     """

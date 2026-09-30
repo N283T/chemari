@@ -1017,14 +1017,19 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
 
     * RDKit's ECFP4 ignores chirality and E/Z geometry unless you pass `includeChirality=True`
     * each group is one compound recorded once with its stereo specified and once without
-    * examples: lansoprazole and dexlansoprazole (Δ 0.94), bupivacaine and levobupivacaine, rifampicin with and without E/Z labels
+    * examples
+        * lansoprazole (OADMET-0003758) and dexlansoprazole (OADMET-0003782), Δ 0.94
+        * bupivacaine (OADMET-0001982) and levobupivacaine (OADMET-0003731)
+        * rifampicin with (OADMET-0002338) and without (OADMET-0003649) E/Z labels
     * `includeChirality=True` separates {_n_split} of the {_n_stereo} groups; the sulfoxide stereocentre of lansoprazole is not picked up either way
 
     **Ring size / chain length ({len(_twins) - _n_stereo} groups)**
 
-    * examples: cyclohexylamine and cycloheptylamine, azepane and azocane, nonanoic and palmitic acid
     * within radius 2 every atom sees the same surroundings, so the set of substructures is identical and only their counts differ
     * a bit vector keeps no counts and cannot tell them apart; a count fingerprint can
+    * but a count fingerprint is folded the same way: when different substructures collide in
+      one bit their counts are added, so a bit's value is not necessarily how often one
+      substructure occurs
 
     Molecules with the same bit vector get the same prediction from any model; ECFP4 does not see stereo (by default) or counts.
     """
