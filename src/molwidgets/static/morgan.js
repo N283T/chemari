@@ -16,7 +16,7 @@ const CSS = `
 .me-seg button + button { border-left:1px solid var(--me-border); }
 .me-seg button.on { background:var(--me-fg); color:var(--me-card); }
 .me-lbl { color:var(--me-muted); }
-.me-main { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.25fr); gap:12px; }
+.me-main { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.25fr); gap:6px 12px; }
 @media (max-width: 760px) { .me-main { grid-template-columns: 1fr; } }
 .me-mols { display:grid; gap:8px; }
 .me-mol { background:var(--me-card); border:1px solid var(--me-border); border-radius:8px; padding:6px 8px; }
@@ -65,6 +65,15 @@ function el(tag, attrs = {}, html = "") {
   const e = Object.assign(document.createElement(tag), attrs);
   if (html) e.innerHTML = html;
   return e;
+}
+
+// "chirality" checkbox: includeChirality in the fingerprint (R/S becomes part of the identifiers)
+function chiralBox(checked, onChange) {
+  const lbl = el("label", { className: "mw-chiral" + (checked ? " on" : "") });
+  const box = el("input", { type: "checkbox", checked });
+  box.addEventListener("change", () => onChange(box.checked));
+  lbl.append(box, "chirality");
+  return lbl;
 }
 
 function seg(options, current, onPick) {
@@ -125,7 +134,7 @@ async function render({ model, el: host }) {
   if (isDark(host)) root.classList.add("dark");
   root.appendChild(el("style", {}, CSS));
   host.appendChild(root);
-  const busy = busyIndicator(model, host, ["radius", "n_bits", "selected_bit"]);
+  const busy = busyIndicator(model, host, ["radius", "n_bits", "chirality", "selected_bit"]);
   root.appendChild(el("div", { className: "me-muted" }, "loading RDKit.js…"));
   const RDKit = await loadRDKit();
 
@@ -155,12 +164,19 @@ async function render({ model, el: host }) {
       const cA = r.in.A ? contribs[0]?.[r.bit] ?? 0 : null;
       const cB = r.in.B ? contribs[1]?.[r.bit] ?? 0 : null;
       const first = (r.in.A || r.in.B).envs;
-      const status = two ? (r.in.A && r.in.B ? "shared" : r.in.A ? "only A" : "only B") : "on";
+      // in a count fingerprint a bit's value is how often its environments occur (collisions added)
+      const nA = r.in.A ? r.in.A.envs.length : 0, nB = r.in.B ? r.in.B.envs.length : 0;
+      const counted = get("mode") === "count";
+      const status = two
+        ? r.in.A && r.in.B ? (counted && nA !== nB ? "count differs" : "shared") : r.in.A ? "only A" : "only B"
+        : "on";
       const delta = s.mean_on != null && s.mean_off != null ? s.mean_on - s.mean_off : null;
       const envSet = new Set([...(r.in.A?.envs || []), ...(r.in.B?.envs || [])].map((e) => e.smiles));
       return {
         ...r,
         status,
+        nA,
+        nB,
         radius: Math.min(...first.map((e) => e.radius)),
         env: [...envSet].join("  |  "),
         localCollision: envSet.size > 1,
@@ -175,7 +191,7 @@ async function render({ model, el: host }) {
 
   function contribActive() {
     const c = get("contributions");
-    return c && c.length > 0 && get("contrib_radius") === get("radius") && get("contrib_n_bits") === get("n_bits");
+    return c && c.length > 0 && get("contrib_radius") === get("radius") && get("contrib_n_bits") === get("n_bits") && !get("chirality");
   }
 
   function heatmaps(mols) {
@@ -186,7 +202,7 @@ async function render({ model, el: host }) {
   }
 
   function sorted(list) {
-    const order = { shared: 0, "only A": 1, "only B": 2, on: 0 };
+    const order = { shared: 0, "count differs": 1, "only A": 2, "only B": 3, on: 0 };
     const key = (r) => (sortKey === "status" ? order[r.status] * 10 + r.radius : r[sortKey]);
     return [...list].sort((a, b) => {
       const x = key(a), y = key(b);
@@ -213,13 +229,10 @@ async function render({ model, el: host }) {
       seg([[0, "0"], [1, "1"], [2, "2"], [3, "3"]], get("radius"), (v) => { busy({ radius: v, selected_bit: -1 }); model.set("radius", v); model.set("selected_bit", -1); model.save_changes(); }),
       el("span", { className: "me-lbl", textContent: "bits" }),
       seg([[64, "64"], [256, "256"], [1024, "1024"], [2048, "2048"], [4096, "4096"]], get("n_bits"), (v) => { busy({ n_bits: v, selected_bit: -1 }); model.set("n_bits", v); model.set("selected_bit", -1); model.save_changes(); }),
+      el("span", { className: "me-lbl", textContent: "fingerprint" }),
+      seg([["bit", "bit"], ["count", "count"]], get("mode"), (v) => { model.set("mode", v); model.save_changes(); }),
+      chiralBox(get("chirality"), (v) => { busy({ chirality: v, selected_bit: -1 }); model.set("chirality", v); model.set("selected_bit", -1); model.save_changes(); }),
     );
-    if (mols.length === 2)
-      bar.append(
-        el("span", { className: "me-lbl", textContent: "show" }),
-        seg([["all", "all"], ["shared", "shared"], ["only A", "only A"], ["only B", "only B"], ["collide", "⚠ in-molecule collisions"]], filter, (v) => { filter = v; draw(); }),
-      );
-    else bar.append(el("span", { className: "me-lbl", textContent: "show" }), seg([["all", "all"], ["collide", "⚠ in-molecule collisions"]], filter, (v) => { filter = v; draw(); }));
     root.appendChild(bar);
 
     if (!mols.length) {
@@ -227,12 +240,23 @@ async function render({ model, el: host }) {
       return;
     }
 
-    root.appendChild(el("div", { className: "me-muted", style: "font-size:11.5px;margin:0 0 6px;line-height:1.9" },
-      legendHtml("Highlight", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) +
+    // a 2 × 2 grid: [colour key | row filter] above [molecules | bit table], so the molecule
+    // panels and the table start at the same height
+    const main = el("div", { className: "me-main" });
+    // room for two lines of key from the start (the SHAP key adds a second), so nothing moves and
+    // the controls above get some air
+    main.appendChild(el("div", { className: "me-muted", style: "font-size:11.5px;line-height:1.9;min-height:3.8em;display:flex;flex-direction:column;justify-content:flex-end" },
+      "<div>" + legendHtml("Highlight", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) +
       (contribActive()
         ? legendHtml(get("contrib_label"), [[[0.84, 0.2, 0.2], "raises the prediction"], [[0.2, 0.42, 0.9], "lowers it"]])
-        : "")));
-    const main = el("div", { className: "me-main" });
+        : "") + "</div>"));
+    const options = mols.length === 2
+      ? [["all", "all"], ["shared", "shared"], ...(get("mode") === "count" ? [["count differs", "count differs"]] : []), ["only A", "only A"], ["only B", "only B"], ["collide", "⚠ in-molecule collisions"]]
+      : [["all", "all"], ["collide", "⚠ in-molecule collisions"]];
+    if (!options.some(([v]) => v === filter)) filter = "all"; // e.g. "count differs" after going back to bit
+    const filterBar = el("div", { className: "me-bar", style: "margin:0;align-self:end" });
+    filterBar.append(el("span", { className: "me-lbl", textContent: "show" }), seg(options, filter, (v) => { filter = v; draw(); }));
+    main.appendChild(filterBar);
     const left = el("div", { className: "me-mols" });
     const heats = heatmaps(mols);
     mols.forEach((m, i) => {
@@ -257,10 +281,20 @@ async function render({ model, el: host }) {
     if (mols.length === 2) {
       const a = new Set(mols[0].bits.map((b) => b.bit)), b = new Set(mols[1].bits.map((x) => x.bit));
       const inter = [...a].filter((x) => b.has(x)).length;
-      const tani = inter / (a.size + b.size - inter);
       const extra = get("pair_note") ? ` · ${get("pair_note")}` : "";
-      left.appendChild(el("div", { className: "me-summary" },
-        `Tanimoto <b>${tani.toFixed(3)}</b> · shared ${inter} · only A ${a.size - inter} · only B ${b.size - inter}${extra}`));
+      const setting = (get("mode") === "count" ? "count" : "bit") + (get("chirality") ? " + chirality" : "");
+      let text;
+      if (get("mode") === "count") {
+        // Tanimoto of counts: Σ min / Σ max over the bits either molecule sets
+        let lo = 0, hi = 0;
+        for (const r of all) { lo += Math.min(r.nA, r.nB); hi += Math.max(r.nA, r.nB); }
+        const differ = all.filter((r) => r.status === "count differs").length;
+        text = `Tanimoto (${setting}) <b>${(lo / Math.max(hi, 1)).toFixed(3)}</b> · same ${all.filter((r) => r.status === "shared").length} · count differs ${differ} · only A ${a.size - inter} · only B ${b.size - inter}`;
+      } else {
+        text = `Tanimoto (${setting}) <b>${(inter / (a.size + b.size - inter)).toFixed(3)}</b> · shared ${inter} · only A ${a.size - inter} · only B ${b.size - inter}`;
+      }
+      if (all.every((r) => r.status === "shared")) text += ` · <b>identical fingerprints</b>`;
+      left.appendChild(el("div", { className: "me-summary" }, text + extra));
     }
     main.appendChild(left);
 
@@ -268,7 +302,10 @@ async function render({ model, el: host }) {
     const right = el("div", { className: "me-right" });
     const list = sorted(all.filter((r) => filter === "all" || (filter === "collide" ? r.localCollision : r.status === filter)));
     const hasStats = all.some((r) => r.n_on != null);
-    const cols = [["bit", "bit"], ["status", mols.length === 2 ? "in" : "r"], ["env", "environment(s)"]];
+    const counted = get("mode") === "count" && mols.length === 2;
+    const cols = [["bit", "bit"], ["status", mols.length === 2 ? "in" : "r"]];
+    if (counted) cols.push(["nA", "count A"], ["nB", "count B"]);
+    cols.push(["env", "environment(s)"]);
     if (hasStats) cols.push(["n_on", "# mols"], ["n_envs", "# envs"], ["delta", `Δ ${get("y_label")}`]);
     const showC = contribActive();
     if (showC) {
@@ -288,6 +325,7 @@ async function render({ model, el: host }) {
     const thead = el("tr");
     for (const [k, label] of cols) {
       const th = el("th", { className: pinCls(k), textContent: label + (sortKey === k ? (sortDesc ? " ↓" : " ↑") : "") });
+      if (k === "nA" || k === "nB") th.style.cssText = "text-align:center;width:64px;white-space:nowrap";
       th.addEventListener("click", () => { sortDesc = sortKey === k ? !sortDesc : k !== "bit" && k !== "status"; sortKey = k; draw(); });
       thead.appendChild(th);
     }
@@ -299,6 +337,11 @@ async function render({ model, el: host }) {
         : "";
       const warn = r.localCollision;
       let html = `<td>${r.bit}</td><td>${chips}${mols.length === 2 ? "" : ""}<span class="me-muted"> r${r.radius}</span></td>`;
+      if (counted) {
+        // the two values side by side; a differing pair is bold
+        const cell = (v) => `<td style="text-align:center;font-variant-numeric:tabular-nums${r.nA !== r.nB ? ";font-weight:600" : ""}">${v || '<span class="me-muted">0</span>'}</td>`;
+        html += cell(r.nA) + cell(r.nB);
+      }
       html += `<td class="env" title="${r.env}">${r.localCollision ? '<span class="me-warn">⚠ </span>' : ""}${r.env}</td>`;
       if (hasStats) {
         const d = r.delta;
@@ -358,7 +401,7 @@ async function render({ model, el: host }) {
   }
 
   draw();
-  for (const k of ["payload", "bit_stats", "selected_bit", "bit_examples", "radius", "n_bits", "contributions"]) model.on(`change:${k}`, draw);
+  for (const k of ["payload", "bit_stats", "selected_bit", "bit_examples", "radius", "n_bits", "chirality", "mode", "contributions"]) model.on(`change:${k}`, draw);
 }
 
 export default { render };

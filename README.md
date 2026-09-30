@@ -11,6 +11,13 @@ components are used throughout.
   activity cliffs, identical fingerprints, whole-molecule properties), LightGBM importance and
   TreeSHAP on bits, and a model lab
 - `notebooks/ecfp_pxr_ja.py`: the same notebook in Japanese
+- `notebooks/ecfp_openadmet_ja.py`: **work in progress** (Japanese first). ECFP4 across three
+  OpenADMET datasets (PXR, ASAP-Polaris antiviral, ExpansionRx; 16 endpoints): ECFP4's internals
+  and two pitfalls (different molecules with the same fingerprint; near-identical molecules with a
+  low Tanimoto), then a dataset / endpoint picker that drives train–test distance, the similarity
+  principle, cliffs, identical fingerprints, bit collisions, models on bit / count / descriptor
+  features and TreeSHAP. Reads `results/precomputed/` (DuckDB SQL cells) and computes what is
+  missing
 - `src/molwidgets/` — the widget package. Every whole-molecule drawing has a copy icon in its
   top-right corner that puts the molecule's SMILES on the clipboard; `copy_smiles=False` hides
   them
@@ -37,7 +44,8 @@ components are used throughout.
     lettered as in the movie
   - `MorganBitTiles`: a molecule's fingerprint drawn bit by bit like RDKit's `DrawMorganBits`,
     with in-molecule collisions framed and, per bit, every other substructure in a dataset that
-    folds onto it
+    folds onto it; `mode="count"` shows each bit's count, and a chirality switch uses
+    `includeChirality=True`
   - `BitAtlas`: every folded bit of a dataset, one row per bit, with the distinct substructures
     that fold onto it; sortable by bit index, number of substructures or number of molecules
   - `BitImportance`: every bit of a fingerprint model ranked by its importance (e.g. LightGBM gain
@@ -49,12 +57,21 @@ components are used throughout.
     atom environments behind each bit, dataset statistics per bit, and a gallery of the different
     substructures that collide in a selected bit; optionally per-bit model contributions
     (e.g. LightGBM TreeSHAP, pinned to the right of the table) and a per-atom attribution map;
-    `stereo_labels=True` adds R/S and E/Z labels to the drawings
+    `stereo_labels=True` adds R/S and E/Z labels to the drawings. A bit / count switch
+    (`mode`) and a chirality switch (`chirality`) change the fingerprint; for a pair, the
+    summary gives the Tanimoto of the current setting (Σmin / Σmax for counts) and the table
+    lists each molecule's count and the bits whose counts differ
+- `src/molwidgets/bench.py` — the datasets and endpoints of `ecfp_openadmet_ja.py` (loading,
+  standardisation, log10(x + 1) for ratio-scale endpoints), features (ECFP4 bit / count, RDKit
+  descriptors), the LightGBM baseline, nearest neighbours and TreeSHAP per endpoint;
+  `dev/precompute.py` writes them to `results/precomputed/`
 - `src/molwidgets/ecfp.py` — a readable re-implementation of ECFP, and `ecfp_story`, which collects
   RDKit's identifiers for every atom and radius for `ECFPStepper`
 
 - `results/` — reference results computed outside the notebook (LightGBM on CheMeleon
-  fingerprints, compared with the notebook's baselines)
+  fingerprints, compared with the notebook's baselines), the precomputed tables of
+  `ecfp_openadmet_ja.py`, and the analyses in `dev/analysis/` (nearest neighbours, pair
+  differences with TreeSHAP, the same checks across datasets)
 
 Molecules are drawn in the browser with RDKit.js; standardization, fingerprints, bit environments
 and collision statistics are computed with RDKit in Python. When a click needs Python to recompute (a new

@@ -22,14 +22,16 @@ _STATIC = Path(__file__).parent / "static"
 rdDepictor.SetPreferCoordGen(True)
 # Censuses are expensive (one pass over the reference set); share them between widget
 # instances so re-creating an explorer in a reactive cell is cheap.
-_CENSUS_CACHE: dict[tuple[int, int, int], BitCensus] = {}
+_CENSUS_CACHE: dict[tuple[int, int, int, bool], BitCensus] = {}
 
 
-def census_for(reference: list[str], radius: int = 2, n_bits: int = 2048) -> BitCensus:
+def census_for(
+    reference: list[str], radius: int = 2, n_bits: int = 2048, chirality: bool = False
+) -> BitCensus:
     """Cached BitCensus shared with every MorganExplorer built on the same reference set."""
-    key = (hash(tuple(reference)), radius, n_bits)
+    key = (hash(tuple(reference)), radius, n_bits, chirality)
     if key not in _CENSUS_CACHE:
-        _CENSUS_CACHE[key] = bit_census(list(reference), radius, n_bits)
+        _CENSUS_CACHE[key] = bit_census(list(reference), radius, n_bits, chirality)
     return _CENSUS_CACHE[key]
 
 
@@ -138,6 +140,8 @@ class MorganExplorer(_Computing):
     y_label = traitlets.Unicode("y").tag(sync=True)
     pair_note = traitlets.Unicode("").tag(sync=True)
     stereo_labels = traitlets.Bool(False).tag(sync=True)  # draw R/S and E/Z labels
+    chirality = traitlets.Bool(False).tag(sync=True)  # includeChirality in the fingerprint
+    mode = traitlets.Unicode("bit").tag(sync=True)  # "bit" or "count" (Tanimoto, table, filter)
     # Optional model attribution per molecule: {bit: contribution}, e.g. LightGBM TreeSHAP.
     # Shown only while the explorer's radius / n_bits match the model's fingerprint.
     contributions = traitlets.List(traitlets.Dict()).tag(sync=True)
@@ -155,16 +159,16 @@ class MorganExplorer(_Computing):
         self._reference = list(reference) if reference is not None else None
         self._y = None if y is None else np.asarray(y, dtype=float)
         super().__init__(**kwargs)
-        self.observe(self._refresh, names=["molecules", "radius", "n_bits"])
+        self.observe(self._refresh, names=["molecules", "radius", "n_bits", "chirality"])
         self.observe(self._refresh_examples, names=["selected_bit"])
-        self._signal_done(["radius", "n_bits", "selected_bit"])
+        self._signal_done(["radius", "n_bits", "chirality", "selected_bit"])
         self.molecules = molecules or []
         self._refresh()
 
     def census(self) -> BitCensus | None:
         if self._reference is None:
             return None
-        return census_for(self._reference, self.radius, self.n_bits)
+        return census_for(self._reference, self.radius, self.n_bits, self.chirality)
 
     def _refresh(self, _change=None) -> None:
         self.payload = [
@@ -172,7 +176,7 @@ class MorganExplorer(_Computing):
                 "id": str(m.get("id", i)),
                 "smiles": m["smiles"],
                 "label": m.get("label", ""),
-                "bits": morgan_bits(m["smiles"], self.radius, self.n_bits),
+                "bits": morgan_bits(m["smiles"], self.radius, self.n_bits, self.chirality),
             }
             for i, m in enumerate(self.molecules[:2])
         ]
@@ -413,7 +417,8 @@ class MorganBitTiles(_Computing):
     outside the environment) and the bit it folds onto; hovering or clicking a row highlights
     that environment in the full molecule on the left. Rows that fold onto the same bit are
     marked in red. With a reference set, each row shows how many other substructures share its
-    bit, and clicking it draws them.
+    bit, and clicking it draws them. ``mode="count"`` shows each bit's value in a count
+    fingerprint (occurrences, collisions added) instead of 1.
     """
 
     _esm = _bundle("tiles.js")
@@ -427,6 +432,8 @@ class MorganBitTiles(_Computing):
     tiles = traitlets.List().tag(sync=True)
     selected = traitlets.Int(-1).tag(sync=True)  # bit
     gallery = traitlets.List().tag(sync=True)
+    mode = traitlets.Unicode("bit").tag(sync=True)  # "bit" or "count"
+    chirality = traitlets.Bool(False).tag(sync=True)  # includeChirality in the fingerprint
 
     def __init__(
         self,
@@ -442,22 +449,22 @@ class MorganBitTiles(_Computing):
         self._ids = [str(i) for i in ids] if ids is not None else None
         self._max_gallery = max_gallery
         super().__init__(smiles=smiles, **kwargs)  # same atom order as self._mol
-        self.observe(self._refresh, names=["radius", "n_bits"])
+        self.observe(self._refresh, names=["radius", "n_bits", "chirality"])
         self.observe(self._refresh_gallery, names=["selected"])
-        self._signal_done(["radius", "n_bits", "selected"])
+        self._signal_done(["radius", "n_bits", "chirality", "selected"])
         self._refresh()
 
     def _census(self) -> BitCensus | None:
         if self._reference is None:
             return None
-        return census_for(self._reference, self.radius, self.n_bits)
+        return census_for(self._reference, self.radius, self.n_bits, self.chirality)
 
     def _refresh(self, _change=None) -> None:
         from .chem import molecule_bit_tiles
 
         census = self._census()
         tiles = []
-        for t in molecule_bit_tiles(self._smiles, self.radius, self.n_bits):
+        for t in molecule_bit_tiles(self._smiles, self.radius, self.n_bits, self.chirality):
             row = {**t, "svg": _env_svg(self._mol, t["center"], t["radius"], (120, 90))}
             if census is not None:
                 row["n_envs"] = int(census.n_envs[t["bit"]])

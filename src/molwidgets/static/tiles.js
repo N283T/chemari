@@ -37,6 +37,8 @@ const CSS = `
 .bt-root.dark .bt-badge.warn { background:#2c3036; color:#c1c7cf; }
 .bt-badge.ok { background:#ebfbee; color:#2b8a3e; }
 .bt-badge.hit { background:var(--bt-hit); color:#fff; }
+.bt-val { float:right; font:600 12px ui-monospace,monospace; border:1px solid var(--bt-border); border-radius:4px; padding:0 6px; }
+.bt-val.many { background:var(--bt-fg); color:var(--bt-card); border-color:var(--bt-fg); }
 .bt-gallery { margin-top:12px; }
 .bt-gallery h4 { margin:0 0 6px; font-size:13px; }
 .bt-empty { color:var(--bt-muted); border:1px dashed var(--bt-border); border-radius:8px; padding:18px; text-align:center; }
@@ -94,7 +96,7 @@ async function render({ model, el: host }) {
   root.appendChild(el("div", { className: "bt-muted" }, "loading RDKit.js…"));
   const RDKit = await loadRDKit();
   const get = (k) => model.get(k);
-  const busy = busyIndicator(model, host, ["radius", "n_bits", "selected"]);
+  const busy = busyIndicator(model, host, ["radius", "n_bits", "chirality", "selected"]);
   const set = (obj) => { busy(obj); for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
   let hover = null; // uid under the mouse
   let onlyHits = false; // list filter: only rows that collide inside the molecule
@@ -137,6 +139,20 @@ async function render({ model, el: host }) {
       seg([[256, "256"], [1024, "1024"], [2048, "2048"], [8192, "8192"]], get("n_bits"), (v) => set({ n_bits: v })),
       el("span", { className: "bt-lbl", textContent: "bits" }),
     );
+    const chiral = el("label", { className: "mw-chiral" + (get("chirality") ? " on" : "") });
+    const box = el("input", { type: "checkbox", checked: get("chirality") });
+    box.addEventListener("change", () => set({ chirality: box.checked, selected: -1 }));
+    chiral.append(box, "chirality");
+    bar.append(chiral);
+    // the value each bit holds: 1 in a bit fingerprint; in a count fingerprint the number of
+    // times its environments occur, summed over every environment folded onto it
+    const count = get("mode") === "count";
+    const value = {};
+    for (const t of tiles) value[t.bit] = (value[t.bit] || 0) + t.count;
+    bar.append(
+      el("span", { className: "bt-lbl", textContent: "fingerprint" }),
+      seg([["bit", "bit"], ["count", "count"]], get("mode"), (v) => set({ mode: v })),
+    );
     const bits = new Set(tiles.map((t) => t.bit));
     const hits = new Set(tiles.filter((t) => t.collides).map((t) => t.bit));
     bar.append(
@@ -151,6 +167,7 @@ async function render({ model, el: host }) {
     root.appendChild(bar);
     root.appendChild(el("div", { className: "bt-stats" },
       `${tiles.length} environments → ${bits.size} bits` +
+      (count ? ` · values add up to ${Object.values(value).reduce((a, b) => a + b, 0)} (bit fingerprint: ${bits.size} ones)` : "") +
       (hits.size ? ` · <span style="color:var(--bt-hit);font-weight:600">${hits.size} collision${hits.size > 1 ? "s" : ""} inside this molecule</span>` : " · no collisions inside this molecule")));
     root.appendChild(el("div", { className: "bt-legend" },
       legendHtml("Molecule", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) + "<br>" +
@@ -174,8 +191,10 @@ async function render({ model, el: host }) {
           ? `<span class="bt-badge warn">shared with ${others} other substructure${others > 1 ? "s" : ""}</span>`
           : `<span class="bt-badge ok">unique in dataset</span>`;
       }
+      const v = count ? value[t.bit] : 1;
+      const why = count && t.collides ? ` title="${t.count} here + ${v - t.count} from the other row(s) on this bit"` : "";
       row.innerHTML = `<div class="bt-thumb">${t.svg}</div>` +
-        `<div class="bt-info"><b>bit ${t.bit}</b> <span class="bt-muted">r${t.radius}${t.count > 1 ? ` · ×${t.count} atoms` : ""}</span>` +
+        `<div class="bt-info"><span class="bt-val${v > 1 ? " many" : ""}"${why}>${v}</span><b>bit ${t.bit}</b> <span class="bt-muted">r${t.radius}${t.count > 1 ? ` · ×${t.count} atoms` : ""}</span>` +
         `<div class="bt-env">${esc(t.env)}</div>${badges}</div>`;
       row.addEventListener("mouseenter", () => { hover = t.uid; drawMol(); });
       row.addEventListener("mouseleave", () => { hover = null; drawMol(); });
@@ -186,6 +205,7 @@ async function render({ model, el: host }) {
     root.appendChild(main);
     root.appendChild(el("div", { className: "bt-hint" },
       "Each row is one distinct environment, drawn with RDKit's DrawMorganEnv. Hover a row to light it up in the molecule." +
+      (count ? " The box on the right is the bit's value in a count fingerprint: how often its environments occur, collisions added together." : " The box on the right is the bit's value: 1 however often the environment occurs.") +
       (hasRef ? " Click it to see every other substructure in the dataset that sets the same bit." : "")));
     drawMol();
 
@@ -213,7 +233,7 @@ async function render({ model, el: host }) {
   }
 
   draw();
-  for (const k of ["tiles", "selected", "gallery", "radius", "n_bits", "label", "smiles"]) model.on(`change:${k}`, draw);
+  for (const k of ["tiles", "selected", "gallery", "radius", "n_bits", "label", "smiles", "mode", "chirality"]) model.on(`change:${k}`, draw);
 }
 
 export default { render };

@@ -37,9 +37,11 @@ def standardize_smiles(smiles: str) -> str | None:
     return Chem.MolToSmiles(mol)
 
 
-@lru_cache(maxsize=16)
-def _generator(radius: int, n_bits: int):
-    return rdFingerprintGenerator.GetMorganGenerator(radius=radius, fpSize=n_bits)
+@lru_cache(maxsize=32)
+def _generator(radius: int, n_bits: int, chirality: bool = False):
+    return rdFingerprintGenerator.GetMorganGenerator(
+        radius=radius, fpSize=n_bits, includeChirality=chirality
+    )
 
 
 def env_atoms_bonds(mol: Chem.Mol, center: int, radius: int) -> tuple[list[int], list[int]]:
@@ -71,7 +73,9 @@ def env_smiles(mol: Chem.Mol, center: int, radius: int) -> str:
     )
 
 
-def morgan_bits(smiles: str, radius: int = 2, n_bits: int = 2048) -> list[dict]:
+def morgan_bits(
+    smiles: str, radius: int = 2, n_bits: int = 2048, chirality: bool = False
+) -> list[dict]:
     """All set bits of a folded Morgan fingerprint with the environments that set them.
 
     Each entry: {"bit", "envs": [{"center", "radius", "atoms", "bonds", "smiles"}]}.
@@ -82,7 +86,7 @@ def morgan_bits(smiles: str, radius: int = 2, n_bits: int = 2048) -> list[dict]:
         return []
     ao = rdFingerprintGenerator.AdditionalOutput()
     ao.AllocateBitInfoMap()
-    _generator(radius, n_bits).GetFingerprint(mol, additionalOutput=ao)
+    _generator(radius, n_bits, chirality).GetFingerprint(mol, additionalOutput=ao)
     out = []
     for bit, envs in sorted(ao.GetBitInfoMap().items()):
         rows = []
@@ -101,9 +105,11 @@ def morgan_bits(smiles: str, radius: int = 2, n_bits: int = 2048) -> list[dict]:
     return out
 
 
-def fingerprint_matrix(smiles: list[str], radius: int = 2, n_bits: int = 2048) -> np.ndarray:
+def fingerprint_matrix(
+    smiles: list[str], radius: int = 2, n_bits: int = 2048, chirality: bool = False
+) -> np.ndarray:
     """Binary Morgan fingerprints as a (n, n_bits) uint8 matrix."""
-    gen = _generator(radius, n_bits)
+    gen = _generator(radius, n_bits, chirality)
     mat = np.zeros((len(smiles), n_bits), dtype=np.uint8)
     for i, smi in enumerate(smiles):
         mol = Chem.MolFromSmiles(smi)
@@ -158,10 +164,14 @@ class BitCensus:
         return out
 
 
-def bit_census(smiles: list[str], radius: int = 2, n_bits: int = 2048) -> BitCensus:
+def bit_census(
+    smiles: list[str], radius: int = 2, n_bits: int = 2048, chirality: bool = False
+) -> BitCensus:
     """Build a BitCensus using unfolded Morgan identifiers to detect collisions."""
-    sparse_gen = rdFingerprintGenerator.GetMorganGenerator(radius=radius)
-    folded_gen = _generator(radius, n_bits)
+    sparse_gen = rdFingerprintGenerator.GetMorganGenerator(
+        radius=radius, includeChirality=chirality
+    )
+    folded_gen = _generator(radius, n_bits, chirality)
     on = np.zeros((len(smiles), n_bits), dtype=np.uint8)
     seen: dict[int, dict[int, dict]] = defaultdict(dict)
     for i, smi in enumerate(smiles):
@@ -190,7 +200,9 @@ def bit_census(smiles: list[str], radius: int = 2, n_bits: int = 2048) -> BitCen
     return BitCensus(radius=radius, n_bits=n_bits, n_mols=len(smiles), on=on, examples=examples)
 
 
-def molecule_bit_tiles(smiles: str, radius: int = 2, n_bits: int = 2048) -> list[dict]:
+def molecule_bit_tiles(
+    smiles: str, radius: int = 2, n_bits: int = 2048, chirality: bool = False
+) -> list[dict]:
     """One entry per distinct Morgan identifier of a molecule, with the folded bit it sets.
 
     Symmetric atoms that share an identifier are merged (``count``); two *different*
@@ -201,9 +213,9 @@ def molecule_bit_tiles(smiles: str, radius: int = 2, n_bits: int = 2048) -> list
         return []
     ao = rdFingerprintGenerator.AdditionalOutput()
     ao.AllocateBitInfoMap()
-    rdFingerprintGenerator.GetMorganGenerator(radius=radius).GetSparseCountFingerprint(
-        mol, additionalOutput=ao
-    )
+    rdFingerprintGenerator.GetMorganGenerator(
+        radius=radius, includeChirality=chirality
+    ).GetSparseCountFingerprint(mol, additionalOutput=ao)
     tiles: list[dict[str, Any]] = []
     for uid, envs in ao.GetBitInfoMap().items():
         center, rad = min(envs, key=lambda e: (e[1], e[0]))
