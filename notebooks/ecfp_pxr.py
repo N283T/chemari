@@ -785,7 +785,7 @@ def _(mo, pl, train):
                 gap=0.5,
             ),
             mo.md(r"""
-    The pEC50 of a weak compound is a rough estimate. If one side of a cliff sits in that range, part of the difference is measurement uncertainty rather than structure.
+    The pEC50 of a weak compound is a rough estimate. If one side of a cliff sits in that range, the measurement is uncertain enough that the difference cannot be read as a structural effect at face value.
 
     Set what "similar" and "different" mean with the sliders, pick a pair from the table, and compare the two fingerprints bit by bit below. The only bits a fingerprint model can use to explain the difference are the ones present in just one molecule, and they are usually a few common substructures.
 
@@ -896,10 +896,10 @@ def _(cliffs, mo, pl):
         f"""
     Among these {_n} pairs:
 
-    * in {_noisy}, the weaker compound's CI is wider than 1.5 log units, so part of the difference is measurement uncertainty
+    * in {_noisy}, the weaker compound's CI is wider than 1.5 log units: with that much uncertainty the difference cannot be read as structure at face value
     * in {_lip} ({_lip / max(_n, 1):.0%}), the more potent compound also has the higher calculated logP: a whole-molecule property is at work, not any single bit
 
-    Part of a cliff's gap comes from what a fingerprint cannot represent: measurement uncertainty and whole-molecule properties.
+    With measurement uncertainty on top and whole-molecule properties involved, a cliff's gap cannot be explained by the fingerprint alone.
     """
     )
     return
@@ -1774,8 +1774,8 @@ def _(mo):
     **What happened on PXR**
 
     * **the test set is close to train, yet the nearest neighbour's activity is of little use**: the test set was built from ECFP4 neighbours, but kNN with k = 1 has a rank correlation near 0
-    * **much of the activity depends on whole-molecule properties**: logP alone ranks the test set better than an ECFP4 kNN, and a model on RDKit descriptors alone beats one on ECFP4 alone
-    * **some cliffs are measurement uncertainty**: the pEC50 of a weak compound is extrapolated
+    * **whole-molecule properties matter too**: logP alone ranks the test set better than an ECFP4 kNN, and a model on RDKit descriptors alone beats one on ECFP4 alone
+    * **cliffs carry measurement uncertainty**: the pEC50 of a weak compound is extrapolated, so a gap cannot be read as structure at face value
 
     **When you use ECFP4**
 
