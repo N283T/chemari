@@ -926,13 +926,7 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
         if len(flat) > 1:
             # Different constitution, same set of radius-2 environments: only repeat counts differ.
             return "ring size / chain length"
-        # Count specified stereo elements (tetrahedral centres and double-bond geometry).
-        n_specified = {
-            sum(a.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for a in m.GetAtoms())
-            + sum(b.GetStereo() != Chem.BondStereo.STEREONONE for b in m.GetBonds())
-            for m in mols
-        }
-        return "stereo specified / unspecified" if len(n_specified) > 1 else "stereoisomers"
+        return "stereochemistry"  # same constitution: only stereo differs
 
     _groups = defaultdict(list)
     for _i, _fp in enumerate(X_train):
