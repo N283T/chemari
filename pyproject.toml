@@ -24,6 +24,9 @@ dev = [
     "lightgbm>=4.7.0",
     "scipy>=1.14",
     "scikit-learn>=1.7",
+    "duckdb>=1.5.6",
+    "pyarrow>=25.0.1",
+    "sqlglot>=30.20.0",
 ]
 
 [build-system]
