@@ -142,6 +142,8 @@ class MorganExplorer(_Computing):
     stereo_labels = traitlets.Bool(False).tag(sync=True)  # draw R/S and E/Z labels
     chirality = traitlets.Bool(False).tag(sync=True)  # includeChirality in the fingerprint
     mode = traitlets.Unicode("bit").tag(sync=True)  # "bit" or "count" (Tanimoto, table, filter)
+    # rows shown first: "all", "shared", "differ", "only A", "only B" or "collide"
+    row_filter = traitlets.Unicode("all").tag(sync=True)
     # Optional model attribution per molecule: {bit: contribution}, e.g. LightGBM TreeSHAP.
     # Shown only while the explorer's radius / n_bits match the model's fingerprint.
     contributions = traitlets.List(traitlets.Dict()).tag(sync=True)

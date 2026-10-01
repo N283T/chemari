@@ -138,7 +138,7 @@ async function render({ model, el: host }) {
   root.appendChild(el("div", { className: "me-muted" }, "loading RDKit.js…"));
   const RDKit = await loadRDKit();
 
-  let filter = "all";
+  let filter = model.get("row_filter") || "all";
   let sortKey = model.get("contributions")?.length ? "cA" : "status";
   let sortDesc = sortKey === "cA";
   let hover = null;
@@ -251,7 +251,7 @@ async function render({ model, el: host }) {
         ? legendHtml(get("contrib_label"), [[[0.84, 0.2, 0.2], "raises the prediction"], [[0.2, 0.42, 0.9], "lowers it"]])
         : "") + "</div>"));
     const options = mols.length === 2
-      ? [["all", "all"], ["shared", "shared"], ...(get("mode") === "count" ? [["count differs", "count differs"]] : []), ["only A", "only A"], ["only B", "only B"], ["collide", "⚠ in-molecule collisions"]]
+      ? [["all", "all"], ["shared", "shared"], ["differ", "differ"], ...(get("mode") === "count" ? [["count differs", "count differs"]] : []), ["only A", "only A"], ["only B", "only B"], ["collide", "⚠ in-molecule collisions"]]
       : [["all", "all"], ["collide", "⚠ in-molecule collisions"]];
     if (!options.some(([v]) => v === filter)) filter = "all"; // e.g. "count differs" after going back to bit
     const filterBar = el("div", { className: "me-bar", style: "margin:0;align-self:end" });
@@ -300,7 +300,10 @@ async function render({ model, el: host }) {
 
     // --- bit table
     const right = el("div", { className: "me-right" });
-    const list = sorted(all.filter((r) => filter === "all" || (filter === "collide" ? r.localCollision : r.status === filter)));
+    // "differ" is the complement of "shared": only A, only B, and in count mode also count differs
+    const keep = (r) =>
+      filter === "all" ? true : filter === "collide" ? r.localCollision : filter === "differ" ? r.status !== "shared" : r.status === filter;
+    const list = sorted(all.filter(keep));
     const hasStats = all.some((r) => r.n_on != null);
     const counted = get("mode") === "count" && mols.length === 2;
     const cols = [["bit", "bit"], ["status", mols.length === 2 ? "in" : "r"]];

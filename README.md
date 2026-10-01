@@ -55,7 +55,8 @@ components are used throughout.
     atoms highlighted (click a substructure to keep only its molecules)
   - `MorganExplorer`: bit-by-bit view of a Morgan fingerprint for one molecule or a pair, with the
     atom environments behind each bit, dataset statistics per bit, and a gallery of the different
-    substructures that collide in a selected bit; optionally per-bit model contributions
+    substructures that collide in a selected bit; for a pair, the table can show only the shared
+    bits, only the differing ones, or those of one molecule; optionally per-bit model contributions
     (e.g. LightGBM TreeSHAP, pinned to the right of the table) and a per-atom attribution map;
     `stereo_labels=True` adds R/S and E/Z labels to the drawings. A bit / count switch
     (`mode`) and a chirality switch (`chirality`) change the fingerprint; for a pair, the

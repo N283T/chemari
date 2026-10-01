@@ -147,7 +147,7 @@ def _(duckdb, metrics, neighbours, tasks):
     db = duckdb.connect()
     db.register("metrics", metrics)
     db.register("neighbours", neighbours)
-    db.register("tasks", tasks)
+    _ = db.register("tasks", tasks)
     return (db,)
 
 
@@ -300,6 +300,13 @@ def _():
     ]
     CLOSE_BUT_FAR = [
         {
+            "label": "N-methylacetamide / N-ethylacetamide (動画の 2 分子、CH₃ → C₂H₅)",
+            "a": "CC(=O)NC",
+            "b": "CC(=O)NCC",
+            "name_a": "N-methylacetamide",
+            "name_b": "N-ethylacetamide",
+        },
+        {
             "label": "phenethylamine / 4-pyridylethylamine (CH → N)",
             "a": "NCCc1ccccc1",
             "b": "NCCc1ccncc1",
@@ -439,28 +446,100 @@ def _(mo):
     mo.md(r"""
     ### 似ているのに類似度が思ったより低い
 
-    逆に、見た目はほとんど同じなのに Tanimoto が 0.5〜0.7 くらいまで下がるペアもあります。ECFP4 は各原子のまわり半径 2 までを見るので、原子が 1 つ変わるだけでそのまわりの部分構造がまとめて変わり、10 個前後の bit が入れ替わるためです。Tanimoto の値だけで「似ていない」と判断するときは注意が必要です。
+    一方で、見た目はよく似ているのに、Tanimoto が 0.4〜0.7 くらいと直感より低くなるペアもあります。ECFP4 は各原子のまわり半径 2 までを見るので、原子が 1 つ変わるだけでそのまわりの部分構造がまとめて変わり、10 個以上の bit が入れ替わるためです。
+
+    前の節の鎖長や環サイズの例では、炭素が増えても fingerprint は変わりませんでした。違いは変わった場所にあります。長い鎖や大きい環の途中に同じ単位を足しても、半径 2 の中に見える部分構造はすでにあるものと同じなので、新しい bit は立ちません。一方、原子を置き換えたり、置換基や鎖の端を変えたりすると、そこから半径 2 以内の部分構造がすべて新しくなります。
     """)
     return
 
 
 @app.cell(hide_code=True)
 def _(CLOSE_BUT_FAR, mo):
-    far_pick = mo.ui.dropdown(
-        {e["label"]: e for e in CLOSE_BUT_FAR}, value=CLOSE_BUT_FAR[0]["label"], label="ペア"
+    far_kind = mo.ui.dropdown(
+        {e["label"]: e for e in CLOSE_BUT_FAR}, value=CLOSE_BUT_FAR[0]["label"], label="例"
     )
-    far_pick
-    return (far_pick,)
+    far_kind
+    return (far_kind,)
 
 
 @app.cell(hide_code=True)
-def _(MorganExplorer, far_pick, mo):
-    _e = far_pick.value
+def _(MolPair, far_kind, mo):
+    _e = far_kind.value
     mo.ui.anywidget(
-        MorganExplorer(
-            [{"id": _e["name_a"], "smiles": _e["a"]}, {"id": _e["name_b"], "smiles": _e["b"]}]
+        MolPair(
+            {"id": _e["name_a"], "smiles": _e["a"]},
+            {"id": _e["name_b"], "smiles": _e["b"]},
+            show_smiles=False,
+            show_common=True,
         )
     )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    先ほどと同じように、ウィジェットで fingerprint を比べてみましょう。表からペアを選ぶと、右側に片方にしかない bit (differ) が並び、変わった原子のまわりの部分構造がまとめて入れ替わっているのがわかります。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(CLOSE_BUT_FAR, SAME_FP, bench, mo, pl):
+    def _bits(e):
+        a, b = bench.fingerprints([e["a"], e["b"]]).astype(bool)
+        return round(float((a & b).sum() / (a | b).sum()), 2), int((a ^ b).sum())
+
+    # the chain-length pair from the previous section, for comparison (no bit changes)
+    far_pairs = CLOSE_BUT_FAR + [e for e in SAME_FP if "鎖長" in e["label"]]
+
+    far_table = mo.ui.table(
+        pl.DataFrame(
+            [
+                {
+                    "A": e["name_a"],
+                    "B": e["name_b"],
+                    "違い": e["label"].rsplit("(", 1)[1].rstrip(")"),
+                    "Tanimoto": t,
+                    "入れ替わる bit": n,
+                }
+                for e in far_pairs
+                for t, n in [_bits(e)]
+            ]
+        ),
+        selection="single",
+        initial_selection=[0],
+        label="見た目は近いのに Tanimoto が低いペア",
+    )
+    far_table
+    return far_pairs, far_table
+
+
+@app.cell(hide_code=True)
+def _(MorganExplorer, far_pairs, far_table, mo):
+    _sel = far_table.value
+    _name = _sel["A"][0] if _sel is not None and len(_sel) else far_pairs[0]["name_a"]
+    _e = next(e for e in far_pairs if e["name_a"] == _name)
+    mo.ui.anywidget(
+        MorganExplorer(
+            [{"id": _e["name_a"], "smiles": _e["a"]}, {"id": _e["name_b"], "smiles": _e["b"]}],
+            row_filter="differ",
+        )
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    この問題は ECFP の設定を変えるだけでは避けにくいです。次のような方法があります。
+
+    * 別の fingerprint を試す
+    * スキャフォールドや MCES のような部分グラフに基づく比較を使う
+    * 記述子を加える
+
+    ただし、どれも決定的な解決策ではなく、どの程度を「似ている」とするかは結局は感覚に近いものです。スクリーニング、クラスタリング、交差検証の分割などでは類似度のしきい値で機械的に区切ることが多いので、いくつか試しながら、目的に合う方法と基準を選んでください。
+    """)
     return
 
 
