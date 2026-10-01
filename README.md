@@ -23,7 +23,9 @@ components are used throughout.
   them
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
     two-way selection (`single`, `multiple` or `pair` mode)
-  - `MolPair`: two compounds side by side with the Tanimoto similarity (ECFP4) and a table of
+  - `MolPair`: two compounds side by side with the Tanimoto similarity (ECFP4; the bar is coloured
+    and labelled by band, low / medium / high / very high by default, set with `similarity_bands`)
+    and a table of
     properties (plus any values you pass, such as a measured pEC50). `properties` picks the rows
     from 11 built-in descriptors or your own functions; the default is the rule of five. Each row shows A and B as a
     dumbbell on the property's typical range and B − A as a bar; `value_ranges` sets the axis of
@@ -55,7 +57,8 @@ components are used throughout.
     atoms highlighted (click a substructure to keep only its molecules)
   - `MorganExplorer`: bit-by-bit view of a Morgan fingerprint for one molecule or a pair, with the
     atom environments behind each bit, dataset statistics per bit, and a gallery of the different
-    substructures that collide in a selected bit; optionally per-bit model contributions
+    substructures that collide in a selected bit; for a pair, the table can show only the shared
+    bits, only the differing ones, or those of one molecule; optionally per-bit model contributions
     (e.g. LightGBM TreeSHAP, pinned to the right of the table) and a per-atom attribution map;
     `stereo_labels=True` adds R/S and E/Z labels to the drawings. A bit / count switch
     (`mode`) and a chirality switch (`chirality`) change the fingerprint; for a pair, the

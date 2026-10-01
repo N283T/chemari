@@ -17,6 +17,7 @@ const CSS = `
 .mp-sim b { font-variant-numeric:tabular-nums; }
 .mp-sim .track { flex:1; max-width:220px; height:6px; border-radius:3px; background:var(--mp-track); overflow:hidden; }
 .mp-sim .track i { display:block; height:100%; background:var(--mp-fg); opacity:.6; }
+.mp-sim .band { font-weight:600; font-size:12px; white-space:nowrap; }
 .mp-sw { font:inherit; color:var(--mp-fg); background:var(--mp-soft); border:1px solid var(--mp-border);
   border-radius:6px; padding:2px 9px; cursor:pointer; }
 .mp-sw.on { background:var(--mp-fg); color:var(--mp-card); border-color:var(--mp-fg); }
@@ -219,8 +220,12 @@ function render({ model, el }) {
     if (both && data.similarity !== null && data.similarity !== undefined) {
       const sim = document.createElement("div");
       sim.className = "mp-sim";
+      // the band the value falls in (the last one whose lower bound it reaches) sets colour and label
+      const band = (model.get("similarity_bands") || []).filter((b) => data.similarity >= b.from).pop();
+      const fill = band ? `background:${band.color};opacity:1` : "";
       sim.innerHTML = `<span class="lbl">Tanimoto (ECFP4)</span><b>${data.similarity.toFixed(2)}</b>` +
-        `<span class="track"><i style="width:${Math.round(data.similarity * 100)}%"></i></span>`;
+        `<span class="track"><i style="width:${Math.round(data.similarity * 100)}%;${fill}"></i></span>` +
+        (band ? `<span class="band" style="color:${band.color}">${esc(band.label)}</span>` : "");
       bar.appendChild(sim);
     }
     if (both) bar.append(toggle("show_common", "common part"), toggle("align", "align B to A"));
