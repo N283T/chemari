@@ -160,13 +160,17 @@ const COPY_CSS = `
 .mw-copy:hover { color: #1f2328; border-color: #8c959f; }
 .mw-copy.done { color: #1a7f37; border-color: #1a7f37; opacity: 1; }
 .mw-nocopy .mw-copy { display: none; }
-/* the chirality switch of MorganExplorer / MorganBitTiles: a pill that stands out from the labels */
-.mw-chiral { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; padding: 2px 10px;
-  border: 1.5px solid #7c3aed; border-radius: 999px; color: #6d28d9; background: #faf5ff;
-  font: 600 13px/1.4 system-ui, sans-serif; cursor: pointer; user-select: none; }
-.mw-chiral input { width: 15px; height: 15px; margin: 0; accent-color: #7c3aed; cursor: pointer; }
-.mw-chiral.on { background: #7c3aed; color: #fff; }
+/* the chirality switch of MorganExplorer / MorganBitTiles: a checkbox styled like the segmented
+   buttons next to it (dark when on) */
+.mw-chiral { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; padding: 2px 9px;
+  border: 1px solid #d0d7de; border-radius: 6px; color: inherit; background: #f6f8fa;
+  font: inherit; cursor: pointer; user-select: none; }
+.mw-chiral input { width: 13px; height: 13px; margin: 0; accent-color: #1f2328; cursor: pointer; }
+.mw-chiral.on { background: #1f2328; border-color: #1f2328; color: #fff; }
 .mw-chiral.on input { accent-color: #fff; }
+.dark .mw-chiral { border-color: #3a3f47; background: #24282e; }
+.dark .mw-chiral.on { background: #e6e6e6; border-color: #e6e6e6; color: #1c1f24; }
+.dark .mw-chiral.on input { accent-color: #1c1f24; }
 .mw-copy svg.mw-ico { width: 14px; height: 14px; max-width: none; max-height: none; margin: 0; display: block; }
 `;
 

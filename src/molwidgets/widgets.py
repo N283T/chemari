@@ -815,6 +815,14 @@ class BitImportance(_Computing):
 # MolPair's default rows: Lipinski's rule of five
 RO5 = ["MW", "cLogP", "HBD", "HBA"]
 
+# MolPair's similarity bar: (lower bound, label, colour), lowest first
+SIMILARITY_BANDS = [
+    (0.0, "low", "#adb5bd"),
+    (0.4, "medium", "#f59f00"),
+    (0.6, "high", "#37b24d"),
+    (0.8, "very high", "#1971c2"),
+]
+
 
 def _pair_properties() -> list[tuple[str, str, Any, int, tuple[float, float]]]:
     """(key, label, fn(mol), decimals, typical range) of every built-in property MolPair can
@@ -852,6 +860,22 @@ def _resolve_properties(spec: Sequence[str | tuple]) -> list[tuple[str, str, Any
     return rows
 
 
+def _bands(bands: list[tuple]) -> list[dict]:
+    # colours not given are taken from the default bands, in order
+    default = [c for _, _, c in SIMILARITY_BANDS]
+    out = []
+    for i, band in enumerate(sorted(bands, key=lambda b: b[0])):
+        lo, label, *colour = band
+        out.append(
+            {
+                "from": float(lo),
+                "label": str(label),
+                "color": colour[0] if colour else default[i % len(default)],
+            }
+        )
+    return out
+
+
 class MolPair(_Computing):
     """Two compounds side by side: their drawings with the common substructure highlighted,
     the Tanimoto similarity, and a table of properties. Each row shows A and B as a dumbbell on
@@ -872,7 +896,9 @@ class MolPair(_Computing):
     ``a`` and ``b`` are dicts (a DataFrame row works) or SMILES strings. ``value_cols`` are
     further values of each compound (e.g. a measured pEC50) listed first in the table;
     ``value_ranges`` gives their axes (``{"pEC50": (3, 9)}``), otherwise the axis is the two
-    values ± 1. ``show_formula`` / ``show_smiles`` switch the captions under the drawings. Two
+    values ± 1. ``similarity_bands`` colours and labels the Tanimoto bar: ``(lower bound, label)``
+    or ``(lower bound, label, colour)`` per band, lowest first (default: low < 0.4 ≤ medium <
+    0.6 ≤ high < 0.8 ≤ very high). ``show_formula`` / ``show_smiles`` switch the captions under the drawings. Two
     switches, both off by default: "common part" (``show_common``) highlights the maximum
     common substructure, and "align B to A" (``align``) redraws B in A's orientation along it.
     The common substructure is searched only while one of them is on.
@@ -890,6 +916,7 @@ class MolPair(_Computing):
     view = traitlets.Unicode("properties").tag(sync=True)  # the table: "properties" or "common"
     mcs = traitlets.Dict().tag(sync=True)  # find_mcs options: atoms, bonds, ring_matches_ring, …
     data = traitlets.Dict().tag(sync=True)
+    similarity_bands = traitlets.List(traitlets.Dict()).tag(sync=True)
 
     def __init__(
         self,
@@ -901,8 +928,12 @@ class MolPair(_Computing):
         value_ranges: dict[str, tuple[float, float]] | None = None,
         properties: list[str | tuple] | None = None,
         mcs_timeout: float = 2.0,
+        similarity_bands: list[tuple] | None = None,
         **kwargs: Any,
     ) -> None:
+        kwargs["similarity_bands"] = _bands(
+            SIMILARITY_BANDS if similarity_bands is None else similarity_bands
+        )
         self._props = _resolve_properties(RO5 if properties is None else properties)
         self._id_col, self._smiles_col = id_col, smiles_col
         self._value_cols = list(value_cols or [])

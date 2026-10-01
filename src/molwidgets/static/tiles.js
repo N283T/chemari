@@ -15,8 +15,10 @@ const CSS = `
 .bt-lbl { color:var(--bt-muted); }
 .bt-stats { color:var(--bt-muted); margin:-2px 0 6px; }
 /* both columns share the row height: the list is capped, the molecule box stretches to match */
-.bt-main { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.15fr); gap:12px; align-items:stretch; }
-@media (max-width: 760px) { .bt-main { grid-template-columns: 1fr; } }
+.bt-main { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.15fr); gap:4px 12px; align-items:stretch;
+  grid-template-areas: "lm lc" "mol list"; }
+@media (max-width: 760px) { .bt-main { grid-template-columns: 1fr; grid-template-areas: "lm" "mol" "lc" "list"; } }
+.bt-main > .bt-legend { min-height:3.8em; margin:0; display:flex; flex-direction:column; justify-content:flex-end; }
 .bt-mol { display:flex; flex-direction:column; justify-content:space-between; background:var(--bt-card); border:1px solid var(--bt-border); border-radius:8px; padding:6px 8px; min-height:0; }
 .bt-mol svg { width:100%; height:auto; max-height:460px; display:block; margin:auto 0; }
 .bt-cap { color:var(--bt-muted); font-size:12px; min-height:2.6em; }
@@ -169,14 +171,15 @@ async function render({ model, el: host }) {
       `${tiles.length} environments → ${bits.size} bits` +
       (count ? ` · values add up to ${Object.values(value).reduce((a, b) => a + b, 0)} (bit fingerprint: ${bits.size} ones)` : "") +
       (hits.size ? ` · <span style="color:var(--bt-hit);font-weight:600">${hits.size} collision${hits.size > 1 ? "s" : ""} inside this molecule</span>` : " · no collisions inside this molecule")));
-    root.appendChild(el("div", { className: "bt-legend" },
-      legendHtml("Molecule", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) + "<br>" +
-      legendHtml("Bit cards", MORGAN_ENV_KEY) +
-      `<span style="white-space:nowrap"><i style="display:inline-block;width:4px;height:12px;background:var(--bt-hit);vertical-align:-2px;margin-right:4px"></i>red edge: shares a bit with another row</span>`));
-
+    // each key sits above what it explains, with room for two lines so both columns start level
     const main = el("div", { className: "bt-main" });
-    main.appendChild(el("div", { className: "bt-mol mw-copyable" }));
-    const list = el("div", { className: "bt-list" });
+    main.appendChild(el("div", { className: "bt-legend", style: "grid-area:lm" },
+      "<div>" + legendHtml("Molecule", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) + "</div>"));
+    main.appendChild(el("div", { className: "bt-legend", style: "grid-area:lc" },
+      "<div>" + legendHtml("Bit cards", MORGAN_ENV_KEY) +
+      `<span style="white-space:nowrap"><i style="display:inline-block;width:4px;height:12px;background:var(--bt-hit);vertical-align:-2px;margin-right:4px"></i>red edge: shares a bit with another row</span></div>`));
+    main.appendChild(el("div", { className: "bt-mol mw-copyable", style: "grid-area:mol" }));
+    const list = el("div", { className: "bt-list", style: "grid-area:list" });
     const shown = onlyHits ? tiles.filter((t) => t.collides) : tiles;
     if (!shown.length)
       list.appendChild(el("div", { className: "bt-empty", style: "border:0" },
