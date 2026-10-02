@@ -761,7 +761,7 @@ def _(MolGrid, mo, mols, pl, test):
             color_by="y",
             show_legend=False,
             group_by="split",
-            page_size=12,
+            page_size=6,  # one row: the bit view below is the point here
             selection_mode="single",
             selection=[test.sort("y", descending=True)["id"][0]],
         )
