@@ -69,6 +69,7 @@ def _():
         MorganBitTiles,
         MorganExplorer,
         bench,
+        census_for,
     )
 
     _ = alt.data_transformers.disable_max_rows()
@@ -84,6 +85,7 @@ def _():
         Path,
         alt,
         bench,
+        census_for,
         duckdb,
         np,
         pl,
@@ -188,7 +190,7 @@ def _(mo):
     mo.md(r"""
     ### 実際に ECFP を見てみる
 
-    下のウィジェットは、実際に生成される ECFP を可視化したものです。右の bit を選ぶと該当する部分構造が分子の上でハイライトされるほか、コリジョン (別の部分構造が同じ bit に入ること) があるかどうかも確認できます。好きな分子に変えたり、radius や folding (bit 数) を変えたりして、いろいろ試してみてください。
+    下のウィジェットは、実際に生成される ECFP を可視化したものです。右の bit を選ぶと該当する部分構造が分子の上でハイライトされるほか、collision (別の部分構造が同じ bit に入ること) があるかどうかも確認できます。好きな分子に変えたり、radius や folding (bit 数) を変えたりして、いろいろ試してみてください。
     """)
     return
 
@@ -213,7 +215,7 @@ def _(mo):
 
     ## ECFP4 の注意点
 
-    動画で見たコリジョンのほかにも、ECFP4 には注意するポイントがあります。ここでは 2 分子の fingerprint を比較するウィジェットを使って、それらを見ていきます。
+    動画で見た collision のほかにも、ECFP4 には注意するポイントがあります。ここでは 2 分子の fingerprint を比較するウィジェットを使って、それらを見ていきます。
 
     ### 違う分子なのに fingerprint が一致する
 
@@ -401,9 +403,9 @@ def _(mo):
     ただし、どちらも万能ではありません。
 
     * chirality を入れても区別できない立体がある (lansoprazole と dexlansoprazole の違いはスルホキシドの硫黄の立体で、ECFP はこれを拾わない)
-    * count では、コリジョンしている bit で別の部分構造の回数もまとめて数えられるので、コリジョンのデメリットが通常より大きくなることもある
+    * count では、collision が起きている bit で別の部分構造の回数もまとめて数えられるので、collision のデメリットが通常より大きくなることもある
 
-    コリジョンは bit 数を増やせば減らせますが、bit 長が長くなるわりに得られるものが少ないこともあります。データセットに合わせて、使う設定を見極めましょう。
+    collision は bit 数を増やせば減らせますが、bit 長が長くなるわりに得られるものが少ないこともあります。データセットに合わせて、使う設定を見極めましょう。
     """)
     return
 
@@ -659,9 +661,9 @@ def _(MolGrid, mo, mols, pl):
     mo.vstack(
         [
             mo.md(
-                "train と test の化合物です (値の大きい順、左端の色は train / test)。左上のボタンで train だけ、test だけに"
-                "絞り込めます。検索欄の右で similarity を選ぶと、入力した SMILES (空なら選んだ化合物) に"
-                "近い順に並びます。化合物を 1 つ選ぶと下に表示され、2 つ選ぶと比較できます。"
+                "データセットの中の化合物を眺めてみましょう。下のグリッドでは、train / test だけに絞ったり、"
+                "部分構造や類似度で検索したりできます。化合物を選ぶと分子量などの情報が表示され、"
+                "2 つ選ぶと化合物どうしを比較できます。"
             ),
             mol_grid,
         ]
@@ -695,11 +697,139 @@ def _(MolPair, mo, mol_grid, mols, pl, task):
 
 
 @app.cell(hide_code=True)
+def _(census_for, mo, np, task, train):
+    from rdkit import Chem as _Chem
+    from rdkit.Chem import rdFingerprintGenerator as _rfg
+
+    _envs = census_for(train["smiles"].to_list(), 2, 2048).n_envs
+    # per molecule: distinct radius 0–2 environments before folding, and bits set after folding
+    _gen = _rfg.GetMorganGenerator(radius=2, fpSize=2048)
+    _mols = [_Chem.MolFromSmiles(s) for s in train["smiles"]]
+    _n_envs = np.array([len(_gen.GetSparseCountFingerprint(m).GetNonzeroElements()) for m in _mols])
+    _n_bits = np.array([_gen.GetFingerprint(m).GetNumOnBits() for m in _mols])
+    mo.md(f"""
+    ### 2.2 · {task.dataset} · {task.endpoint} での ECFP4
+
+    第 1 部の動画などで ECFP の collision に少し触れましたが、違う部分構造が同じ bit に入る collision には、2 つの場合があります。
+
+    * **分子内**: 同じ分子の違う部分構造が同じ bit に入る。その分子で立つ bit が 1 つ減る
+    * **データセット全体**: 別々の分子の違う部分構造が同じ bit に入る。bit が立っていても、どの部分構造によるものかを区別できない
+
+    {task.dataset} · {task.endpoint} のデータセットでは、次のようになっています。
+
+    * 1 分子あたりの部分構造は **{np.median(_n_envs):.0f} 種類** (中央値)
+    * 分子内の collision がある化合物は train の **{(_n_bits < _n_envs).mean():.0%}**
+    * train {train.height:,} 化合物全体の部分構造は **{int(_envs.sum()):,} 種類**。2048 bit に折りたたむので、1 bit に平均 **{_envs[_envs > 0].mean():.0f} 種類**が入る
+
+    下は train の全 bit です。行を選ぶと、その bit に入っている部分構造が表示されます。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(BitAtlas, mo, train):
+    mo.ui.anywidget(BitAtlas(train["smiles"].to_list(), ids=train["id"].to_list()))
+    return
+
+
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 2.2 · test は train にどれくらい近いか
+    1 つの分子でも、両方の collision を確認できます。グリッドから化合物を選んでください。
 
-    test の各化合物について、ECFP4 の Tanimoto 類似度で train の**最近傍**を探します。最近傍が近いほど、「似た化合物の値を借りる」予測が使えそうに思えます。下の図は全エンドポイントの最近傍類似度の分布で、選んだエンドポイントを色で示します。
+    * 赤: 分子内の collision
+    * グレーのバッジ: データセット全体で、同じ bit に入るほかの部分構造の数。bit を選ぶと、その部分構造が下に表示される
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(MolGrid, mo, mols, pl, test):
+    bits_grid = mo.ui.anywidget(
+        MolGrid(
+            mols.sort("y", descending=True).select("id", "smiles", pl.col("y").round(2), "split"),
+            color_by="y",
+            show_legend=False,
+            group_by="split",
+            page_size=12,
+            selection_mode="single",
+            selection=[test.sort("y", descending=True)["id"][0]],
+        )
+    )
+    bits_grid
+    return (bits_grid,)
+
+
+@app.cell(hide_code=True)
+def _(MorganBitTiles, bits_grid, mo, mols, pl, task, train):
+    _sel = bits_grid.value.get("selection") or []
+    if _sel:
+        _row = mols.filter(pl.col("id") == _sel[0]).row(0, named=True)
+        _out = mo.ui.anywidget(
+            MorganBitTiles(
+                _row["smiles"],
+                reference=train["smiles"].to_list(),
+                ids=train["id"].to_list(),
+                label=f"{_row['id']} · {_row['split']} · {task.label} {_row['y']:.2f}",
+            )
+        )
+    else:
+        _out = mo.callout(mo.md("上のグリッドで化合物を選ぶと、ここに表示されます。"), kind="info")
+    _out
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### 2.3 · 違う分子なのに fingerprint が同じ
+
+    train の中で、bit ベクトルがまったく同じになる分子のグループです。bit ベクトルが同じなら、fingerprint だけのモデルはどれにも同じ値を予測します。count fingerprint やキラリティ付きの fingerprint で分かれるかも示します。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(bench, mo, np, pl, train):
+    _smi = train["smiles"].to_list()
+    _y = train["y"].to_numpy()
+    _keys = {
+        name: [row.tobytes() for row in bench.fingerprints(_smi, **kw).astype(np.uint16)]
+        for name, kw in [("bit", {}), ("count", {"count": True}), ("chiral", {"chirality": True})]
+    }
+    _groups: dict[bytes, list[int]] = {}
+    for _i, _k in enumerate(_keys["bit"]):
+        _groups.setdefault(_k, []).append(_i)
+    _rows = []
+    for _g in (g for g in _groups.values() if len(g) > 1):
+        _rows.append(
+            {
+                "分子数": len(_g),
+                "ids": " / ".join(train["id"][i] for i in _g[:4]),
+                "値の幅": round(float(np.ptp(_y[_g])), 2),
+                "count で分かれる": len({_keys["count"][i] for i in _g}) > 1,
+                "キラリティで分かれる": len({_keys["chiral"][i] for i in _g}) > 1,
+            }
+        )
+    twins = pl.DataFrame(_rows).sort("値の幅", descending=True) if _rows else pl.DataFrame()
+    mo.vstack(
+        [
+            mo.md(
+                f"train {train.height:,} 化合物のうち **{twins.height} グループ** "
+                f"({int(twins['分子数'].sum()) if twins.height else 0} 化合物) が同じ bit ベクトルです。"
+            ),
+            mo.ui.table(twins, page_size=8) if twins.height else mo.md(""),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### 2.4 · 最近傍の類似度
+
+    ここからは、この fingerprint で測った類似度の話です。test の各化合物について、ECFP4 の Tanimoto 類似度で train の**最近傍**を探します。最近傍が近いほど、「似た化合物の値を借りる」予測が使えそうに思えます。下の図は全エンドポイントの最近傍類似度の分布で、選んだエンドポイントを色で示します。
     """)
     return
 
@@ -772,7 +902,7 @@ def _(alt, metrics, mo, nn_by_task, pl, task):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 2.3 · 似ていれば値も近いか
+    ### 2.5 · 似ていれば値も近いか
 
     **類似性原理** (似た分子は性質も似ている) が成り立つなら、最近傍が近いほど、test 化合物と最近傍の値の差は小さくなるはずです。下の線は最近傍の類似度の区間ごとの |Δ| (test − 最近傍) の平均で、破線はランダムな train–test ペアの |Δ| です。
     """)
@@ -832,7 +962,7 @@ def _(alt, mo, neighbours, np, pl, spearmanr, task):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 2.4 · 似ているのに値が違う
+    ### 2.6 · 似ているのに値が違う
 
     test 化合物と最近傍のペアのうち、似ている (Tanimoto ≥ 0.6) のに値が大きく違うものです。行を選ぶと下で比べられます。「common part」で共通部分構造と違う部分を見られます。
     """)
@@ -880,67 +1010,6 @@ def _(MolPair, cliff_table, mo, mols, pl, task):
             )
         )
     _out
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### 2.5 · 違う分子なのに fingerprint が同じ
-
-    train の中で、bit ベクトルがまったく同じになる分子のグループです。bit ベクトルが同じなら、fingerprint だけのモデルはどれにも同じ値を予測します。count fingerprint やキラリティ付きの fingerprint で分かれるかも示します。
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(bench, mo, np, pl, train):
-    _smi = train["smiles"].to_list()
-    _y = train["y"].to_numpy()
-    _keys = {
-        name: [row.tobytes() for row in bench.fingerprints(_smi, **kw).astype(np.uint16)]
-        for name, kw in [("bit", {}), ("count", {"count": True}), ("chiral", {"chirality": True})]
-    }
-    _groups: dict[bytes, list[int]] = {}
-    for _i, _k in enumerate(_keys["bit"]):
-        _groups.setdefault(_k, []).append(_i)
-    _rows = []
-    for _g in (g for g in _groups.values() if len(g) > 1):
-        _rows.append(
-            {
-                "分子数": len(_g),
-                "ids": " / ".join(train["id"][i] for i in _g[:4]),
-                "値の幅": round(float(np.ptp(_y[_g])), 2),
-                "count で分かれる": len({_keys["count"][i] for i in _g}) > 1,
-                "キラリティで分かれる": len({_keys["chiral"][i] for i in _g}) > 1,
-            }
-        )
-    twins = pl.DataFrame(_rows).sort("値の幅", descending=True) if _rows else pl.DataFrame()
-    mo.vstack(
-        [
-            mo.md(
-                f"train {train.height:,} 化合物のうち **{twins.height} グループ** "
-                f"({int(twins['分子数'].sum()) if twins.height else 0} 化合物) が同じ bit ベクトルです。"
-            ),
-            mo.ui.table(twins, page_size=8) if twins.height else mo.md(""),
-        ]
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### 2.6 · bit の中身
-
-    ECFP4 は部分構造を 2048 個の bit に折りたたむので、1 つの bit に何種類もの部分構造が入ります (**衝突**)。下はこのデータセットの train の全 bit で、行を選ぶとその bit に入っている部分構造が出ます。
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(BitAtlas, mo, train):
-    mo.ui.anywidget(BitAtlas(train["smiles"].to_list(), ids=train["id"].to_list()))
     return
 
 
