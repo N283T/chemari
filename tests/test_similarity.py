@@ -37,3 +37,31 @@ def test_similarity_table_acyclic():
     )
     assert [r["key"] for r in t["rows"]] == ["ecfp4", "mces"]
     assert t["scaffold"]["murcko"] is None
+
+
+def test_molpair_single_molecule():
+    from molwidgets import MolPair
+
+    w = MolPair({"id": "x", "smiles": A, "y": 1.5}, value_cols=["y"])
+    assert len(w.data["sides"]) == 1 and w.data["similarity"] is None
+    assert w.data["sides"][0]["values"] == {"y": 1.5}
+    w.set_pair(A, B)
+    assert len(w.data["sides"]) == 2 and 0 < w.data["similarity"] < 1
+
+
+def test_molgrid_similarity_search():
+    from molwidgets import MolGrid
+
+    g = MolGrid(
+        [
+            {"id": "a", "smiles": "CCO"},
+            {"id": "b", "smiles": "CCCO"},
+            {"id": "c", "smiles": "c1ccccc1"},
+        ]
+    )
+    assert g.similarity == {}
+    g.similarity_query = "CCO"
+    v = g.similarity["values"]
+    assert v["a"] == 1.0 and v["a"] > v["b"] > v["c"]
+    g.similarity_query = "not a smiles"
+    assert g.similarity == {"error": True}

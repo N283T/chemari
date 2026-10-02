@@ -1,4 +1,5 @@
-// MolPair: two compounds side by side, the Tanimoto similarity, and a property table. Each row
+// MolPair: two compounds side by side, the Tanimoto similarity, and a property table (or one
+// compound with its values and properties when only one is given). Each row
 // has A and B as a dumbbell on the property's typical range and B − A as a bar on the same scale.
 // Two switches (both off by default) highlight the common substructure and align B to A. Below
 // the drawings, the table can switch to the difference: the common part with R1, R2, … and per
@@ -84,6 +85,24 @@ const CSS = `
   display:flex; align-items:center; justify-content:center; font:600 16px ui-monospace, monospace; overflow:hidden; }
 .mp-piece svg { max-width:100%; max-height:100%; width:auto; height:auto; display:block; }
 .mp-none { color:var(--mp-muted); padding:12px; }
+.mp-one { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.mp-scaf { flex:1; display:flex; flex-direction:column; background:#fff; color:#1f2328; border:1px solid var(--mp-border); border-radius:8px; padding:4px 8px 6px; }
+.mp-scaf .lbl { font-size:12px; color:#6b7280; padding-right:28px; display:flex; align-items:center; gap:10px; }
+/* an on/off switch: a track with a knob, then its label */
+.mp-toggle { display:inline-flex; align-items:center; gap:6px; font:inherit; font-size:12px; color:#1f2328; background:none; border:0; padding:0; cursor:pointer; }
+.mp-toggle .knob { position:relative; width:28px; height:16px; border-radius:8px; background:#ced4da; transition:background .12s; }
+.mp-toggle .knob::after { content:""; position:absolute; top:2px; left:2px; width:12px; height:12px; border-radius:50%; background:#fff; transition:left .12s; }
+.mp-toggle.on .knob { background:#1c7ed6; }
+.mp-toggle.on .knob::after { left:14px; }
+.mp-scaf .lbl i { display:inline-block; width:10px; height:10px; border-radius:50%; background:rgb(140,199,255); vertical-align:-1px; margin-right:5px; }
+/* next to a taller column the card stretches: the drawing takes the room, the captions stay at the bottom */
+.mp-mol.alone { display:flex; flex-direction:column; }
+.mp-mol.alone svg { flex:1; min-height:0; max-height:none; }
+/* the scaffold drawing fills whatever height the card gets (it adds none of its own), so the
+   table and the card together are as tall as the molecule's card */
+.mp-scaf .pic { flex:1; position:relative; min-height:96px; }
+.mp-scaf .pic svg { position:absolute; inset:0; width:100%; height:100%; display:block; }
+.mp-scaf .none { flex:1; display:flex; align-items:center; justify-content:center; color:#6b7280; font-size:12px; }
 .mp-simhead { display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; padding:6px 8px; border-bottom:1px solid var(--mp-border);
   background:var(--mp-soft); font-size:12px; color:var(--mp-muted); }
 .mp-table td.st { width:46%; }
@@ -197,6 +216,15 @@ function row(cls, label, a, b, digits, range) {
     `<td class="dbar"><div class="mp-track">${bar}</div></td>${deltaCell(a, b, digits)}</tr>`;
 }
 
+// A row of the single-molecule table: label | value | the value on the property's typical range.
+function single(cls, label, v, digits, range) {
+  let [lo, hi] = range || [(v ?? 0) - 1, (v ?? 0) + 1];
+  if (!(hi > lo)) [lo, hi] = [0, 1];
+  const x = Math.max(0, Math.min(100, (((v ?? lo) - lo) / (hi - lo)) * 100));
+  const track = `<i class="rail"></i>` + (has(v) ? `<i class="pt" style="left:${x}%;background:${SIDE[0]}"></i>` : "");
+  return `<tr class="${cls}"><td>${esc(label)}</td><td>${fmt(v, digits)}</td><td class="bell"><div class="mp-track">${track}</div></td></tr>`;
+}
+
 function render({ model, el }) {
   const root = document.createElement("div");
   root.className = "mp-root" + (isDark(el) ? " dark" : "");
@@ -244,15 +272,19 @@ function render({ model, el }) {
     return seg;
   }
 
-  function molBox(side, k) {
+  function molBox(side, k, alone = false) {
     const name = k === 0 ? "A" : "B";
-    const head = `<h4><i class="dot" style="background:${SIDE[k]}"></i>${name}${side.id && side.id !== name ? ` <span>${esc(side.id)}</span>` : ""}</h4>`;
+    const head = alone
+      ? `<h4>${esc(side.id)}</h4>`
+      : `<h4><i class="dot" style="background:${SIDE[k]}"></i>${name}${side.id && side.id !== name ? ` <span>${esc(side.id)}</span>` : ""}</h4>`;
     if (!side.valid)
       return `<div class="mp-mol">${head}<div class="bad">Could not parse SMILES</div><div class="smi">${esc(side.smiles)}</div></div>`;
     const cap = (model.get("show_formula") ? `<div class="cap">${esc(side.formula)}</div>` : "") +
       (model.get("show_smiles") ? `<div class="smi">${esc(side.smiles)}</div>` : "");
-    const svg = model.get("show_common") && side.svg_common ? side.svg_common : side.svg;
-    return `<div class="mp-mol mw-copyable">${head}${svg}${smilesCopyHtml(side.smiles)}${cap}</div>`;
+    // a single molecule is drawn with its scaffold highlighted
+    const lit = alone ? model.get("show_scaffold") : model.get("show_common");
+    const svg = lit && side.svg_common ? side.svg_common : side.svg;
+    return `<div class="mp-mol mw-copyable${alone ? " alone" : ""}">${head}${svg}${smilesCopyHtml(side.smiles)}${cap}</div>`;
   }
 
   function draw() {
@@ -260,6 +292,31 @@ function render({ model, el }) {
     const sides = data.sides || [];
     const both = sides.length === 2 && sides[0].valid && sides[1].valid;
     body.innerHTML = "";
+
+    // a single molecule: its drawing next to its values and properties
+    if (sides.length === 1) {
+      const s = sides[0];
+      const ranges = data.value_ranges || {};
+      const rows = !s.valid ? "" : [
+        ...Object.keys(s.values || {}).map((key) => single("value", key, s.values[key], undefined, ranges[key])),
+        ...(data.property_meta || []).map(({ key, label, digits, range }) => single("", label, s.props[key], digits, range)),
+      ].join("");
+      const mols = document.createElement("div");
+      mols.className = "mp-mols";
+      const sc = data.scaffold;
+      const scaffold = !s.valid ? "" : sc
+        ? `<div class="mp-scaf mw-copyable"><div class="lbl"><span><i></i>Murcko scaffold</span><button class="mp-toggle${model.get("show_scaffold") ? " on" : ""}" role="switch" aria-checked="${!!model.get("show_scaffold")}" data-scaffold><span class="knob"></span>highlight</button></div><div class="pic">${sc.svg}</div>${smilesCopyHtml(sc.smiles)}</div>`
+        : `<div class="mp-scaf"><div class="lbl">Murcko scaffold</div><div class="none">no rings</div></div>`;
+      mols.innerHTML = molBox(s, 0, true) +
+        `<div class="mp-one"><div class="mp-wrap" style="margin-top:0"><table class="mp-table"><thead><tr><th>Property</th><th>value</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>${scaffold}</div>`;
+      body.appendChild(mols);
+      // both drawings are already here: the switch needs no Python
+      mols.querySelector("[data-scaffold]")?.addEventListener("click", () => {
+        model.set("show_scaffold", !model.get("show_scaffold"));
+        model.save_changes();
+      });
+      return;
+    }
 
     const bar = document.createElement("div");
     bar.className = "mp-bar";
@@ -279,7 +336,7 @@ function render({ model, el }) {
 
     const mols = document.createElement("div");
     mols.className = "mp-mols";
-    mols.innerHTML = sides.map(molBox).join("");
+    mols.innerHTML = sides.map((side, k) => molBox(side, k)).join("");
     body.appendChild(mols);
 
     // one line, always present (it holds the table's switch), so the table never moves
@@ -341,6 +398,7 @@ function render({ model, el }) {
   draw();
   model.on("change:data", draw);
   model.on("change:show_common", draw);
+  model.on("change:show_scaffold", draw);
   model.on("change:view", draw);
   model.on("change:similarities", draw);
   model.on("change:similarity_metric", draw);

@@ -154,39 +154,6 @@ def _(duckdb, metrics, neighbours, tasks):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 3 つのデータセット
-
-    どれも実際の創薬プロジェクトで測られた値で、チャレンジで使われた train / test の分け方のまま使います。test と同じ構造が train にある化合物は test から外し、同じ split の中で重複する構造は平均しています。比の尺度で測る値 (溶解度、クリアランス、透過性、非結合率など) は log10(x + 1) に変換しています。
-    """)
-    return
-
-
-@app.cell
-def _(db, mo):
-    _overview = mo.sql(
-        """
-        SELECT t.dataset, t.endpoint, t.what AS measured, m.n_train, m.n_test
-        FROM tasks t JOIN metrics m USING (task)
-        ORDER BY t.dataset DESC, m.n_train DESC
-        """,
-        engine=db,
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    * **PXR**: PXR (薬物代謝酵素の発現を制御する核内受容体) の活性化。test はヒット化合物の類縁体を Enamine から買ったもの
-    * **ASAP**: 抗ウイルス薬の探索 (ASAP Discovery)。MERS-CoV / SARS-CoV-2 のメインプロテアーゼ阻害と ADMET。test はプロジェクトの後半に作られた化合物
-    * **ExpansionRx**: RNA を標的にした創薬プログラム (Expansion Therapeutics) の ADMET。test は後期の化合物
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
     ---
 
     ## 第 1 部 · ECFP4 の中身
@@ -568,17 +535,56 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ---
+
+    ## 第 2 部 · データセットで見る
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### 3 つのデータセット
+
+    どれも実際の創薬プロジェクトで測られた値で、チャレンジで使われた train / test の分け方のまま使います。test と同じ構造が train にある化合物は test から外し、同じ split の中で重複する構造は平均しています。比の尺度で測る値 (溶解度、クリアランス、透過性、非結合率など) は log10(x + 1) に変換しています。
+    """)
+    return
+
+
+@app.cell
+def _(db, mo):
+    _overview = mo.sql(
+        """
+        SELECT t.dataset, t.endpoint, t.what AS measured, m.n_train, m.n_test
+        FROM tasks t JOIN metrics m USING (task)
+        ORDER BY t.dataset DESC, m.n_train DESC
+        """,
+        engine=db,
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    * **PXR**: PXR (薬物代謝酵素の発現を制御する核内受容体) の活性化 ([blog](https://openadmet.ghost.io/announcing-the-next-openadmet-blind-challenge-predicting-pxr-induction/))
+    * **ASAP**: 抗ウイルス薬の探索 (ASAP Discovery)。MERS-CoV / SARS-CoV-2 のメインプロテアーゼ阻害と ADMET ([blog](https://polarishub.io/blog/antiviral-competition))
+    * **ExpansionRx**: RNA を標的にした創薬プログラム (Expansion Therapeutics) の ADMET ([blog](https://openadmet.ghost.io/expansionrx-openadmet-blind-challenge/))
+    """)
+    return
+
+
+@app.cell(hide_code=True)
 def _(mo, tasks):
     _options = {f"{r['dataset']} · {r['endpoint']}": r["task"] for r in tasks.iter_rows(named=True)}
     task_pick = mo.ui.dropdown(_options, value="PXR · pEC50", label="データセット · エンドポイント")
     mo.vstack(
         [
             mo.md(r"""
-    ---
-
-    ## 第 2 部 · データセットで見る
-
-    ここからは、選んだデータセットとエンドポイントで同じ見方を繰り返します。切り替えると、以下のセルがすべて更新されます。
+    下から好きなデータセットとエンドポイントを選んでください。選んだデータの中で、同じ手順で ECFP を見ていきます。データセットの中身にはあえて詳しく触れません。いろいろなデータセットに切り替えて、違いを楽しんでみてください。
     """),
             task_pick,
         ]
@@ -614,9 +620,9 @@ def _(alt, mo, mols, task, test, train):
     mo.vstack(
         [
             mo.md(f"""
-    ### 2.1 · {task.dataset} · {task.endpoint}
+    ### 2.1 · データセットの中身
 
-    {task.note}。train {train.height:,} 化合物、test {test.height:,} 化合物です。
+    **{task.dataset} · {task.endpoint}**: {task.note}。train {train.height:,} 化合物、test {test.height:,} 化合物です。
     """),
             mo.hstack(
                 [
@@ -639,20 +645,52 @@ def _(alt, mo, mols, task, test, train):
 
 
 @app.cell(hide_code=True)
-def _(MolGrid, mo, pl, test):
+def _(MolGrid, mo, mols, pl):
+    mol_grid = mo.ui.anywidget(
+        MolGrid(
+            mols.sort("y", descending=True).select("id", "smiles", pl.col("y").round(2), "split"),
+            color_by="y",
+            show_legend=False,
+            group_by="split",
+            page_size=12,
+            selection_mode="pair",
+        )
+    )
     mo.vstack(
         [
-            mo.md("test の化合物 (色は測定値、値の大きい順)"),
-            mo.ui.anywidget(
-                MolGrid(
-                    test.sort("y", descending=True).select("id", "smiles", pl.col("y").round(2)),
-                    color_by="y",
-                    page_size=12,
-                    selection_mode="single",
-                )
+            mo.md(
+                "train と test の化合物です (値の大きい順、左端の色は train / test)。左上のボタンで train だけ、test だけに"
+                "絞り込めます。検索欄の右で similarity を選ぶと、入力した SMILES (空なら選んだ化合物) に"
+                "近い順に並びます。化合物を 1 つ選ぶと下に表示され、2 つ選ぶと比較できます。"
             ),
+            mol_grid,
         ]
     )
+    return (mol_grid,)
+
+
+@app.cell(hide_code=True)
+def _(MolPair, mo, mol_grid, mols, pl, task):
+    _picked = [
+        {**r, task.label: r["y"]}
+        for i in mol_grid.value.get("selection", [])
+        for r in mols.filter(pl.col("id") == i).iter_rows(named=True)
+    ]
+    if _picked:
+        _out = mo.ui.anywidget(
+            MolPair(
+                *[{**r, "id": f"{r['id']} ({r['split']})"} for r in _picked[:2]],
+                value_cols=[task.label],
+                value_ranges={task.label: (float(mols["y"].min()), float(mols["y"].max()))},
+                properties=["MW", "cLogP", "TPSA", "HBD", "HBA"],
+            )
+        )
+    else:
+        _out = mo.callout(
+            mo.md("上のグリッドで化合物を選ぶと、ここに表示されます。2 つ選ぶと比較になります。"),
+            kind="info",
+        )
+    _out
     return
 
 
