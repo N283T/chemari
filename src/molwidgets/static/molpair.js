@@ -37,7 +37,8 @@ const CSS = `
 .mp-seg { display:inline-flex; }
 .mp-seg .mp-sw { border-radius:0; font-size:12px; }
 .mp-seg .mp-sw:first-child { border-radius:6px 0 0 6px; }
-.mp-seg .mp-sw:last-child { border-radius:0 6px 6px 0; border-left:0; }
+.mp-seg .mp-sw:last-child { border-radius:0 6px 6px 0; }
+.mp-seg .mp-sw + .mp-sw { border-left:0; }
 .mp-copy { font:12px system-ui, sans-serif; color:var(--mp-fg); background:var(--mp-soft); border:1px solid var(--mp-border);
   border-radius:6px; padding:2px 10px; margin-left:6px; cursor:pointer; vertical-align:middle; flex:none; white-space:nowrap; }
 .mp-copy:hover { border-color:var(--mp-muted); }
@@ -83,6 +84,22 @@ const CSS = `
   display:flex; align-items:center; justify-content:center; font:600 16px ui-monospace, monospace; overflow:hidden; }
 .mp-piece svg { max-width:100%; max-height:100%; width:auto; height:auto; display:block; }
 .mp-none { color:var(--mp-muted); padding:12px; }
+.mp-simhead { display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; padding:6px 8px; border-bottom:1px solid var(--mp-border);
+  background:var(--mp-soft); font-size:12px; color:var(--mp-muted); }
+.mp-table td.st { width:46%; }
+.mp-strack { position:relative; height:16px; }
+/* the axis labels sit over the track's 0, 0.5 and 1 (the outer two aligned to its ends) */
+.mp-saxis { position:relative; height:1.4em; font-weight:400; color:var(--mp-muted); }
+.mp-saxis span { position:absolute; top:0; transform:translateX(-50%); }
+.mp-saxis span:first-child { transform:none; }
+.mp-saxis span:last-child { transform:translateX(-100%); }
+.mp-strack i { position:absolute; display:block; }
+.mp-strack .rail { top:7px; left:0; right:0; height:2px; background:var(--mp-track); }
+.mp-strack .fill { top:4px; left:0; height:8px; border-radius:2px; background:var(--mp-fg); opacity:.55; }
+.mp-strack .tick { top:13px; height:3px; width:1px; background:var(--mp-border); }
+.mp-table td.own { color:var(--mp-muted); font-size:11.5px; text-align:left; }
+.mp-simfoot { padding:6px 8px; color:var(--mp-muted); font-size:12px; border-top:1px solid var(--mp-border); }
+.mp-simhead .mp-warn { margin-left:auto; color:var(--mp-up); white-space:nowrap; }
 `;
 
 const SIDE = ["#3b82f6", "#f59e0b"]; // A, B: the same colours as MorganExplorer
@@ -127,6 +144,35 @@ function diffView(data) {
     : `<div class="mp-none">no difference: same graph and stereocentres</div>`;
   return `<div class="mp-diff"><div><div class="lbl">common substructure</div><div class="mp-core mw-copyable">${e.core_svg}${smilesCopyHtml(e.core_smiles)}</div></div>` +
     `<div><div class="lbl">what differs</div>${edits}</div></div>`;
+}
+
+// The "similarity" view: one row per method with its value on 0–1. The methods' scales differ,
+// which the note above the table says.
+function simView(sim, metric, bands) {
+  if (!sim || !sim.rows) return `<div class="mp-none">computing similarities…</div>`;
+  const x = (v) => Math.max(0, Math.min(100, v * 100));
+  const rows = sim.rows.map((r) => {
+    const own = !(metric in r.values); // MCES and properties have one measure of their own
+    const v = r.values[own ? "" : metric];
+    const track = `<i class="rail"></i>` + [0.25, 0.5, 0.75].map((t) => `<i class="tick" style="left:${x(t)}%"></i>`).join("") +
+      `<i class="fill" style="width:${x(v)}%;${bandStyle(bands, v)}"></i>`;
+    return `<tr><td>${esc(r.label)}</td><td><b>${v.toFixed(2)}</b></td>` +
+      `<td class="st"><div class="mp-strack">${track}</div></td><td class="own">${own ? "own measure" : ""}</td></tr>`;
+  }).join("");
+  const sc = sim.scaffold || {};
+  const word = (v) => (v ? "same" : "different");
+  const scaffold = sc.murcko === null
+    ? "Murcko scaffold: none (a molecule without rings)"
+    : `Murcko scaffold: <b>${word(sc.murcko)}</b> · generic scaffold (atoms and bonds ignored): <b>${word(sc.generic)}</b>`;
+  return `<div class="mp-simhead"><span class="mp-seg" data-metric-seg></span><span>coefficient for the fingerprints</span><span class="mp-warn">Each method has its own scale.</span></div>` +
+    `<table class="mp-table"><thead><tr><th>Method</th><th>value</th><th class="st"><div class="mp-saxis"><span style="left:0">0</span><span style="left:50%">0.5</span><span style="left:100%">1</span></div></th><th></th></tr></thead>` +
+    `<tbody>${rows}</tbody></table><div class="mp-simfoot">${scaffold}</div>`;
+}
+
+// the colour of the band a similarity falls in (the last one whose lower bound it reaches)
+function bandStyle(bands, v) {
+  const band = (bands || []).filter((b) => v >= b.from).pop();
+  return band ? `background:${band.color};opacity:1` : "";
 }
 
 // One table row: label | A | dumbbell | B | B − A bar | B − A. The dumbbell's axis is `range`
@@ -187,7 +233,7 @@ function render({ model, el }) {
   function viewSwitch() {
     const seg = document.createElement("span");
     seg.className = "mp-seg";
-    for (const [v, label] of [["properties", "properties"], ["common", "common part"]]) {
+    for (const [v, label] of [["properties", "properties"], ["common", "common part"], ["similarity", "similarity"]]) {
       const b = document.createElement("button");
       b.className = "mp-sw" + (model.get("view") === v ? " on" : "");
       b.textContent = label;
@@ -251,6 +297,22 @@ function render({ model, el }) {
     body.appendChild(mcs);
 
     if (!both) return;
+    if (model.get("view") === "similarity") {
+      const wrap = document.createElement("div");
+      wrap.className = "mp-wrap";
+      wrap.innerHTML = simView(model.get("similarities"), model.get("similarity_metric"), model.get("similarity_bands"));
+      const seg = wrap.querySelector("[data-metric-seg]");
+      for (const m of (model.get("similarities") || {}).metrics || []) {
+        const b = document.createElement("button");
+        b.className = "mp-sw" + (model.get("similarity_metric") === m ? " on" : "");
+        b.textContent = m;
+        // every coefficient is already computed: switching needs no Python
+        b.addEventListener("click", () => { model.set("similarity_metric", m); model.save_changes(); });
+        seg?.appendChild(b);
+      }
+      body.appendChild(wrap);
+      return;
+    }
     if (common) {
       const wrap = document.createElement("div");
       wrap.className = "mp-wrap";
@@ -280,6 +342,8 @@ function render({ model, el }) {
   model.on("change:data", draw);
   model.on("change:show_common", draw);
   model.on("change:view", draw);
+  model.on("change:similarities", draw);
+  model.on("change:similarity_metric", draw);
   model.on("change:show_formula", draw);
   model.on("change:show_smiles", draw);
 }

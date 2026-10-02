@@ -14,8 +14,8 @@ components are used throughout.
 - `notebooks/ecfp_openadmet_ja.py`: **work in progress** (Japanese first). ECFP4 across three
   OpenADMET datasets (PXR, ASAP-Polaris antiviral, ExpansionRx; 16 endpoints): ECFP4's internals
   and two pitfalls (different molecules with the same fingerprint; near-identical molecules with a
-  low Tanimoto), then a dataset / endpoint picker that drives train–test distance, the similarity
-  principle, cliffs, identical fingerprints, bit collisions, models on bit / count / descriptor
+  low Tanimoto; the same pair by other fingerprints, MCES and properties), then a dataset /
+  endpoint picker that drives train–test distance, the similarity principle, cliffs, identical fingerprints, bit collisions, models on bit / count / descriptor
   features and TreeSHAP. Reads `results/precomputed/` (DuckDB SQL cells) and computes what is
   missing
 - `src/molwidgets/` — the widget package. Every whole-molecule drawing has a copy icon in its
@@ -34,7 +34,11 @@ components are used throughout.
     the drawings, the table can switch to the difference: the common substructure with R1, R2, …
     where the two differ, and per site A's piece → B's piece, with a copy button for the common
     part's SMILES. `mcs={"atoms": "any"}` (options of `find_mcs`) keeps a ring CH → N
-    matched and shows it as a changed element
+    matched and shows it as a changed element. A third view, "similarity", compares the pair by
+    ECFP4 (bit and count), ECFP6, FCFP4, atom pair, topological torsion, RDKit path and MACCS
+    fingerprints (Tanimoto, Dice or cosine), MCES (RDKit's RASCAL) and whole-molecule properties,
+    and says whether the Murcko scaffolds match (`molwidgets.similarity`); a note above it says
+    that each method has its own scale
   - `ECFPMovie`: an ~80 s animated explainer of ECFP4 (radius 0 → 2, duplicates, folding,
     collisions, Tanimoto) for N-methylacetamide, built on real RDKit identifiers; a self-contained
     HTML page (`static/ecfp_movie.html`) shown in an iframe
