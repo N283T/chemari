@@ -37,7 +37,7 @@ components are used throughout.
     matched and shows it as a changed element. A third view, "similarity", compares the pair by
     ECFP4 (bit and count), ECFP6, FCFP4, atom pair, topological torsion, RDKit path and MACCS
     fingerprints (Tanimoto, Dice or cosine), MCES (RDKit's RASCAL) and whole-molecule properties,
-    and says whether the Murcko scaffolds match (`molwidgets.similarity`); a note under it says
+    and says whether the Murcko scaffolds match (`molwidgets.similarity`); a note above it says
     that each method has its own scale
   - `ECFPMovie`: an ~80 s animated explainer of ECFP4 (radius 0 → 2, duplicates, folding,
     collisions, Tanimoto) for N-methylacetamide, built on real RDKit identifiers; a self-contained

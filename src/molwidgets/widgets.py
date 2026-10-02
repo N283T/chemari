@@ -903,7 +903,7 @@ class MolPair(_Computing):
     The third table view, "similarity", compares the pair by several fingerprints (Tanimoto,
     Dice or cosine, switched in the view), MCES (RDKit's RASCAL) and whole-molecule properties;
     ``similarity_methods`` picks the rows (keys of ``molwidgets.similarity.METHODS``). The
-    methods' values are on different scales; a note under the table says so. ``show_formula`` / ``show_smiles`` switch the captions under the drawings. Two
+    methods' values are on different scales; a note above the table says so. ``show_formula`` / ``show_smiles`` switch the captions under the drawings. Two
     switches, both off by default: "common part" (``show_common``) highlights the maximum
     common substructure, and "align B to A" (``align``) redraws B in A's orientation along it.
     The common substructure is searched only while one of them is on.

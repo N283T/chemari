@@ -88,13 +88,18 @@ const CSS = `
   background:var(--mp-soft); font-size:12px; color:var(--mp-muted); }
 .mp-table td.st { width:46%; }
 .mp-strack { position:relative; height:16px; }
+/* the axis labels sit over the track's 0, 0.5 and 1 (the outer two aligned to its ends) */
+.mp-saxis { position:relative; height:1.4em; font-weight:400; color:var(--mp-muted); }
+.mp-saxis span { position:absolute; top:0; transform:translateX(-50%); }
+.mp-saxis span:first-child { transform:none; }
+.mp-saxis span:last-child { transform:translateX(-100%); }
 .mp-strack i { position:absolute; display:block; }
 .mp-strack .rail { top:7px; left:0; right:0; height:2px; background:var(--mp-track); }
 .mp-strack .fill { top:4px; left:0; height:8px; border-radius:2px; background:var(--mp-fg); opacity:.55; }
 .mp-strack .tick { top:13px; height:3px; width:1px; background:var(--mp-border); }
 .mp-table td.own { color:var(--mp-muted); font-size:11.5px; text-align:left; }
 .mp-simfoot { padding:6px 8px; color:var(--mp-muted); font-size:12px; border-top:1px solid var(--mp-border); }
-.mp-simfoot.mp-warn { color:var(--mp-up); }
+.mp-simhead .mp-warn { margin-left:auto; color:var(--mp-up); white-space:nowrap; }
 `;
 
 const SIDE = ["#3b82f6", "#f59e0b"]; // A, B: the same colours as MorganExplorer
@@ -141,9 +146,8 @@ function diffView(data) {
     `<div><div class="lbl">what differs</div>${edits}</div></div>`;
 }
 
-// The "similarity" view: one row per method with its value on 0–1. The methods' scales differ
-// (MACCS gives unrelated pairs about 0.5), so the note under the table warns against comparing
-// rows by their numbers.
+// The "similarity" view: one row per method with its value on 0–1. The methods' scales differ,
+// which the note above the table says.
 function simView(sim, metric, bands) {
   if (!sim || !sim.rows) return `<div class="mp-none">computing similarities…</div>`;
   const x = (v) => Math.max(0, Math.min(100, v * 100));
@@ -160,11 +164,9 @@ function simView(sim, metric, bands) {
   const scaffold = sc.murcko === null
     ? "Murcko scaffold: none (a molecule without rings)"
     : `Murcko scaffold: <b>${word(sc.murcko)}</b> · generic scaffold (atoms and bonds ignored): <b>${word(sc.generic)}</b>`;
-  return `<div class="mp-simhead"><span class="mp-seg" data-metric-seg></span><span>coefficient for the fingerprints</span></div>` +
-    `<table class="mp-table"><thead><tr><th>Method</th><th>value</th><th style="text-align:center">0 ─ 0.5 ─ 1</th><th></th></tr></thead>` +
-    `<tbody>${rows}</tbody></table><div class="mp-simfoot">${scaffold}</div>` +
-    `<div class="mp-simfoot mp-warn">Each method has its own scale (MACCS gives unrelated pairs about 0.5, ECFP4 about 0.1): ` +
-    `compare a method across pairs, not one method's number with another's.</div>`;
+  return `<div class="mp-simhead"><span class="mp-seg" data-metric-seg></span><span>coefficient for the fingerprints</span><span class="mp-warn">Each method has its own scale.</span></div>` +
+    `<table class="mp-table"><thead><tr><th>Method</th><th>value</th><th class="st"><div class="mp-saxis"><span style="left:0">0</span><span style="left:50%">0.5</span><span style="left:100%">1</span></div></th><th></th></tr></thead>` +
+    `<tbody>${rows}</tbody></table><div class="mp-simfoot">${scaffold}</div>`;
 }
 
 // the colour of the band a similarity falls in (the last one whose lower bound it reaches)
