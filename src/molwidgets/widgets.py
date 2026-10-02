@@ -898,7 +898,12 @@ class MolPair(_Computing):
     ``value_ranges`` gives their axes (``{"pEC50": (3, 9)}``), otherwise the axis is the two
     values ± 1. ``similarity_bands`` colours and labels the Tanimoto bar: ``(lower bound, label)``
     or ``(lower bound, label, colour)`` per band, lowest first (default: low < 0.4 ≤ medium <
-    0.6 ≤ high < 0.8 ≤ very high). ``show_formula`` / ``show_smiles`` switch the captions under the drawings. Two
+    0.6 ≤ high < 0.8 ≤ very high).
+
+    The third table view, "similarity", compares the pair by several fingerprints (Tanimoto,
+    Dice or cosine, switched in the view), MCES (RDKit's RASCAL) and whole-molecule properties;
+    ``similarity_methods`` picks the rows (keys of ``molwidgets.similarity.METHODS``). The
+    methods' values are on different scales; a note under the table says so. ``show_formula`` / ``show_smiles`` switch the captions under the drawings. Two
     switches, both off by default: "common part" (``show_common``) highlights the maximum
     common substructure, and "align B to A" (``align``) redraws B in A's orientation along it.
     The common substructure is searched only while one of them is on.
@@ -913,10 +918,14 @@ class MolPair(_Computing):
     align = traitlets.Bool(False).tag(sync=True)
     show_formula = traitlets.Bool(True).tag(sync=True)
     show_smiles = traitlets.Bool(True).tag(sync=True)
-    view = traitlets.Unicode("properties").tag(sync=True)  # the table: "properties" or "common"
+    view = traitlets.Unicode("properties").tag(sync=True)  # "properties", "common" or "similarity"
     mcs = traitlets.Dict().tag(sync=True)  # find_mcs options: atoms, bonds, ring_matches_ring, …
     data = traitlets.Dict().tag(sync=True)
     similarity_bands = traitlets.List(traitlets.Dict()).tag(sync=True)
+    # the "similarity" view: one row per method (see molwidgets.similarity.METHODS)
+    similarity_methods = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    similarity_metric = traitlets.Unicode("Tanimoto").tag(sync=True)
+    similarities = traitlets.Dict().tag(sync=True)
 
     def __init__(
         self,
@@ -941,12 +950,30 @@ class MolPair(_Computing):
             k: [float(lo), float(hi)] for k, (lo, hi) in (value_ranges or {}).items()
         }
         self._timeout = mcs_timeout
+        if "similarity_methods" not in kwargs:
+            from .similarity import METHODS
+
+            kwargs["similarity_methods"] = list(METHODS)
         super().__init__(molecules=[self._as_dict(a, "A"), self._as_dict(b, "B")], **kwargs)
         self._mcs_cache: dict[tuple[str, str, str], dict] = {}
         self.observe(self._compute, names=["molecules", "align", "mcs"])
         self.observe(self._on_common, names=["show_common", "view"])
+        self.observe(self._compute_similarities, names=["molecules", "view", "similarity_methods"])
         self._signal_done(["molecules", "show_common", "align", "view", "mcs"])
         self._compute()
+        self._compute_similarities()
+
+    def _compute_similarities(self, _change=None) -> None:
+        # only while the similarity view is shown
+        if self.view != "similarity":
+            return
+        from .similarity import similarity_table
+
+        mols = [Chem.MolFromSmiles(m["smiles"]) for m in self.molecules]
+        if any(m is None for m in mols):
+            self.similarities = {}
+            return
+        self.similarities = similarity_table(mols[0], mols[1], self.similarity_methods)
 
     def _on_common(self, _change=None) -> None:
         # both drawings (plain and highlighted) are sent once the common part is known, so the

@@ -538,6 +538,30 @@ def _(mo):
     * スキャフォールドや MCES のような部分グラフに基づく比較を使う
     * 記述子を加える
 
+    下のウィジェットの similarity タブでは、上の表で選んだペアをいくつかの fingerprint、MCES、物性で比べられます。係数は Tanimoto から Dice や cosine に切り替えられます。手法によって値の出方が違う (MACCS は無関係なペアでも 0.5 前後になる) ので、手法どうしで数値を比べるのではなく、同じ手法でペアを変えたときの値の動きを見てください。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(MolPair, far_pairs, far_table, mo):
+    _sel = far_table.value
+    _name = _sel["A"][0] if _sel is not None and len(_sel) else far_pairs[0]["name_a"]
+    _e = next(e for e in far_pairs if e["name_a"] == _name)
+    mo.ui.anywidget(
+        MolPair(
+            {"id": _e["name_a"], "smiles": _e["a"]},
+            {"id": _e["name_b"], "smiles": _e["b"]},
+            show_smiles=False,
+            view="similarity",
+        )
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ただし、どれも決定的な解決策ではなく、どの程度を「似ている」とするかは結局は感覚に近いものです。スクリーニング、クラスタリング、交差検証の分割などでは類似度のしきい値で機械的に区切ることが多いので、いくつか試しながら、目的に合う方法と基準を選んでください。
     """)
     return
