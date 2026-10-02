@@ -149,6 +149,20 @@ class BitCensus:
             counts[bit] = len(envs)
         return counts
 
+    def purity(self) -> tuple[np.ndarray, float]:
+        """How much each bit belongs to one substructure: the molecules of its most common
+        substructure over the molecules of all its substructures (1 = a single substructure,
+        NaN = an empty bit). Also returns the mean over every set bit of every molecule: how
+        often a set bit comes from its bit's main substructure."""
+        purity = np.full(self.n_bits, np.nan)
+        top = total = 0
+        for bit, envs in self.examples.items():
+            counts = [e["count"] for e in envs]
+            if sum(counts):
+                purity[bit] = max(counts) / sum(counts)
+                top, total = top + max(counts), total + sum(counts)
+        return purity, (top / total if total else float("nan"))
+
     def stats(self, y: np.ndarray | None = None) -> dict[int, dict]:
         """Per-bit frequency, collision count and (optionally) activity contrast."""
         freq = self.on.sum(0)

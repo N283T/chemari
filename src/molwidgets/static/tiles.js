@@ -13,12 +13,14 @@ const CSS = `
 .bt-seg button + button { border-left:1px solid var(--bt-border); }
 .bt-seg button.on { background:var(--bt-fg); color:var(--bt-card); }
 .bt-lbl { color:var(--bt-muted); }
-.bt-stats { color:var(--bt-muted); margin:-2px 0 6px; }
+.bt-stats { color:var(--bt-muted); font-size:12px; }
+.bt-head2 { padding-right:28px; }
+.bt-right { display:flex; gap:6px; align-items:center; margin-left:auto; }
 /* both columns share the row height: the list is capped, the molecule box stretches to match */
 .bt-main { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.15fr); gap:4px 12px; align-items:stretch;
   grid-template-areas: "lm lc" "mol list"; }
 @media (max-width: 760px) { .bt-main { grid-template-columns: 1fr; grid-template-areas: "lm" "mol" "lc" "list"; } }
-.bt-main > .bt-legend { min-height:3.8em; margin:0; display:flex; flex-direction:column; justify-content:flex-end; }
+.bt-main > .bt-legend { margin:0; display:flex; flex-direction:column; justify-content:flex-end; }
 .bt-mol { display:flex; flex-direction:column; justify-content:space-between; background:var(--bt-card); border:1px solid var(--bt-border); border-radius:8px; padding:6px 8px; min-height:0; }
 .bt-mol svg { width:100%; height:auto; max-height:460px; display:block; margin:auto 0; }
 .bt-cap { color:var(--bt-muted); font-size:12px; min-height:2.6em; }
@@ -101,6 +103,7 @@ async function render({ model, el: host }) {
   const busy = busyIndicator(model, host, ["radius", "n_bits", "chirality", "selected"]);
   const set = (obj) => { busy(obj); for (const [k, v] of Object.entries(obj)) model.set(k, v); model.save_changes(); };
   let hover = null; // uid under the mouse
+  let statsHtml = ""; // "50 environments → 49 bits · …", shown in the molecule's card
   let onlyHits = false; // list filter: only rows that collide inside the molecule
 
   function active() {
@@ -115,7 +118,9 @@ async function render({ model, el: host }) {
     if (!box) return;
     const dark = root.classList.contains("dark");
     const act = active();
-    box.innerHTML = drawSvg(RDKit, get("smiles"), 400, 340, highlight(act), dark) + smilesCopyHtml(get("smiles"));
+    // the card names the molecule and says what its fingerprint is made of
+    const head = `<div class="bt-head2">${get("label") ? `<b>${esc(get("label"))}</b>` : ""}<div class="bt-stats">${statsHtml}</div></div>`;
+    box.innerHTML = head + drawSvg(RDKit, get("smiles"), 400, 340, highlight(act), dark) + smilesCopyHtml(get("smiles"));
     const cap = el("div", { className: "bt-cap" });
     if (!act.length) cap.innerHTML = "Hover or click a bit on the right to see where it comes from.";
     else {
@@ -132,52 +137,44 @@ async function render({ model, el: host }) {
     const sel = get("selected");
     const hasRef = tiles.some((t) => t.n_envs != null);
 
+    // one row: the fingerprint's settings on the left, what the list shows on the right
     const bar = el("div", { className: "bt-bar" });
-    if (get("label")) bar.appendChild(el("b", { textContent: get("label") }));
     bar.append(
       el("span", { className: "bt-lbl", textContent: "radius" }),
       seg([[1, "1"], [2, "2"], [3, "3"]], get("radius"), (v) => set({ radius: v })),
       el("span", { className: "bt-lbl", textContent: "fold to" }),
       seg([[256, "256"], [1024, "1024"], [2048, "2048"], [8192, "8192"]], get("n_bits"), (v) => set({ n_bits: v })),
-      el("span", { className: "bt-lbl", textContent: "bits" }),
     );
     const chiral = el("label", { className: "mw-chiral" + (get("chirality") ? " on" : "") });
     const box = el("input", { type: "checkbox", checked: get("chirality") });
     box.addEventListener("change", () => set({ chirality: box.checked, selected: -1 }));
     chiral.append(box, "chirality");
-    bar.append(chiral);
     // the value each bit holds: 1 in a bit fingerprint; in a count fingerprint the number of
     // times its environments occur, summed over every environment folded onto it
     const count = get("mode") === "count";
     const value = {};
     for (const t of tiles) value[t.bit] = (value[t.bit] || 0) + t.count;
-    bar.append(
-      el("span", { className: "bt-lbl", textContent: "fingerprint" }),
-      seg([["bit", "bit"], ["count", "count"]], get("mode"), (v) => set({ mode: v })),
-    );
+    bar.append(seg([["bit", "bit"], ["count", "count"]], get("mode"), (v) => set({ mode: v })), chiral);
     const bits = new Set(tiles.map((t) => t.bit));
     const hits = new Set(tiles.filter((t) => t.collides).map((t) => t.bit));
-    bar.append(
-      el("span", { className: "bt-lbl", textContent: "show" }),
-      seg([[false, "all bits"], [true, "collisions only"]], onlyHits, (v) => {
-        onlyHits = v;
-        // keep the selection inside the visible list
-        if (v && hits.size && !hits.has(sel)) set({ selected: [...hits][0] });
-        else draw();
-      }),
-    );
+    const show = el("div", { className: "bt-right" });
+    show.append(seg([[false, "all bits"], [true, "collisions only"]], onlyHits, (v) => {
+      onlyHits = v;
+      // keep the selection inside the visible list
+      if (v && hits.size && !hits.has(sel)) set({ selected: [...hits][0] });
+      else draw();
+    }));
+    bar.append(show);
     root.appendChild(bar);
-    root.appendChild(el("div", { className: "bt-stats" },
-      `${tiles.length} environments → ${bits.size} bits` +
-      (count ? ` · values add up to ${Object.values(value).reduce((a, b) => a + b, 0)} (bit fingerprint: ${bits.size} ones)` : "") +
-      (hits.size ? ` · <span style="color:var(--bt-hit);font-weight:600">${hits.size} collision${hits.size > 1 ? "s" : ""} inside this molecule</span>` : " · no collisions inside this molecule")));
-    // each key sits above what it explains, with room for two lines so both columns start level
+    statsHtml = `${tiles.length} environments → ${bits.size} bits` +
+      (count ? ` · values add up to ${Object.values(value).reduce((a, b) => a + b, 0)}` : "") +
+      (hits.size ? ` · <span style="color:var(--bt-hit);font-weight:600">${hits.size} collision${hits.size > 1 ? "s" : ""} inside this molecule</span>` : " · no collisions inside this molecule");
+    // each key sits above what it explains
     const main = el("div", { className: "bt-main" });
     main.appendChild(el("div", { className: "bt-legend", style: "grid-area:lm" },
       "<div>" + legendHtml("Molecule", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) + "</div>"));
     main.appendChild(el("div", { className: "bt-legend", style: "grid-area:lc" },
-      "<div>" + legendHtml("Bit cards", MORGAN_ENV_KEY) +
-      `<span style="white-space:nowrap"><i style="display:inline-block;width:4px;height:12px;background:var(--bt-hit);vertical-align:-2px;margin-right:4px"></i>red edge: shares a bit with another row</span></div>`));
+      "<div>" + legendHtml("Bit cards", MORGAN_ENV_KEY) + "</div>"));
     main.appendChild(el("div", { className: "bt-mol mw-copyable", style: "grid-area:mol" }));
     const list = el("div", { className: "bt-list", style: "grid-area:list" });
     const shown = onlyHits ? tiles.filter((t) => t.collides) : tiles;

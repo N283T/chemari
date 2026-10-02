@@ -22,7 +22,10 @@ components are used throughout.
   top-right corner that puts the molecule's SMILES on the clipboard; `copy_smiles=False` hides
   them
   - `MolGrid`: paged, sortable molecule grid with text and SMARTS filtering, colour scale, and
-    two-way selection (`single`, `multiple` or `pair` mode)
+    two-way selection (`single`, `multiple` or `pair` mode); `group_by` adds buttons to show one group of a
+    column (e.g. train / test) and colours each card's edge by it. One search box with a mode: text filter,
+    substructure (SMARTS), or similarity, which ranks the molecules by ECFP4 Tanimoto to a SMILES
+    typed there (or to the first selected molecule)
   - `MolPair`: two compounds side by side with the Tanimoto similarity (ECFP4; the bar is coloured
     and labelled by band, low / medium / high / very high by default, set with `similarity_bands`)
     and a table of
@@ -38,7 +41,8 @@ components are used throughout.
     ECFP4 (bit and count), ECFP6, FCFP4, atom pair, topological torsion, RDKit path and MACCS
     fingerprints (Tanimoto, Dice or cosine), MCES (RDKit's RASCAL) and whole-molecule properties,
     and says whether the Murcko scaffolds match (`molwidgets.similarity`); a note above it says
-    that each method has its own scale
+    that each method has its own scale. Given one compound only, it shows that compound with its
+    values and properties (e.g. under a grid: one selected molecule, then a pair)
   - `ECFPMovie`: an ~80 s animated explainer of ECFP4 (radius 0 → 2, duplicates, folding,
     collisions, Tanimoto) for N-methylacetamide, built on real RDKit identifiers; a self-contained
     HTML page (`static/ecfp_movie.html`) shown in an iframe
@@ -53,7 +57,10 @@ components are used throughout.
     folds onto it; `mode="count"` shows each bit's count, and a chirality switch uses
     `includeChirality=True`
   - `BitAtlas`: every folded bit of a dataset, one row per bit, with the distinct substructures
-    that fold onto it; sortable by bit index, number of substructures or number of molecules
+    that fold onto it and its purity (the share of its molecules that set it through its most
+    common substructure); sortable by bit index, number of substructures, number of molecules
+    or purity, either way round. A panel on the right has the dataset's totals and a histogram
+    of substructures per bit; clicking a bar lists only those bits
   - `BitImportance`: every bit of a fingerprint model ranked by its importance (e.g. LightGBM gain
     or mean |SHAP|), in either direction so unused bits can be browsed too, with each bit's
     direction, its most common substructure and how many substructures and molecules it has;

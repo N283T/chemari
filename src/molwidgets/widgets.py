@@ -69,6 +69,12 @@ class MolGrid(anywidget.AnyWidget):
     `selection` holds the ids of selected molecules and syncs both ways, so a marimo
     cell that reads `grid.selection` (via `mo.ui.anywidget`) re-runs on every click.
     `selection_mode` is "multiple", "single" or "pair" (keeps the last two picks).
+    `group_by` names a column with a few values (e.g. a train / test split): the grid gets a
+    button per value to show only that group, and each card's left edge takes the group's colour
+    (the colour scale then shows as a dot before the value's number); the selection is kept across
+    groups. The search box has a mode (``search_mode``): "text" filters on any
+    field, "substructure" by SMARTS, and "similarity" ranks the molecules by ECFP4 Tanimoto to a
+    SMILES typed there or, when it is empty, to the first selected molecule.
     """
 
     _esm = _bundle("molgrid.js")
@@ -81,6 +87,14 @@ class MolGrid(anywidget.AnyWidget):
     subset = traitlets.List(traitlets.Unicode()).tag(sync=True)
     color_by = traitlets.Unicode("").tag(sync=True)
     color_range = traitlets.List(allow_none=True, default_value=None).tag(sync=True)
+    show_legend = traitlets.Bool(True).tag(sync=True)  # the colour key in the toolbar
+    group_by = traitlets.Unicode("").tag(sync=True)  # a column to filter by with buttons
+    # what the search box does: "text" (any field contains it), "substructure" (SMARTS, in the
+    # browser) or "similarity" (a SMILES; `similarity` then holds each molecule's ECFP4 Tanimoto
+    # to it, computed here)
+    search_mode = traitlets.Unicode("text").tag(sync=True)
+    similarity_query = traitlets.Unicode("").tag(sync=True)
+    similarity = traitlets.Dict().tag(sync=True)
     sort_by = traitlets.Unicode("").tag(sync=True)
     smarts = traitlets.Unicode("").tag(sync=True)
     highlights = traitlets.Dict().tag(sync=True)
@@ -94,10 +108,39 @@ class MolGrid(anywidget.AnyWidget):
         if rows and "subset" not in kwargs:
             skip = {kwargs.get("id_col", "id"), kwargs.get("smiles_col", "smiles")}
             kwargs["subset"] = [k for k in rows[0] if k not in skip][:3]
+        if kwargs.get("smarts") and "search_mode" not in kwargs:
+            kwargs["search_mode"] = "substructure"
         super().__init__(data=rows, **kwargs)
+        self._fps: np.ndarray | None = None
+        self.observe(self._on_data, names=["data"])
+        self.observe(self._search_similar, names=["similarity_query"])
+        self._search_similar()
 
     def set_data(self, data: Any) -> None:
         self.data = _records(data)
+
+    def _on_data(self, _change=None) -> None:
+        self._fps = None
+        self._search_similar()
+
+    def _search_similar(self, _change=None) -> None:
+        """ECFP4 Tanimoto of every molecule to ``similarity_query`` (a SMILES); ``similarity``
+        is ``{"error": True}`` when it does not parse and empty without a query."""
+        from .chem import fingerprint_matrix, tanimoto_matrix
+
+        query = self.similarity_query.strip()
+        if not query:
+            self.similarity = {}
+            return
+        if Chem.MolFromSmiles(query) is None:
+            self.similarity = {"error": True}
+            return
+        if self._fps is None:  # kept until the data changes
+            self._fps = fingerprint_matrix([r[self.smiles_col] for r in self.data])
+        sims = tanimoto_matrix(fingerprint_matrix([query]), self._fps)[0]
+        self.similarity = {
+            "values": {str(r[self.id_col]): round(float(v), 3) for r, v in zip(self.data, sims)}
+        }
 
 
 class _Computing(anywidget.AnyWidget):
@@ -512,7 +555,11 @@ class BitAtlas(_Computing):
 
     radius = traitlets.Int(2).tag(sync=True)
     n_bits = traitlets.Int(2048).tag(sync=True)
-    sort = traitlets.Unicode("bit").tag(sync=True)  # "bit" | "envs" | "mols"
+    sort = traitlets.Unicode("bit").tag(sync=True)  # "bit" | "envs" | "mols" | "purity"
+    # the other way round: highest bit first, or fewest substructures / molecules first
+    reverse = traitlets.Bool(False).tag(sync=True)
+    # [lo, hi]: list only the bits holding that many substructures (set by the histogram)
+    count_filter = traitlets.List(traitlets.Int()).tag(sync=True)
     page = traitlets.Int(0).tag(sync=True)
     page_size = traitlets.Int(20).tag(sync=True)
     per_row = traitlets.Int(10).tag(sync=True)
@@ -527,9 +574,11 @@ class BitAtlas(_Computing):
         self._mols: dict[int, Chem.Mol] = {}
         self._svgs: dict[tuple[int, int, int], str] = {}
         super().__init__(**kwargs)
-        self.observe(self._reset, names=["radius", "n_bits", "sort"])
+        self.observe(self._reset, names=["radius", "n_bits", "sort", "reverse", "count_filter"])
         self.observe(self._refresh, names=["page", "page_size", "per_row"])
-        self._signal_done(["radius", "n_bits", "sort", "page", "page_size", "per_row"])
+        self._signal_done(
+            ["radius", "n_bits", "sort", "reverse", "count_filter", "page", "page_size", "per_row"]
+        )
         self._reset()
 
     def _census(self) -> BitCensus:
@@ -539,10 +588,15 @@ class BitAtlas(_Computing):
         census = self._census()
         bits = np.arange(self.n_bits)
         if self.sort == "envs":
-            return bits[np.lexsort((bits, -census.n_envs))]
-        if self.sort == "mols":
-            return bits[np.lexsort((bits, -census.on.sum(0)))]
-        return bits
+            bits = bits[np.lexsort((bits, -census.n_envs))]
+        elif self.sort == "mols":
+            bits = bits[np.lexsort((bits, -census.on.sum(0)))]
+        elif self.sort == "purity":  # purest first, empty bits last
+            bits = bits[np.lexsort((bits, -np.nan_to_num(census.purity()[0], nan=-1)))]
+        if len(self.count_filter) == 2:
+            lo, hi = self.count_filter
+            bits = bits[(census.n_envs[bits] >= lo) & (census.n_envs[bits] <= hi)]
+        return bits[::-1] if self.reverse else bits
 
     def _svg(self, mol_index: int, center: int, radius: int) -> str:
         key = (mol_index, center, radius)
@@ -561,6 +615,9 @@ class BitAtlas(_Computing):
             "used_bits": int((census.on.sum(0) > 0).sum()),
             "max_envs": int(n_envs.max()) if len(n_envs) else 0,
             "max_mols": int(census.on.sum(0).max()) if census.n_mols else 0,
+            "mean_purity": _clean(census.purity()[1]),
+            # substructures per bit, by bit index (the overview next to the list)
+            "envs_per_bit": [int(v) for v in n_envs],
         }
         self.order = [int(b) for b in self._order()]
         self.focus = -1
@@ -572,6 +629,7 @@ class BitAtlas(_Computing):
     def _refresh(self, _change=None) -> None:
         census = self._census()
         n_on = census.on.sum(0)
+        purity = census.purity()[0]
         order = self.order or [int(b) for b in self._order()]
         start = self.page * self.page_size
         rows = []
@@ -582,6 +640,7 @@ class BitAtlas(_Computing):
                     "bit": int(bit),
                     "n_envs": len(examples),
                     "n_mols": int(n_on[bit]),
+                    "purity": _clean(float(purity[bit])),
                     "envs": [
                         {
                             "svg": self._svg(ex["mol_index"], ex["center"], ex["radius"]),
@@ -893,8 +952,11 @@ class MolPair(_Computing):
     ``(label, fn(mol), decimals, (lo, hi))`` (the range may be ``None``). Default: the rule of
     five (MW, cLogP, HBD, HBA).
 
-    ``a`` and ``b`` are dicts (a DataFrame row works) or SMILES strings. ``value_cols`` are
-    further values of each compound (e.g. a measured pEC50) listed first in the table;
+    ``a`` and ``b`` are dicts (a DataFrame row works) or SMILES strings. Without ``b`` the
+    widget shows the one molecule with its values, properties and Murcko scaffold (``show_scaffold``
+    or the switch highlights it in the drawing), e.g. while a grid has one
+    molecule selected and a pair once it has two. ``value_cols`` are further values of each
+    compound (e.g. a measured pEC50) listed first in the table;
     ``value_ranges`` gives their axes (``{"pEC50": (3, 9)}``), otherwise the axis is the two
     values ± 1. ``similarity_bands`` colours and labels the Tanimoto bar: ``(lower bound, label)``
     or ``(lower bound, label, colour)`` per band, lowest first (default: low < 0.4 ≤ medium <
@@ -915,6 +977,7 @@ class MolPair(_Computing):
 
     molecules = traitlets.List(traitlets.Dict()).tag(sync=True)
     show_common = traitlets.Bool(False).tag(sync=True)
+    show_scaffold = traitlets.Bool(False).tag(sync=True)  # single molecule: highlight its scaffold
     align = traitlets.Bool(False).tag(sync=True)
     show_formula = traitlets.Bool(True).tag(sync=True)
     show_smiles = traitlets.Bool(True).tag(sync=True)
@@ -930,7 +993,7 @@ class MolPair(_Computing):
     def __init__(
         self,
         a: Any,
-        b: Any,
+        b: Any = None,
         id_col: str = "id",
         smiles_col: str = "smiles",
         value_cols: list[str] | None = None,
@@ -954,7 +1017,7 @@ class MolPair(_Computing):
             from .similarity import METHODS
 
             kwargs["similarity_methods"] = list(METHODS)
-        super().__init__(molecules=[self._as_dict(a, "A"), self._as_dict(b, "B")], **kwargs)
+        super().__init__(molecules=self._pair(a, b), **kwargs)
         self._mcs_cache: dict[tuple[str, str, str], dict] = {}
         self.observe(self._compute, names=["molecules", "align", "mcs"])
         self.observe(self._on_common, names=["show_common", "view"])
@@ -970,7 +1033,7 @@ class MolPair(_Computing):
         from .similarity import similarity_table
 
         mols = [Chem.MolFromSmiles(m["smiles"]) for m in self.molecules]
-        if any(m is None for m in mols):
+        if len(mols) < 2 or any(m is None for m in mols):
             self.similarities = {}
             return
         self.similarities = similarity_table(mols[0], mols[1], self.similarity_methods)
@@ -991,9 +1054,12 @@ class MolPair(_Computing):
             "values": {c: m.get(c) for c in self._value_cols},
         }
 
-    def set_pair(self, a: Any, b: Any) -> None:
-        """Show another pair in the same widget."""
-        self.molecules = [self._as_dict(a, "A"), self._as_dict(b, "B")]
+    def _pair(self, a: Any, b: Any) -> list[dict]:
+        return [self._as_dict(a, "A")] + ([] if b is None else [self._as_dict(b, "B")])
+
+    def set_pair(self, a: Any, b: Any = None) -> None:
+        """Show another pair (or, without ``b``, a single molecule) in the same widget."""
+        self.molecules = self._pair(a, b)
 
     def _compute(self, _change=None) -> None:
         from rdkit import DataStructs
@@ -1030,7 +1096,25 @@ class MolPair(_Computing):
             "mcs_smiles": "",
         }
         highlight: list[tuple[list[int], list[int]]] = [([], []), ([], [])]
-        ma, mb = mols
+        ma, mb = (*mols, None)[:2]  # a single molecule has no B
+        if len(mols) == 1 and ma is not None:
+            # shown next to the single molecule, under its table
+            from rdkit.Chem.Scaffolds import MurckoScaffold
+
+            core = MurckoScaffold.GetScaffoldForMol(ma)
+            if core.GetNumAtoms():
+                # the scaffold's atoms in the molecule, highlighted in its drawing
+                match = ma.GetSubstructMatch(core)
+                bonds = [
+                    ma.GetBondBetweenAtoms(match[b.GetBeginAtomIdx()], match[b.GetEndAtomIdx()])
+                    for b in core.GetBonds()
+                ]
+                highlight[0] = (list(match), [b.GetIdx() for b in bonds if b is not None])
+                rdDepictor.Compute2DCoords(core)
+                data["scaffold"] = {
+                    "smiles": Chem.MolToSmiles(core),
+                    "svg": _draw_pair_side(core, [], []),
+                }
         if ma is not None and mb is not None:
             gen = _generator(2, 2048)
             data["similarity"] = DataStructs.TanimotoSimilarity(
@@ -1063,7 +1147,7 @@ class MolPair(_Computing):
             if mol is None:
                 continue
             side["svg"] = _draw_pair_side(mol, [], [])
-            if data["searched"]:
+            if data["searched"] or len(mols) == 1:
                 side["svg_common"] = _draw_pair_side(mol, atoms, bonds)
         self.data = data
 
