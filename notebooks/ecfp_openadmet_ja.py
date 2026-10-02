@@ -42,7 +42,7 @@ def _(mo):
     fp = gen.GetFingerprint(mol)
     ```
 
-    これが **ECFP4** です。計算が速く、調整するパラメータもほとんどなく、多くのデータで最初に試す表現です。ただ、同じ ECFP4 でも、よく効くデータとそうでないデータがあります。どこで効いて、どこで効かないのか、その理由は何なのかは、中身を知らないとわかりません。
+    これが **ECFP4**<sup><a href="#ref-1">1</a></sup> です。計算が速く、調整するパラメータもほとんどなく、多くのデータで最初に試す表現です。ただ、同じ ECFP4 でも、よく効くデータとそうでないデータがあります。どこで効いて、どこで効かないのか、その理由は何なのかは、中身を知らないとわかりません。
 
     この notebook では、ECFP4 の中身を追ったあと (第 1 部)、OpenADMET が公開している 3 つのデータセット・16 のエンドポイントで同じ見方を繰り返します (第 2 部)。データセットを切り替えると、第 2 部のすべてのセルが切り替わります。最後に、データセットをまたいで見えたことをまとめます (第 3 部)。
     """)
@@ -57,7 +57,6 @@ def _():
     import duckdb
     import numpy as np
     import polars as pl
-    from scipy.stats import spearmanr
 
     from molwidgets import (
         BitAtlas,
@@ -89,7 +88,6 @@ def _():
         duckdb,
         np,
         pl,
-        spearmanr,
     )
 
 
@@ -232,35 +230,35 @@ def _():
     # names checked against PubChem (structure, and stereo for the enantiomers)
     SAME_FP = [
         {
-            "label": "cyclohexylamine / cycloheptylamine (環サイズ)",
+            "label": "cyclohexylamine / cycloheptylamine (ring size)",
             "a": "NC1CCCCC1",
             "b": "NC1CCCCCC1",
             "name_a": "cyclohexylamine",
             "name_b": "cycloheptylamine",
         },
         {
-            "label": "azepane / azocane (環サイズ)",
+            "label": "azepane / azocane (ring size)",
             "a": "C1CCCNCC1",
             "b": "C1CCCNCCC1",
             "name_a": "azepane",
             "name_b": "azocane",
         },
         {
-            "label": "nonanoic acid / palmitic acid (鎖長)",
+            "label": "nonanoic acid / palmitic acid (chain length)",
             "a": "CCCCCCCCC(=O)O",
             "b": "CCCCCCCCCCCCCCCC(=O)O",
             "name_a": "nonanoic acid",
             "name_b": "palmitic acid",
         },
         {
-            "label": "(R)- / (S)-thalidomide (立体)",
+            "label": "(R)- / (S)-thalidomide (stereo)",
             "a": "O=C1CC[C@@H](N2C(=O)c3ccccc3C2=O)C(=O)N1",
             "b": "O=C1CC[C@H](N2C(=O)c3ccccc3C2=O)C(=O)N1",
             "name_a": "(R)-thalidomide",
             "name_b": "(S)-thalidomide",
         },
         {
-            "label": "lansoprazole / dexlansoprazole (立体)",
+            "label": "lansoprazole / dexlansoprazole (stereo)",
             "a": "Cc1c(OCC(F)(F)F)ccnc1CS(=O)c1nc2ccccc2[nH]1",
             "b": "Cc1c(OCC(F)(F)F)ccnc1C[S@@](=O)c1nc2ccccc2[nH]1",
             "name_a": "lansoprazole",
@@ -269,7 +267,7 @@ def _():
     ]
     CLOSE_BUT_FAR = [
         {
-            "label": "N-methylacetamide / N-ethylacetamide (動画の 2 分子、CH₃ → C₂H₅)",
+            "label": "N-methylacetamide / N-ethylacetamide (from the movie, CH₃ → C₂H₅)",
             "a": "CC(=O)NC",
             "b": "CC(=O)NCC",
             "name_a": "N-methylacetamide",
@@ -297,7 +295,7 @@ def _():
             "name_b": "phenacetin",
         },
         {
-            "label": "OADMET-0001944 / OADMET-0002007 (PXR, CH₃ 1 つ)",
+            "label": "OADMET-0001944 / OADMET-0002007 (PXR, one CH₃)",
             "a": "CCN(CC)CC(=O)Nc1c(C)cccc1C",
             "b": "CCN(CC)CC(=O)Nc1c(C)cc(C)cc1C",
             "name_a": "OADMET-0001944",
@@ -313,9 +311,9 @@ def _(SAME_FP, mo):
     _by_label = {e["label"]: e for e in SAME_FP}
     same_kind = mo.ui.dropdown(
         {
-            "立体化学": _by_label["(R)- / (S)-thalidomide (立体)"],
-            "環サイズ": _by_label["cyclohexylamine / cycloheptylamine (環サイズ)"],
-            "鎖長": _by_label["nonanoic acid / palmitic acid (鎖長)"],
+            "立体化学": _by_label["(R)- / (S)-thalidomide (stereo)"],
+            "環サイズ": _by_label["cyclohexylamine / cycloheptylamine (ring size)"],
+            "鎖長": _by_label["nonanoic acid / palmitic acid (chain length)"],
         },
         value="立体化学",
         label="例",
@@ -361,7 +359,7 @@ def _(SAME_FP, bench, mo, np, pl):
             for name, kw in [("count", {"count": True}), ("chirality", {"chirality": True})]
             if not np.array_equal(*bench.fingerprints([e["a"], e["b"]], **kw))
         ]
-        return " / ".join(out) or "どちらでも区別できない"
+        return " / ".join(out) or "neither"
 
     same_table = mo.ui.table(
         pl.DataFrame(
@@ -369,8 +367,8 @@ def _(SAME_FP, bench, mo, np, pl):
                 {
                     "A": e["name_a"],
                     "B": e["name_b"],
-                    "違い": e["label"].rsplit("(", 1)[1].rstrip(")"),
-                    "区別できる設定": _separates(e),
+                    "difference": e["label"].rsplit("(", 1)[1].rstrip(")"),
+                    "separated by": _separates(e),
                 }
                 for e in SAME_FP
             ]
@@ -460,7 +458,7 @@ def _(CLOSE_BUT_FAR, SAME_FP, bench, mo, pl):
         return round(float((a & b).sum() / (a | b).sum()), 2), int((a ^ b).sum())
 
     # the chain-length pair from the previous section, for comparison (no bit changes)
-    far_pairs = CLOSE_BUT_FAR + [e for e in SAME_FP if "鎖長" in e["label"]]
+    far_pairs = CLOSE_BUT_FAR + [e for e in SAME_FP if "chain length" in e["label"]]
 
     far_table = mo.ui.table(
         pl.DataFrame(
@@ -468,9 +466,9 @@ def _(CLOSE_BUT_FAR, SAME_FP, bench, mo, pl):
                 {
                     "A": e["name_a"],
                     "B": e["name_b"],
-                    "違い": e["label"].rsplit("(", 1)[1].rstrip(")"),
+                    "difference": e["label"].rsplit("(", 1)[1].rstrip(")"),
                     "Tanimoto": t,
-                    "入れ替わる bit": n,
+                    "bits that differ": n,
                 }
                 for e in far_pairs
                 for t, n in [_bits(e)]
@@ -610,7 +608,7 @@ def _(alt, mo, mols, task, test, train):
         .mark_bar(opacity=0.6)
         .encode(
             x=alt.X("y:Q", bin=alt.Bin(maxbins=40), title=task.label),
-            y=alt.Y("count():Q", stack=None, title="化合物数"),
+            y=alt.Y("count():Q", stack=None, title="compounds"),
             color=alt.Color(
                 "split:N",
                 scale=alt.Scale(domain=["train", "test"], range=["#1c7ed6", "#f08c00"]),
@@ -631,10 +629,8 @@ def _(alt, mo, mols, task, test, train):
                     _hist,
                     mo.vstack(
                         [
-                            mo.stat(
-                                f"{train['y'].std():.2f}", label=f"train の標準偏差 ({task.label})"
-                            ),
-                            mo.stat(f"{test['y'].std():.2f}", label="test の標準偏差"),
+                            mo.stat(f"{train['y'].std():.2f}", label=f"SD of {task.label} (train)"),
+                            mo.stat(f"{test['y'].std():.2f}", label="SD (test)"),
                         ]
                     ),
                 ],
@@ -714,17 +710,15 @@ def _(census_for, mo, np, task, train):
     第 1 部の動画などで ECFP の collision に少し触れましたが、違う部分構造が同じ bit に入る collision には、2 つの場合があります。
 
     * **分子内**: 同じ分子の違う部分構造が同じ bit に入る。その分子で立つ bit が 1 つ減る
-    * **データセット全体**: 別々の分子の違う部分構造が同じ bit に入る。bit が立っていても、どの部分構造によるものかを区別できない[^effect]
+    * **データセット全体**: 別々の分子の違う部分構造が同じ bit に入る。bit が立っていても、どの部分構造によるものかを区別できない<sup><a href="#ref-2">2</a></sup>
 
     {task.dataset} · {task.endpoint} のデータセットでは、次のようになっています。
 
     * 1 分子あたりの部分構造は **{np.median(_n_envs):.0f} 種類** (中央値)
     * 分子内の collision がある化合物は train の **{(_n_bits < _n_envs).mean():.0%}**
-    * train {train.height:,} 化合物全体の部分構造は **{int(_envs.sum()):,} 種類**。2048 bit に折りたたむので、1 bit に平均 **{_envs[_envs > 0].mean():.0f} 種類**が入る[^load]
+    * train {train.height:,} 化合物全体の部分構造は **{int(_envs.sum()):,} 種類**。2048 bit に折りたたむので、1 bit に平均 **{_envs[_envs > 0].mean():.0f} 種類**が入る<sup><a href="#ref-3">3</a></sup>
     * bit が立っているとき、それがその bit でいちばん多い部分構造によるものである割合 (purity) は平均 **{_census.purity()[1]:.0%}**
 
-    [^effect]: collision が類似度を高めに見せることと、予測への影響は Virany & Tripp (2025) が調べている
-    [^load]: bit-load とも呼ばれる (Gütlein & Kramer, 2016)
     """)
     return
 
@@ -790,19 +784,10 @@ def _(MorganBitTiles, bits_grid, mo, mols, pl, task, train):
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### 2.3 · 違う分子なのに fingerprint が同じ
-
-    train の中で、bit ベクトルがまったく同じになる分子のグループです。bit ベクトルが同じなら、fingerprint だけのモデルはどれにも同じ値を予測します。count fingerprint やキラリティ付きの fingerprint で分かれるかも示します。
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(bench, mo, np, pl, train):
-    _smi = train["smiles"].to_list()
-    _y = train["y"].to_numpy()
+def _(bench, mo, mols, np, pl, task):
+    # groups of molecules (train and test together) whose bit vectors are identical, and whether
+    # counts or chirality tell them apart
+    _smi = mols["smiles"].to_list()
     _keys = {
         name: [row.tobytes() for row in bench.fingerprints(_smi, **kw).astype(np.uint16)]
         for name, kw in [("bit", {}), ("count", {"count": True}), ("chiral", {"chirality": True})]
@@ -810,213 +795,91 @@ def _(bench, mo, np, pl, train):
     _groups: dict[bytes, list[int]] = {}
     for _i, _k in enumerate(_keys["bit"]):
         _groups.setdefault(_k, []).append(_i)
+    _y = mols["y"].to_numpy()
     _rows = []
     for _g in (g for g in _groups.values() if len(g) > 1):
+        _by = [k for k in ("count", "chiral") if len({_keys[k][i] for i in _g}) > 1]
+        _lo, _hi = min(_g, key=lambda i: _y[i]), max(_g, key=lambda i: _y[i])
         _rows.append(
             {
-                "分子数": len(_g),
-                "ids": " / ".join(train["id"][i] for i in _g[:4]),
-                "値の幅": round(float(np.ptp(_y[_g])), 2),
-                "count で分かれる": len({_keys["count"][i] for i in _g}) > 1,
-                "キラリティで分かれる": len({_keys["chiral"][i] for i in _g}) > 1,
+                "compounds": " / ".join(mols["id"][i] for i in _g[:3])
+                + (" …" if len(_g) > 3 else ""),
+                "n": len(_g),
+                f"Δ {task.label}": round(float(_y[_hi] - _y[_lo]), 2),
+                "separated by": " / ".join(
+                    {"count": "count", "chiral": "chirality"}[k] for k in _by
+                )
+                or "neither",
+                # the two members furthest apart in value, for the comparison below
+                "_a": mols["id"][_lo],
+                "_b": mols["id"][_hi],
             }
         )
-    twins = pl.DataFrame(_rows).sort("値の幅", descending=True) if _rows else pl.DataFrame()
-    mo.vstack(
-        [
-            mo.md(
-                f"train {train.height:,} 化合物のうち **{twins.height} グループ** "
-                f"({int(twins['分子数'].sum()) if twins.height else 0} 化合物) が同じ bit ベクトルです。"
-            ),
-            mo.ui.table(twins, page_size=8) if twins.height else mo.md(""),
-        ]
+    twins = (
+        pl.DataFrame(_rows).sort(f"Δ {task.label}", descending=True) if _rows else pl.DataFrame()
     )
-    return
+    _n = {
+        k: int((twins["separated by"].str.contains(k)).sum()) if twins.height else 0
+        for k in ("count", "chirality", "neither")
+    }
+    _numbers = (
+        f"""
+    * 同じ fingerprint になる化合物は **{twins.height} 組**、あわせて **{int(twins["n"].sum())} 化合物**
+    * count で区別できるのは **{_n["count"]} 組**、chirality で区別できるのは **{_n["chirality"]} 組**、どちらでも区別できないのは **{_n["neither"]} 組**
+    * 同じ fingerprint の中での {task.label} の差は、最大で **{twins[f"Δ {task.label}"].max():.2f}**
+    """
+        if twins.height
+        else """
+    * 同じ fingerprint になる化合物の組はない
+    """
+    )
+    mo.md(f"""
+    ### 2.3 · 違う分子なのに fingerprint が同じ
+
+    第 1 部で見た 1 つ目の注意点です。fingerprint が同じなら、fingerprint だけを使うモデルはどの化合物にも同じ値を予測します。
+
+    {task.dataset} · {task.endpoint} のデータセットでは、次のようになっています。
+    {_numbers}""")
+    return (twins,)
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### 2.4 · 最近傍の類似度
-
-    ここからは、この fingerprint で測った類似度の話です。test の各化合物について、ECFP4 の Tanimoto 類似度で train の**最近傍**を探します。最近傍が近いほど、「似た化合物の値を借りる」予測が使えそうに思えます。下の図は全エンドポイントの最近傍類似度の分布で、選んだエンドポイントを色で示します。
-    """)
-    return
-
-
-@app.cell
-def _(db, mo):
-    nn_by_task = mo.sql(
-        """
-        SELECT
-            t.dataset || ' · ' || t.endpoint AS name, n.task,
-            min(n.tanimoto) AS lo, quantile_cont(n.tanimoto, 0.25) AS q1,
-            median(n.tanimoto) AS med, quantile_cont(n.tanimoto, 0.75) AS q3, max(n.tanimoto) AS hi
-        FROM neighbours n JOIN tasks t USING (task)
-        GROUP BY ALL
-        ORDER BY med
-        """,
-        output=False,
-        engine=db,
-    )
-    return (nn_by_task,)
-
-
-@app.cell(hide_code=True)
-def _(alt, metrics, mo, nn_by_task, pl, task):
-    # one box per endpoint, drawn from the quantiles computed in SQL (not from every row)
-    _d = nn_by_task.with_columns((pl.col("task") == task.key).alias("selected"))
-    _y = alt.Y("name:N", sort=_d["name"].to_list(), title=None)
-    _color = alt.Color(
-        "selected:N",
-        scale=alt.Scale(domain=[True, False], range=["#d6336c", "#adb5bd"]),
-        legend=None,
-    )
-    _x = alt.X("lo:Q", title="最近傍の Tanimoto (ECFP4)", scale=alt.Scale(domain=[0, 1]))
-    _base = alt.Chart(_d).encode(y=_y, color=_color)
-    _box = (
-        _base.mark_rule().encode(x=_x, x2="hi:Q")
-        + _base.mark_bar(size=12).encode(
-            x="q1:Q",
-            x2="q3:Q",
-            tooltip=[
-                "name",
-                alt.Tooltip("med:Q", title="中央値", format=".2f"),
-                alt.Tooltip("q1:Q", format=".2f"),
-                alt.Tooltip("q3:Q", format=".2f"),
-            ],
+def _(mo, twins):
+    twins_table = (
+        mo.ui.table(
+            twins.drop("_a", "_b"),
+            selection="single",
+            initial_selection=[0],
+            page_size=6,
+            label="同じ fingerprint になる化合物の組",
         )
-        + _base.mark_tick(color="white", size=12, thickness=2).encode(x="med:Q")
-    ).properties(height=360, width=460)
-    _m = metrics.filter(pl.col("task") == task.key).row(0, named=True)
-    mo.hstack(
-        [
-            _box,
-            mo.vstack(
-                [
-                    mo.stat(f"{_m['nn_tanimoto_median']:.2f}", label="最近傍 Tanimoto (中央値)"),
-                    mo.stat(f"{_m['share_nn_ge_06']:.0%}", label="最近傍が 0.6 以上の test 化合物"),
-                    mo.stat(
-                        f"{_m['n_identical_fp']}",
-                        label="train と fingerprint が同じ test 化合物 (立体違いなど)",
-                    ),
-                ]
-            ),
-        ],
-        widths=[1.6, 1],
-        align="center",
+        if twins.height
+        else None
     )
-    return
+    twins_table
+    return (twins_table,)
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### 2.5 · 似ていれば値も近いか
-
-    **類似性原理** (似た分子は性質も似ている) が成り立つなら、最近傍が近いほど、test 化合物と最近傍の値の差は小さくなるはずです。下の線は最近傍の類似度の区間ごとの |Δ| (test − 最近傍) の平均で、破線はランダムな train–test ペアの |Δ| です。
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(alt, mo, neighbours, np, pl, spearmanr, task):
-    _nb = neighbours.filter(pl.col("task") == task.key).with_columns(
-        (pl.col("y_test") - pl.col("y_nn")).abs().alias("dy"),
-        (pl.col("tanimoto") * 10).floor().clip(2, 9).alias("bin"),
-    )
-    _curve = (
-        _nb.group_by("bin")
-        .agg(pl.len().alias("n"), pl.col("dy").mean().alias("mean_dy"))
-        .filter(pl.col("n") >= 5)
-        .with_columns(((pl.col("bin") + 0.5) / 10).alias("sim"))
-        .sort("bin")
-    )
-    _rng = np.random.default_rng(0)
-    _yt, _yn = _nb["y_test"].to_numpy(), _nb["y_nn"].to_numpy()
-    _random = float(np.abs(_rng.permutation(_yn) - _yt).mean())
-    _line = (
-        alt.Chart(_curve)
-        .mark_line(point=True, color="#d6336c")
-        .encode(
-            x=alt.X("sim:Q", title="最近傍の Tanimoto", scale=alt.Scale(domain=[0.2, 1])),
-            y=alt.Y("mean_dy:Q", title=f"|Δ {task.label}| の平均"),
-            tooltip=["n:Q", alt.Tooltip("mean_dy:Q", format=".2f")],
-        )
-    )
-    _rule = (
-        alt.Chart(pl.DataFrame({"y": [_random]}))
-        .mark_rule(strokeDash=[5, 4], color="#6b7280")
-        .encode(y="y:Q")
-    )
-    _rho = spearmanr(_yn, _yt)[0]
-    _close = _nb["tanimoto"].to_numpy() >= 0.6
-    _rho_close = spearmanr(_yn[_close], _yt[_close])[0] if _close.sum() >= 10 else float("nan")
-    mo.hstack(
-        [
-            (_line + _rule).properties(height=240, width=400),
-            mo.vstack(
-                [
-                    mo.stat(f"{_rho:.2f}", label="最近傍の値で予測したときの Spearman ρ"),
-                    mo.stat(f"{_rho_close:.2f}", label="同じ、最近傍が 0.6 以上のものだけ"),
-                    mo.stat(f"{_random:.2f}", label="ランダムなペアの |Δ|"),
-                ]
-            ),
-        ],
-        widths=[1.4, 1],
-        align="center",
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### 2.6 · 似ているのに値が違う
-
-    test 化合物と最近傍のペアのうち、似ている (Tanimoto ≥ 0.6) のに値が大きく違うものです。行を選ぶと下で比べられます。「common part」で共通部分構造と違う部分を見られます。
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo, neighbours, pl, task):
-    _pairs = (
-        neighbours.filter((pl.col("task") == task.key) & (pl.col("tanimoto") >= 0.6))
-        .with_columns((pl.col("y_test") - pl.col("y_nn")).alias("Δ"))
-        .sort(pl.col("Δ").abs(), descending=True)
-        .select(
-            pl.col("test_id").alias("test"),
-            pl.col("nn_id").alias("最近傍 (train)"),
-            pl.col("tanimoto").round(2),
-            pl.col("y_test").round(2).alias("test の値"),
-            pl.col("y_nn").round(2).alias("最近傍の値"),
-            pl.col("Δ").round(2),
-        )
-    )
-    cliff_table = mo.ui.table(
-        _pairs, selection="single", initial_selection=[0] if _pairs.height else [], page_size=8
-    )
-    cliff_table
-    return (cliff_table,)
-
-
-@app.cell(hide_code=True)
-def _(MolPair, cliff_table, mo, mols, pl, task):
-    _sel = cliff_table.value
-    if _sel is None or len(_sel) == 0:
-        _out = mo.md("_このエンドポイントには Tanimoto ≥ 0.6 のペアがありません。_")
+def _(MorganExplorer, mo, mols, pl, task, twins, twins_table):
+    if twins_table is None:
+        _out = None
     else:
-        _r = _sel.row(0, named=True)
-        _rows = [
-            mols.filter(pl.col("id") == i).row(0, named=True)
-            for i in (_r["test"], _r["最近傍 (train)"])
-        ]
+        _sel = twins_table.value
+        _key = _sel["compounds"][0] if _sel is not None and len(_sel) else twins["compounds"][0]
+        _row = twins.filter(pl.col("compounds") == _key).row(0, named=True)
+        _pair = [mols.filter(pl.col("id") == _row[k]).row(0, named=True) for k in ("_a", "_b")]
         _out = mo.ui.anywidget(
-            MolPair(
-                *[{**r, task.label: r["y"]} for r in _rows],
-                value_cols=[task.label],
-                properties=["MW", "cLogP", "TPSA", "HBD", "HBA"],
+            MorganExplorer(
+                [
+                    {
+                        "id": r["id"],
+                        "smiles": r["smiles"],
+                        "label": f"{r['split']} · {task.label} {r['y']:.2f}",
+                    }
+                    for r in _pair
+                ],
+                stereo_labels=True,
             )
         )
     _out
@@ -1026,7 +889,246 @@ def _(MolPair, cliff_table, mo, mols, pl, task):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 2.7 · モデル
+    ### 2.4 · Nearest neighbor (NN)
+
+    ここからは類似度を見ていきましょう。test の各化合物について、train の中で ECFP4 の Tanimoto 類似度がいちばん高い化合物を **nearest neighbor (NN)** と呼びます。
+
+    NN との類似度を見ると、test の化合物に似た構造が train にあるかどうかがわかります。下の分布が右に寄っていれば、test は train にある構造の近くにあります。左に寄っていれば、test には train にない構造が多いことになります。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(alt, metrics, mo, neighbours, pl, task):
+    _nn = neighbours.filter(pl.col("task") == task.key).select("tanimoto")
+    _hist = (
+        alt.Chart(_nn)
+        .mark_bar(color="#1c7ed6", opacity=0.8)
+        .encode(
+            x=alt.X(
+                "tanimoto:Q",
+                bin=alt.Bin(extent=[0, 1], step=0.05),
+                title="Tanimoto to the NN (ECFP4)",
+                scale=alt.Scale(domain=[0, 1]),
+            ),
+            y=alt.Y("count():Q", title="test compounds"),
+        )
+        .properties(height=220, width=420)
+    )
+    _m = metrics.filter(pl.col("task") == task.key).row(0, named=True)
+    mo.hstack(
+        [
+            _hist,
+            mo.vstack(
+                [
+                    mo.stat(f"{_m['nn_tanimoto_median']:.2f}", label="median Tanimoto to the NN"),
+                    mo.stat(f"{_m['share_nn_ge_06']:.0%}", label="test compounds with NN ≥ 0.6"),
+                    mo.stat(
+                        f"{_m['n_identical_fp']}",
+                        label="test compounds sharing a train fingerprint",
+                    ),
+                ]
+            ),
+        ],
+        widths=[1.4, 1],
+        align="center",
+    )
+    return
+
+
+@app.cell
+def _(neighbours, np, pl, task):
+    # every test compound with its NN: the similarity, and how far apart their values are
+    nn_pairs = neighbours.filter(pl.col("task") == task.key).with_columns(
+        (pl.col("y_test") - pl.col("y_nn")).alias("delta"),
+        (pl.col("y_test") - pl.col("y_nn")).abs().alias("dy"),
+    )
+    # the same difference for random train–test pairs (NN values shuffled)
+    random_dy = float(
+        np.abs(
+            np.random.default_rng(0).permutation(nn_pairs["y_nn"].to_numpy())
+            - nn_pairs["y_test"].to_numpy()
+        ).mean()
+    )
+    # activity cliffs: similar by ECFP4, yet as far apart in value as unrelated compounds
+    cliffs = nn_pairs.filter((pl.col("tanimoto") >= 0.6) & (pl.col("dy") >= random_dy))
+    return cliffs, nn_pairs, random_dy
+
+
+@app.cell(hide_code=True)
+def _(mo, nn_pairs, task):
+    mo.md(f"""
+    ### 2.5 · 類似性原理と activity cliff
+
+    創薬などの化合物の解析には、対になる 2 つの重要な概念があります。類似性原理と、その例外にあたる activity cliff です。
+
+    * **類似性原理** (similarity principle): 構造が似た分子は性質も似ている、という考え方<sup><a href="#ref-4">4</a></sup>。類似検索や、似た化合物の値を使った予測の前提になっている
+    * **activity cliff**: 構造がよく似ているのに、活性が大きく違う化合物のペア<sup><a href="#ref-5">5</a></sup>。メチル基を 1 つ足すだけで活性が 100 倍以上変わることがある「magic methyl」が有名な例<sup><a href="#ref-6">6</a></sup>
+
+    下の図で、このデータセットではどうなっているかを見ます。
+
+    * 点: test 化合物 ({nn_pairs.height:,} 個)
+    * 横軸: その化合物と NN の Tanimoto
+    * 縦軸: NN との {task.label} の差 |Δ|
+    * 赤い線: 類似度の区間ごとの |Δ| の平均
+    * 破線: ランダムな train–test ペアの |Δ| の平均
+
+    類似性原理が成り立っていれば、右に行くほど点は下に集まります。activity cliff は、ここでは類似度が 0.6 以上で、|Δ| がランダムなペアの平均以上あるペアとしました (図の右上の色を付けた領域)。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(alt, cliffs, mo, nn_pairs, pl, random_dy, task):
+    _curve = (
+        nn_pairs.with_columns((pl.col("tanimoto") * 10).floor().clip(0, 9).alias("bin"))
+        .group_by("bin")
+        .agg(pl.len().alias("n"), pl.col("dy").mean().alias("mean_dy"))
+        .filter(pl.col("n") >= 5)
+        .with_columns(((pl.col("bin") + 0.5) / 10).alias("sim"))
+        .sort("bin")
+    )
+    _top = float(nn_pairs["dy"].max()) * 1.05
+    _x = alt.X("tanimoto:Q", title="Tanimoto to the NN (ECFP4)", scale=alt.Scale(domain=[0, 1]))
+    _y = alt.Y("dy:Q", title=f"|Δ {task.label}| (test − NN)", scale=alt.Scale(domain=[0, _top]))
+    _region = (
+        alt.Chart(pl.DataFrame({"x": [0.6], "x2": [1.0], "y": [random_dy], "y2": [_top]}))
+        .mark_rect(color="#d6336c", opacity=0.08)
+        .encode(x="x:Q", x2="x2:Q", y="y:Q", y2="y2:Q")
+    )
+    _label = (
+        alt.Chart(pl.DataFrame({"x": [0.99], "y": [_top * 0.97], "t": ["activity cliff"]}))
+        .mark_text(align="right", baseline="top", color="#d6336c", fontWeight="bold")
+        .encode(x="x:Q", y="y:Q", text="t:N")
+    )
+    _points = (
+        alt.Chart(nn_pairs.select("test_id", "nn_id", "tanimoto", "dy"))
+        .mark_circle(size=18, opacity=0.35, color="#1c7ed6")
+        .encode(
+            x=_x,
+            y=_y,
+            tooltip=[
+                alt.Tooltip("test_id:N", title="test"),
+                alt.Tooltip("nn_id:N", title="NN"),
+                alt.Tooltip("tanimoto:Q", format=".2f"),
+                alt.Tooltip("dy:Q", title="|Δ|", format=".2f"),
+            ],
+        )
+    )
+    _line = (
+        alt.Chart(_curve)
+        .mark_line(point=True, color="#d6336c")
+        .encode(
+            x="sim:Q",
+            y="mean_dy:Q",
+            tooltip=[
+                alt.Tooltip("n:Q", title="compounds"),
+                alt.Tooltip("mean_dy:Q", title="mean |Δ|", format=".2f"),
+            ],
+        )
+    )
+    _rule = (
+        alt.Chart(pl.DataFrame({"y": [random_dy]}))
+        .mark_rule(strokeDash=[5, 4], color="#6b7280")
+        .encode(y="y:Q")
+    )
+    mo.hstack(
+        [
+            (_region + _points + _rule + _line + _label).properties(height=280, width=430),
+            mo.vstack(
+                [
+                    mo.stat(f"{nn_pairs['dy'].mean():.2f}", label="mean |Δ| to the NN"),
+                    mo.stat(f"{random_dy:.2f}", label="mean |Δ| of random pairs"),
+                    mo.stat(f"{cliffs.height}", label="activity cliffs"),
+                ]
+            ),
+        ],
+        widths=[1.5, 1],
+        align="center",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo, task):
+    mo.md(rf"""
+    下の表は activity cliff のペアです。行を選ぶと、その 2 つを 2 通りの見方で比べられます。
+
+    * **Molecules**: 構造と測定値、物性を並べます。
+    * **Fingerprints**: 2 つの間で違う bit を並べます。`Δ {task.label}` の列は、train の中でその bit が立っている化合物の平均 {task.label} から、立っていない化合物の平均を引いた値です。プラスなら、その bit を持つ化合物は平均より値が高い傾向にあります。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(cliffs, mo, pl):
+    _pairs = cliffs.sort("dy", descending=True).select(
+        pl.col("test_id").alias("test"),
+        pl.col("nn_id").alias("NN (train)"),
+        pl.col("tanimoto").round(2).alias("Tanimoto"),
+        pl.col("y_test").round(2).alias("value (test)"),
+        pl.col("y_nn").round(2).alias("value (NN)"),
+        pl.col("delta").round(2).alias("Δ"),
+    )
+    cliff_table = mo.ui.table(
+        _pairs,
+        selection="single",
+        initial_selection=[0] if _pairs.height else [],
+        page_size=6,
+        label="activity cliff のペア",
+    )
+    cliff_table
+    return (cliff_table,)
+
+
+@app.cell(hide_code=True)
+def _(MolPair, MorganExplorer, cliff_table, mo, mols, pl, task, train):
+    _sel = cliff_table.value
+    if _sel is None or len(_sel) == 0:
+        _out = mo.callout(
+            mo.md("このデータセットには、activity cliff にあたるペアがありません。"), kind="info"
+        )
+    else:
+        _r = _sel.row(0, named=True)
+        _rows = [
+            mols.filter(pl.col("id") == i).row(0, named=True)
+            for i in (_r["test"], _r["NN (train)"])
+        ]
+        _out = mo.ui.tabs(
+            {
+                "Molecules": mo.ui.anywidget(
+                    MolPair(
+                        *[{**r, task.label: r["y"]} for r in _rows],
+                        value_cols=[task.label],
+                        properties=["MW", "cLogP", "TPSA", "HBD", "HBA"],
+                    )
+                ),
+                "Fingerprints": mo.ui.anywidget(
+                    MorganExplorer(
+                        [
+                            {
+                                "id": r["id"],
+                                "smiles": r["smiles"],
+                                "label": f"{r['split']} · {task.label} {r['y']:.2f}",
+                            }
+                            for r in _rows
+                        ],
+                        reference=train["smiles"].to_list(),
+                        y=train["y"].to_numpy(),
+                        y_label=task.label,
+                        row_filter="differ",
+                    )
+                ),
+            }
+        )
+    _out
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### 2.6 · モデル
 
     同じ LightGBM (OpenADMET のチャレンジ tutorial と同じ設定) を、4 種類の特徴量で学習した test での成績です。
 
@@ -1073,8 +1175,8 @@ def _(alt, bench, metrics, mo, pl, predictions, task):
         alt.Chart(_p)
         .mark_circle(size=18, opacity=0.5)
         .encode(
-            x=alt.X("y:Q", title=f"測定値 ({task.label})", scale=alt.Scale(domain=[_lo, _hi])),
-            y=alt.Y("pred:Q", title="予測値 (ECFP4 bit)", scale=alt.Scale(domain=[_lo, _hi])),
+            x=alt.X("y:Q", title=f"measured {task.label}", scale=alt.Scale(domain=[_lo, _hi])),
+            y=alt.Y("pred:Q", title="predicted (ECFP4 bit)", scale=alt.Scale(domain=[_lo, _hi])),
             tooltip=["id", alt.Tooltip("y:Q", format=".2f"), alt.Tooltip("pred:Q", format=".2f")],
         )
         .properties(height=260, width=260)
@@ -1091,7 +1193,7 @@ def _(alt, bench, metrics, mo, pl, predictions, task):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 2.8 · モデルが見ているもの
+    ### 2.7 · モデルが見ているもの
 
     ECFP4 bit のモデルについて、TreeSHAP (各 bit がその分子の予測をどれだけ上げたか下げたか) を train の全化合物で平均したものが **mean |SHAP|** です。行をクリックすると、その bit に入る部分構造と、その bit が立っている分子が出ます。
     """)
@@ -1138,12 +1240,12 @@ def _(mo, neighbours, pl, task):
         value=None
         if _nb.height == 0
         else f"{_nb['test_id'][0]} (Tanimoto {_nb['tanimoto'][0]:.2f})",
-        label="test 化合物 (最近傍との差が大きい順)",
+        label="test 化合物 (NN との差が大きい順)",
     )
     mo.vstack(
         [
             mo.md(r"""
-    1 つの予測を分解します。test 化合物と train の最近傍を並べ、原子を TreeSHAP 寄与で塗っています (赤は予測を上げ、青は下げます)。
+    1 つの予測を分解します。test 化合物と train の NN を並べ、原子を TreeSHAP 寄与で塗っています (赤は予測を上げ、青は下げます)。
     """),
             shap_pick,
         ]
@@ -1208,6 +1310,61 @@ def _(mo):
 
 @app.cell
 def _(db, mo):
+    nn_by_task = mo.sql(
+        """
+        SELECT
+            t.dataset || ' · ' || t.endpoint AS name, n.task,
+            min(n.tanimoto) AS lo, quantile_cont(n.tanimoto, 0.25) AS q1,
+            median(n.tanimoto) AS med, quantile_cont(n.tanimoto, 0.75) AS q3, max(n.tanimoto) AS hi
+        FROM neighbours n JOIN tasks t USING (task)
+        GROUP BY ALL
+        ORDER BY med
+        """,
+        output=False,
+        engine=db,
+    )
+    return (nn_by_task,)
+
+
+@app.cell(hide_code=True)
+def _(alt, mo, nn_by_task, pl, task):
+    # one box per endpoint, drawn from the quantiles computed in SQL (not from every row)
+    _d = nn_by_task.with_columns((pl.col("task") == task.key).alias("selected"))
+    _y = alt.Y("name:N", sort=_d["name"].to_list(), title=None)
+    _color = alt.Color(
+        "selected:N",
+        scale=alt.Scale(domain=[True, False], range=["#d6336c", "#adb5bd"]),
+        legend=None,
+    )
+    _x = alt.X("lo:Q", title="Tanimoto to the NN (ECFP4)", scale=alt.Scale(domain=[0, 1]))
+    _base = alt.Chart(_d).encode(y=_y, color=_color)
+    _box = (
+        _base.mark_rule().encode(x=_x, x2="hi:Q")
+        + _base.mark_bar(size=12).encode(
+            x="q1:Q",
+            x2="q3:Q",
+            tooltip=[
+                "name",
+                alt.Tooltip("med:Q", title="median", format=".2f"),
+                alt.Tooltip("q1:Q", format=".2f"),
+                alt.Tooltip("q3:Q", format=".2f"),
+            ],
+        )
+        + _base.mark_tick(color="white", size=12, thickness=2).encode(x="med:Q")
+    ).properties(height=360, width=460)
+    mo.vstack(
+        [
+            mo.md(
+                "test 化合物と NN の類似度を、エンドポイントごとに並べたものです (箱は 25〜75%、白い線は中央値)。"
+            ),
+            _box,
+        ]
+    )
+    return
+
+
+@app.cell
+def _(db, mo):
     _summary = mo.sql(
         """
         SELECT
@@ -1230,7 +1387,7 @@ def _(db, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    * **ペア差の再現**: test 化合物と最近傍の差を、モデルがどれだけの大きさで予測できたか (予測の差を測定の差に回帰した傾き。1 なら大きさまで再現、0 なら差を予測できていない)。最近傍の予測は、その化合物を学習に使っていないモデル (5-fold の out of fold) で出しています
+    * **ペア差の再現**: test 化合物と NN の差を、モデルがどれだけの大きさで予測できたか (予測の差を測定の差に回帰した傾き。1 なら大きさまで再現、0 なら差を予測できていない)。NN の予測は、その化合物を学習に使っていないモデル (5-fold の out of fold) で出しています
 
     _(ここに結論の文章を書く: 近いシリーズでは ECFP4 がよく効く / count はほぼどこでも効く / 物性では記述子 / PXR のような設定では FP だけの単純なモデルは難しいが原因は 1 つではない / ごく近いペアの差はどのデータでも予測できない / ECFP4 は起点)_
     """)
@@ -1251,9 +1408,12 @@ def _(mo):
 
     ### 参考文献
 
-    * Rogers, D.; Hahn, M. Extended-Connectivity Fingerprints. *J. Chem. Inf. Model.* **2010**, 50, 742–754. [doi:10.1021/ci100050t](https://doi.org/10.1021/ci100050t)
-    * Gütlein, M.; Kramer, S. Filtered circular fingerprints improve either prediction or runtime performance while retaining interpretability. *J. Cheminform.* **2016**, 8, 60. [doi:10.1186/s13321-016-0173-z](https://doi.org/10.1186/s13321-016-0173-z)
-    * Virany, W.; Tripp, A. Hash Collisions in Molecular Fingerprints: Effects on Property Prediction and Bayesian Optimization. AI for Science workshop, NeurIPS 2025. [arXiv:2511.17078](https://arxiv.org/abs/2511.17078)
+    1. <span id="ref-1"></span>Rogers, D.; Hahn, M. Extended-Connectivity Fingerprints. *J. Chem. Inf. Model.* **2010**, 50, 742–754. [doi:10.1021/ci100050t](https://doi.org/10.1021/ci100050t)
+    2. <span id="ref-2"></span>Virany, W.; Tripp, A. Hash Collisions in Molecular Fingerprints: Effects on Property Prediction and Bayesian Optimization. AI for Science workshop, NeurIPS 2025. [arXiv:2511.17078](https://arxiv.org/abs/2511.17078) (collision が類似度を高めに見せることと、予測への影響)
+    3. <span id="ref-3"></span>Gütlein, M.; Kramer, S. Filtered circular fingerprints improve either prediction or runtime performance while retaining interpretability. *J. Cheminform.* **2016**, 8, 60. [doi:10.1186/s13321-016-0173-z](https://doi.org/10.1186/s13321-016-0173-z) (1 bit あたりの部分構造の数を bit-load と呼んでいる)
+    4. <span id="ref-4"></span>Johnson, M. A.; Maggiora, G. M. (eds.) *Concepts and Applications of Molecular Similarity*. Wiley, **1990**
+    5. <span id="ref-5"></span>Maggiora, G. M. On Outliers and Activity Cliffs — Why QSAR Often Disappoints. *J. Chem. Inf. Model.* **2006**, 46, 1535. [doi:10.1021/ci060117s](https://doi.org/10.1021/ci060117s)
+    6. <span id="ref-6"></span>Schönherr, H.; Cernak, T. Profound Methyl Effects in Drug Discovery and a Call for New C–H Methylation Reactions. *Angew. Chem. Int. Ed.* **2013**, 52, 12256–12267. [doi:10.1002/anie.201303207](https://doi.org/10.1002/anie.201303207)
     """)
     return
 
