@@ -790,19 +790,10 @@ def _(MorganBitTiles, bits_grid, mo, mols, pl, task, train):
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### 2.3 · 違う分子なのに fingerprint が同じ
-
-    train の中で、bit ベクトルがまったく同じになる分子のグループです。bit ベクトルが同じなら、fingerprint だけのモデルはどれにも同じ値を予測します。count fingerprint やキラリティ付きの fingerprint で分かれるかも示します。
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(bench, mo, np, pl, train):
-    _smi = train["smiles"].to_list()
-    _y = train["y"].to_numpy()
+def _(bench, mo, mols, np, pl, task):
+    # groups of molecules (train and test together) whose bit vectors are identical, and whether
+    # counts or chirality tell them apart
+    _smi = mols["smiles"].to_list()
     _keys = {
         name: [row.tobytes() for row in bench.fingerprints(_smi, **kw).astype(np.uint16)]
         for name, kw in [("bit", {}), ("count", {"count": True}), ("chiral", {"chirality": True})]
@@ -810,27 +801,93 @@ def _(bench, mo, np, pl, train):
     _groups: dict[bytes, list[int]] = {}
     for _i, _k in enumerate(_keys["bit"]):
         _groups.setdefault(_k, []).append(_i)
+    _y = mols["y"].to_numpy()
     _rows = []
     for _g in (g for g in _groups.values() if len(g) > 1):
+        _by = [k for k in ("count", "chiral") if len({_keys[k][i] for i in _g}) > 1]
+        _lo, _hi = min(_g, key=lambda i: _y[i]), max(_g, key=lambda i: _y[i])
         _rows.append(
             {
+                "化合物": " / ".join(mols["id"][i] for i in _g[:3]) + (" …" if len(_g) > 3 else ""),
                 "分子数": len(_g),
-                "ids": " / ".join(train["id"][i] for i in _g[:4]),
-                "値の幅": round(float(np.ptp(_y[_g])), 2),
-                "count で分かれる": len({_keys["count"][i] for i in _g}) > 1,
-                "キラリティで分かれる": len({_keys["chiral"][i] for i in _g}) > 1,
+                f"Δ {task.label}": round(float(_y[_hi] - _y[_lo]), 2),
+                "区別できる設定": " / ".join(
+                    {"count": "count", "chiral": "chirality"}[k] for k in _by
+                )
+                or "どちらでも区別できない",
+                # the two members furthest apart in value, for the comparison below
+                "_a": mols["id"][_lo],
+                "_b": mols["id"][_hi],
             }
         )
-    twins = pl.DataFrame(_rows).sort("値の幅", descending=True) if _rows else pl.DataFrame()
-    mo.vstack(
-        [
-            mo.md(
-                f"train {train.height:,} 化合物のうち **{twins.height} グループ** "
-                f"({int(twins['分子数'].sum()) if twins.height else 0} 化合物) が同じ bit ベクトルです。"
-            ),
-            mo.ui.table(twins, page_size=8) if twins.height else mo.md(""),
-        ]
+    twins = (
+        pl.DataFrame(_rows).sort(f"Δ {task.label}", descending=True) if _rows else pl.DataFrame()
     )
+    _n = {
+        k: int((twins["区別できる設定"].str.contains(k)).sum()) if twins.height else 0
+        for k in ("count", "chirality", "どちらでも")
+    }
+    _numbers = (
+        f"""
+    * 同じ fingerprint になる化合物は **{twins.height} 組**、あわせて **{int(twins["分子数"].sum())} 化合物**
+    * count で区別できるのは **{_n["count"]} 組**、chirality で区別できるのは **{_n["chirality"]} 組**、どちらでも区別できないのは **{_n["どちらでも"]} 組**
+    * 同じ fingerprint の中での {task.label} の差は、最大で **{twins[f"Δ {task.label}"].max():.2f}**
+    """
+        if twins.height
+        else """
+    * 同じ fingerprint になる化合物の組はない
+    """
+    )
+    mo.md(f"""
+    ### 2.3 · 違う分子なのに fingerprint が同じ
+
+    第 1 部で見た 1 つ目の注意点です。fingerprint が同じなら、fingerprint だけを使うモデルはどの化合物にも同じ値を予測します。
+
+    {task.dataset} · {task.endpoint} のデータセットでは、次のようになっています。
+    {_numbers}""")
+    return (twins,)
+
+
+@app.cell(hide_code=True)
+def _(mo, twins):
+    twins_table = (
+        mo.ui.table(
+            twins.drop("_a", "_b"),
+            selection="single",
+            initial_selection=[0],
+            page_size=6,
+            label="同じ fingerprint になる化合物の組",
+        )
+        if twins.height
+        else None
+    )
+    twins_table
+    return (twins_table,)
+
+
+@app.cell(hide_code=True)
+def _(MorganExplorer, mo, mols, pl, task, twins, twins_table):
+    if twins_table is None:
+        _out = None
+    else:
+        _sel = twins_table.value
+        _key = _sel["化合物"][0] if _sel is not None and len(_sel) else twins["化合物"][0]
+        _row = twins.filter(pl.col("化合物") == _key).row(0, named=True)
+        _pair = [mols.filter(pl.col("id") == _row[k]).row(0, named=True) for k in ("_a", "_b")]
+        _out = mo.ui.anywidget(
+            MorganExplorer(
+                [
+                    {
+                        "id": r["id"],
+                        "smiles": r["smiles"],
+                        "label": f"{r['split']} · {task.label} {r['y']:.2f}",
+                    }
+                    for r in _pair
+                ],
+                stereo_labels=True,
+            )
+        )
+    _out
     return
 
 
