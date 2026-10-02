@@ -66,6 +66,13 @@ compounds that are also in train, report near-duplicates across splits.
    8. モデルが見ているもの — BitImportance, SHAP on a test compound and its neighbour
 3. **見えたこと** — cross-dataset table (SQL over `metrics`) and the conclusions above; PXR as a
    case study (how pEC50 is measured and its uncertainty; OADMET-0006254)
+   * idea (2026-10-02): small multiples of BitAtlas's histogram, one per endpoint on shared
+     axes (number of substructures on a bit → number of bits), ordered by the mean per bit, and
+     two more columns in the table: distinct substructures and mean per bit. Train sets at
+     2048 bits: PXR 21,690 substructures, 10.6 per bit, no empty bit; ExpansionRx LogD 8,336,
+     4.2; ASAP SARS-CoV-2 Mpro 3,592, 2.1 (353 empty); ASAP LogD 2,082, 1.6 (742 empty). What
+     drives it is structural diversity, not the number of compounds. Cheap enough to compute in
+     the notebook (`census_for`)
 4. この notebook について / AI の利用 / 参考文献
 
 ## Widgets

@@ -701,7 +701,8 @@ def _(census_for, mo, np, task, train):
     from rdkit import Chem as _Chem
     from rdkit.Chem import rdFingerprintGenerator as _rfg
 
-    _envs = census_for(train["smiles"].to_list(), 2, 2048).n_envs
+    _census = census_for(train["smiles"].to_list(), 2, 2048)
+    _envs = _census.n_envs
     # per molecule: distinct radius 0–2 environments before folding, and bits set after folding
     _gen = _rfg.GetMorganGenerator(radius=2, fpSize=2048)
     _mols = [_Chem.MolFromSmiles(s) for s in train["smiles"]]
@@ -713,22 +714,31 @@ def _(census_for, mo, np, task, train):
     第 1 部の動画などで ECFP の collision に少し触れましたが、違う部分構造が同じ bit に入る collision には、2 つの場合があります。
 
     * **分子内**: 同じ分子の違う部分構造が同じ bit に入る。その分子で立つ bit が 1 つ減る
-    * **データセット全体**: 別々の分子の違う部分構造が同じ bit に入る。bit が立っていても、どの部分構造によるものかを区別できない
+    * **データセット全体**: 別々の分子の違う部分構造が同じ bit に入る。bit が立っていても、どの部分構造によるものかを区別できない[^effect]
 
     {task.dataset} · {task.endpoint} のデータセットでは、次のようになっています。
 
     * 1 分子あたりの部分構造は **{np.median(_n_envs):.0f} 種類** (中央値)
     * 分子内の collision がある化合物は train の **{(_n_bits < _n_envs).mean():.0%}**
-    * train {train.height:,} 化合物全体の部分構造は **{int(_envs.sum()):,} 種類**。2048 bit に折りたたむので、1 bit に平均 **{_envs[_envs > 0].mean():.0f} 種類**が入る
+    * train {train.height:,} 化合物全体の部分構造は **{int(_envs.sum()):,} 種類**。2048 bit に折りたたむので、1 bit に平均 **{_envs[_envs > 0].mean():.0f} 種類**が入る[^load]
+    * bit が立っているとき、それがその bit でいちばん多い部分構造によるものである割合 (purity) は平均 **{_census.purity()[1]:.0%}**
 
-    下は train の全 bit です。行を選ぶと、その bit に入っている部分構造が表示されます。
+    [^effect]: collision が類似度を高めに見せることと、予測への影響は Virany & Tripp (2025) が調べている
+    [^load]: bit-load とも呼ばれる (Gütlein & Kramer, 2016)
     """)
     return
 
 
 @app.cell(hide_code=True)
 def _(BitAtlas, mo, train):
-    mo.ui.anywidget(BitAtlas(train["smiles"].to_list(), ids=train["id"].to_list()))
+    mo.vstack(
+        [
+            mo.md(
+                "下は train の全 bit です。行を選ぶと、その bit に入っている部分構造が表示されます。"
+            ),
+            mo.ui.anywidget(BitAtlas(train["smiles"].to_list(), ids=train["id"].to_list())),
+        ]
+    )
     return
 
 
@@ -1238,6 +1248,12 @@ def _(mo):
     * **事前計算**: `dev/precompute.py` → `results/precomputed/`。計算のコードは `molwidgets.bench`
     * **ウィジェット**: `ECFPMovie`、`ECFPStepper`、`MorganBitTiles`、`MolGrid`、`MolPair`、`BitAtlas`、`BitImportance`、`MorganExplorer` は、この notebook のために作った anywidget コンポーネントです ([ソース](https://github.com/N283T/openadmet-marimo))
     * **AI の利用**: ウィジェット、動画、notebook の骨組みのコーディングには Claude (Anthropic) をアシスタントとして使いました。問いの立て方、解析の選び方、解釈は私自身のものです
+
+    ### 参考文献
+
+    * Rogers, D.; Hahn, M. Extended-Connectivity Fingerprints. *J. Chem. Inf. Model.* **2010**, 50, 742–754. [doi:10.1021/ci100050t](https://doi.org/10.1021/ci100050t)
+    * Gütlein, M.; Kramer, S. Filtered circular fingerprints improve either prediction or runtime performance while retaining interpretability. *J. Cheminform.* **2016**, 8, 60. [doi:10.1186/s13321-016-0173-z](https://doi.org/10.1186/s13321-016-0173-z)
+    * Virany, W.; Tripp, A. Hash Collisions in Molecular Fingerprints: Effects on Property Prediction and Bayesian Optimization. AI for Science workshop, NeurIPS 2025. [arXiv:2511.17078](https://arxiv.org/abs/2511.17078)
     """)
     return
 

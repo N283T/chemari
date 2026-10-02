@@ -57,7 +57,10 @@ components are used throughout.
     folds onto it; `mode="count"` shows each bit's count, and a chirality switch uses
     `includeChirality=True`
   - `BitAtlas`: every folded bit of a dataset, one row per bit, with the distinct substructures
-    that fold onto it; sortable by bit index, number of substructures or number of molecules
+    that fold onto it and its purity (the share of its molecules that set it through its most
+    common substructure); sortable by bit index, number of substructures, number of molecules
+    or purity, either way round. A panel on the right has the dataset's totals and a histogram
+    of substructures per bit; clicking a bar lists only those bits
   - `BitImportance`: every bit of a fingerprint model ranked by its importance (e.g. LightGBM gain
     or mean |SHAP|), in either direction so unused bits can be browsed too, with each bit's
     direction, its most common substructure and how many substructures and molecules it has;

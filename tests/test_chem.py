@@ -320,3 +320,14 @@ def test_explorer_chirality():
     assert bits(0) == bits(1)
     w.chirality = True
     assert bits(0) != bits(1)
+
+
+def test_bit_purity():
+    from molwidgets import bit_census
+
+    census = bit_census(["CCO", "CCN", "CCO"], n_bits=2048)
+    purity, mean = census.purity()
+    used = ~np.isnan(purity)
+    assert used.sum() == (census.n_envs > 0).sum()
+    assert ((purity[used] > 0) & (purity[used] <= 1)).all()
+    assert 0 < mean <= 1

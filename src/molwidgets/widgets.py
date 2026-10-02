@@ -555,7 +555,11 @@ class BitAtlas(_Computing):
 
     radius = traitlets.Int(2).tag(sync=True)
     n_bits = traitlets.Int(2048).tag(sync=True)
-    sort = traitlets.Unicode("bit").tag(sync=True)  # "bit" | "envs" | "mols"
+    sort = traitlets.Unicode("bit").tag(sync=True)  # "bit" | "envs" | "mols" | "purity"
+    # the other way round: highest bit first, or fewest substructures / molecules first
+    reverse = traitlets.Bool(False).tag(sync=True)
+    # [lo, hi]: list only the bits holding that many substructures (set by the histogram)
+    count_filter = traitlets.List(traitlets.Int()).tag(sync=True)
     page = traitlets.Int(0).tag(sync=True)
     page_size = traitlets.Int(20).tag(sync=True)
     per_row = traitlets.Int(10).tag(sync=True)
@@ -570,9 +574,11 @@ class BitAtlas(_Computing):
         self._mols: dict[int, Chem.Mol] = {}
         self._svgs: dict[tuple[int, int, int], str] = {}
         super().__init__(**kwargs)
-        self.observe(self._reset, names=["radius", "n_bits", "sort"])
+        self.observe(self._reset, names=["radius", "n_bits", "sort", "reverse", "count_filter"])
         self.observe(self._refresh, names=["page", "page_size", "per_row"])
-        self._signal_done(["radius", "n_bits", "sort", "page", "page_size", "per_row"])
+        self._signal_done(
+            ["radius", "n_bits", "sort", "reverse", "count_filter", "page", "page_size", "per_row"]
+        )
         self._reset()
 
     def _census(self) -> BitCensus:
@@ -582,10 +588,15 @@ class BitAtlas(_Computing):
         census = self._census()
         bits = np.arange(self.n_bits)
         if self.sort == "envs":
-            return bits[np.lexsort((bits, -census.n_envs))]
-        if self.sort == "mols":
-            return bits[np.lexsort((bits, -census.on.sum(0)))]
-        return bits
+            bits = bits[np.lexsort((bits, -census.n_envs))]
+        elif self.sort == "mols":
+            bits = bits[np.lexsort((bits, -census.on.sum(0)))]
+        elif self.sort == "purity":  # purest first, empty bits last
+            bits = bits[np.lexsort((bits, -np.nan_to_num(census.purity()[0], nan=-1)))]
+        if len(self.count_filter) == 2:
+            lo, hi = self.count_filter
+            bits = bits[(census.n_envs[bits] >= lo) & (census.n_envs[bits] <= hi)]
+        return bits[::-1] if self.reverse else bits
 
     def _svg(self, mol_index: int, center: int, radius: int) -> str:
         key = (mol_index, center, radius)
@@ -604,6 +615,9 @@ class BitAtlas(_Computing):
             "used_bits": int((census.on.sum(0) > 0).sum()),
             "max_envs": int(n_envs.max()) if len(n_envs) else 0,
             "max_mols": int(census.on.sum(0).max()) if census.n_mols else 0,
+            "mean_purity": _clean(census.purity()[1]),
+            # substructures per bit, by bit index (the overview next to the list)
+            "envs_per_bit": [int(v) for v in n_envs],
         }
         self.order = [int(b) for b in self._order()]
         self.focus = -1
@@ -615,6 +629,7 @@ class BitAtlas(_Computing):
     def _refresh(self, _change=None) -> None:
         census = self._census()
         n_on = census.on.sum(0)
+        purity = census.purity()[0]
         order = self.order or [int(b) for b in self._order()]
         start = self.page * self.page_size
         rows = []
@@ -625,6 +640,7 @@ class BitAtlas(_Computing):
                     "bit": int(bit),
                     "n_envs": len(examples),
                     "n_mols": int(n_on[bit]),
+                    "purity": _clean(float(purity[bit])),
                     "envs": [
                         {
                             "svg": self._svg(ex["mol_index"], ex["center"], ex["radius"]),
