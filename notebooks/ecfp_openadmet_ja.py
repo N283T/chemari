@@ -1050,6 +1050,17 @@ def _(alt, cliffs, mo, nn_pairs, pl, random_dy, task):
 
 
 @app.cell(hide_code=True)
+def _(mo, task):
+    mo.md(rf"""
+    下の表は activity cliff のペアです。行を選ぶと、その 2 つを 2 通りの見方で比べられます。
+
+    * **Molecules**: 構造と測定値、物性を並べます。
+    * **Fingerprints**: 2 つの間で違う bit を並べます。`Δ {task.label}` の列は、train の中でその bit が立っている化合物の平均 {task.label} から、立っていない化合物の平均を引いた値です。プラスなら、その bit を持つ化合物は平均より値が高い傾向にあります。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
 def _(cliffs, mo, pl):
     _pairs = cliffs.sort("dy", descending=True).select(
         pl.col("test_id").alias("test"),
@@ -1064,14 +1075,14 @@ def _(cliffs, mo, pl):
         selection="single",
         initial_selection=[0] if _pairs.height else [],
         page_size=6,
-        label="activity cliff のペア (行を選ぶと、下で 2 つを比べられます)",
+        label="activity cliff のペア",
     )
     cliff_table
     return (cliff_table,)
 
 
 @app.cell(hide_code=True)
-def _(MolPair, cliff_table, mo, mols, pl, task):
+def _(MolPair, MorganExplorer, cliff_table, mo, mols, pl, task, train):
     _sel = cliff_table.value
     if _sel is None or len(_sel) == 0:
         _out = mo.callout(
@@ -1083,12 +1094,32 @@ def _(MolPair, cliff_table, mo, mols, pl, task):
             mols.filter(pl.col("id") == i).row(0, named=True)
             for i in (_r["test"], _r["NN (train)"])
         ]
-        _out = mo.ui.anywidget(
-            MolPair(
-                *[{**r, task.label: r["y"]} for r in _rows],
-                value_cols=[task.label],
-                properties=["MW", "cLogP", "TPSA", "HBD", "HBA"],
-            )
+        _out = mo.ui.tabs(
+            {
+                "Molecules": mo.ui.anywidget(
+                    MolPair(
+                        *[{**r, task.label: r["y"]} for r in _rows],
+                        value_cols=[task.label],
+                        properties=["MW", "cLogP", "TPSA", "HBD", "HBA"],
+                    )
+                ),
+                "Fingerprints": mo.ui.anywidget(
+                    MorganExplorer(
+                        [
+                            {
+                                "id": r["id"],
+                                "smiles": r["smiles"],
+                                "label": f"{r['split']} · {task.label} {r['y']:.2f}",
+                            }
+                            for r in _rows
+                        ],
+                        reference=train["smiles"].to_list(),
+                        y=train["y"].to_numpy(),
+                        y_label=task.label,
+                        row_filter="differ",
+                    )
+                ),
+            }
         )
     _out
     return
