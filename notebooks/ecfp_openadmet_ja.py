@@ -44,7 +44,7 @@ def _(mo):
 
     これが **ECFP4**<sup><a href="#ref-1">1</a></sup> です。計算が速く、調整するパラメータもほとんどなく、多くのデータで最初に試す表現です。ただ、同じ ECFP4 でも、よく効くデータとそうでないデータがあります。どこで効いて、どこで効かないのか、その理由は何なのかは、中身を知らないとわかりません。
 
-    この notebook では、ECFP4 の中身を追ったあと (第 1 部)、OpenADMET が公開している 3 つのデータセット・16 のエンドポイントで同じ見方を繰り返します (第 2 部)。データセットを切り替えると、第 2 部のすべてのセルが切り替わります。最後に、データセットをまたいで見えたことをまとめます (第 3 部)。
+    この notebook では、ECFP4 の中身を追ったあと ([第 1 部](#part-1))、OpenADMET が公開している 3 つのデータセット・16 のエンドポイントで同じ見方を繰り返します ([第 2 部](#part-2))。データセットを切り替えると、[第 2 部](#part-2)のすべてのセルが切り替わります。最後に、データセットをまたいで見えたことをまとめます ([第 3 部](#part-3))。
     """)
     return
 
@@ -111,7 +111,7 @@ def _(Path, bench, mo, pl):
             _computed = {k: pl.concat(v, how="diagonal_relaxed") for k, v in _tables.items()}
     else:
         _computed = {}
-    molecules, neighbours, predictions, metrics, shap, gain = (
+    molecules, neighbours, predictions, metrics, shap, gain, bitlen = (
         _computed[t] if t in _computed else pl.read_parquet(_where[t]) for t in bench.TABLES
     )
     tasks = pl.DataFrame(
@@ -139,7 +139,7 @@ def _(Path, bench, mo, pl):
             )
         }
     )
-    return gain, metrics, molecules, neighbours, predictions, shap, tasks
+    return bitlen, gain, metrics, molecules, neighbours, predictions, shap, tasks
 
 
 @app.cell
@@ -158,7 +158,7 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ## 第 1 部 · ECFP4 の中身
+    ## <span id="part-1"></span>第 1 部 · ECFP4 の中身
 
     まずは 80 秒の動画で、ECFP4 が分子から bit を作る手順を見てください。
     """)
@@ -541,7 +541,7 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ## 第 2 部 · データセットで見る
+    ## <span id="part-2"></span>第 2 部 · データセットで見る
     """)
     return
 
@@ -622,7 +622,7 @@ def _(alt, mo, mols, task, test, train):
     mo.vstack(
         [
             mo.md(f"""
-    ### 2.1 · データセットの中身
+    ### <span id="sec-2-1"></span>2.1 · データセットの中身
 
     **{task.dataset} · {task.endpoint}**: {task.note}。train {train.height:,} 化合物、test {test.height:,} 化合物です。
     """),
@@ -707,9 +707,9 @@ def _(census_for, mo, np, task, train):
     _n_envs = np.array([len(_gen.GetSparseCountFingerprint(m).GetNonzeroElements()) for m in _mols])
     _n_bits = np.array([_gen.GetFingerprint(m).GetNumOnBits() for m in _mols])
     mo.md(f"""
-    ### 2.2 · {task.dataset} · {task.endpoint} での ECFP4
+    ### <span id="sec-2-2"></span>2.2 · {task.dataset} · {task.endpoint} での ECFP4
 
-    第 1 部の動画などで ECFP の collision に少し触れましたが、違う部分構造が同じ bit に入る collision には、2 つの場合があります。
+    [第 1 部](#part-1)の動画などで ECFP の collision に少し触れましたが、違う部分構造が同じ bit に入る collision には、2 つの場合があります。
 
     * **分子内**: 同じ分子の違う部分構造が同じ bit に入る。その分子で立つ bit が 1 つ減る
     * **データセット全体**: 別々の分子の違う部分構造が同じ bit に入る。bit が立っていても、どの部分構造によるものかを区別できない<sup><a href="#ref-2">2</a></sup>
@@ -836,9 +836,9 @@ def _(bench, mo, mols, np, pl, task):
     """
     )
     mo.md(f"""
-    ### 2.3 · 違う分子なのに fingerprint が同じ
+    ### <span id="sec-2-3"></span>2.3 · 違う分子なのに fingerprint が同じ
 
-    第 1 部で見た 1 つ目の注意点です。fingerprint が同じなら、fingerprint だけを使うモデルはどの化合物にも同じ値を予測します。
+    [第 1 部](#part-1)で見た 1 つ目の注意点です。fingerprint が同じなら、fingerprint だけを使うモデルはどの化合物にも同じ値を予測します。
 
     {task.dataset} · {task.endpoint} のデータセットでは、次のようになっています。
     {_numbers}""")
@@ -891,7 +891,7 @@ def _(MorganExplorer, mo, mols, pl, task, twins, twins_table):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 2.4 · Nearest neighbor (NN)
+    ### <span id="sec-2-4"></span>2.4 · Nearest neighbor (NN)
 
     ここからは類似度を見ていきましょう。test の各化合物について、train の中で ECFP4 の Tanimoto 類似度がいちばん高い化合物を **nearest neighbor (NN)** と呼びます。
 
@@ -960,7 +960,7 @@ def _(neighbours, np, pl, task):
 @app.cell(hide_code=True)
 def _(mo, nn_pairs, task):
     mo.md(f"""
-    ### 2.5 · 類似性原理と activity cliff
+    ### <span id="sec-2-5"></span>2.5 · 類似性原理と activity cliff
 
     創薬などの化合物の解析には、対になる 2 つの重要な概念があります。類似性原理と、その例外にあたる activity cliff です。
 
@@ -1130,7 +1130,7 @@ def _(MolPair, MorganExplorer, cliff_table, mo, mols, pl, task, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 2.6 · モデル
+    ### <span id="sec-2-6"></span>2.6 · モデル
 
     ECFP4 を特徴量にして、測定値を予測するモデルを作ります。モデルは LightGBM です。比較のために、特徴量だけを変えたモデルも学習させています。
 
@@ -1139,9 +1139,9 @@ def _(mo):
     * **RDKit desc**: RDKit の 2D 記述子 217 種 (分子量、logP、TPSA など分子全体の性質)
     * **bit + desc**: 両方を並べたもの
 
-    どのモデルも train で学習し、test を予測しています。基準として、2.4 の NN の測定値をそのまま予測値にした場合 (**NN value**) も並べました。類似性原理だけでどこまで当たるかの目安です。
+    どのモデルも train で学習し、test を予測しています。基準として、[2.4](#sec-2-4) の NN の測定値をそのまま予測値にした場合 (**NN value**) も並べました。類似性原理だけでどこまで当たるかの目安です。
 
-    棒グラフの下の散布図は、選んだモデルの test での予測です。青い点は NN との Tanimoto が 0.6 以上 (2.5 で「似ている」とした範囲) の化合物、三角は 2.5 の activity cliff の test 化合物です。点にカーソルを合わせると、その化合物が右に出ます。クリックすると固定できます。
+    棒グラフの下の散布図は、選んだモデルの test での予測です。青い点は NN との Tanimoto が 0.6 以上 ([2.5](#sec-2-5) で「似ている」とした範囲) の化合物、三角は [2.5](#sec-2-5) の activity cliff の test 化合物です。点にカーソルを合わせると、その化合物が右に出ます。クリックすると固定できます。
     """)
     return
 
@@ -1290,7 +1290,7 @@ def _(MolScatter, cliffs, mo, model_pick, mols, nn_pairs, pl, predictions, task)
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 2.7 · モデルが見ているもの
+    ### <span id="sec-2-7"></span>2.7 · モデルが見ているもの
 
     ECFP4 bit のモデルがどの bit を使っているかを、2 つの指標で並べます。
 
@@ -1406,72 +1406,84 @@ def _(mo, task):
     mo.md(f"""
     ---
 
-    ## 第 3 部 · データセットをまたいで見る
+    ## <span id="part-3"></span>第 3 部 · データセットをまたいで見る
 
-    第 2 部では 1 つのエンドポイントずつ見てきました。ここでは 16 のエンドポイントを並べて比べます。上で選んでいる {task.dataset} · {task.endpoint} は太字にしています。
+    [第 2 部](#part-2)では 1 つのエンドポイントずつ見てきました。ここでは 16 のエンドポイントを並べて比べます。上で選んでいる {task.dataset} · {task.endpoint} は太字にしています。
 
-    ### 3.1 · 1 bit に入る部分構造
+    ### <span id="sec-3-1"></span>3.1 · 1 bit に入る部分構造
 
-    2.2 の collision を、データセットごとに数えます。train の化合物に出てくる部分構造を 2048 bit に折りたたんだとき、1 つの bit に何種類の部分構造が入るかの分布です。各エンドポイントの train は、そのエンドポイントの値が測られている化合物なので、エンドポイントごとにも切り替えられます。軸はすべて共通で、1 bit あたりの平均が少ない順に並べています。右上の数字は 1 bit あたりの平均 (per bit)、2.2 の purity、train の化合物数です。
+    [2.2](#sec-2-2) で見たデータセット全体の collision を、データセットごとに比べます。`bits` で折りたたむ長さを変えられます。`endpoint` に切り替えると、エンドポイントごとの分布を見ることができます。
     """)
     return
 
 
 @app.cell(hide_code=True)
-def _(bench, census_for, mo, molecules, np, pl):
-    # the 2.2 census for each dataset's whole train set, and for every endpoint's train set
-    _groups = {}
+def _(mo):
+    load_unit = mo.ui.radio(["dataset", "endpoint"], value="dataset", inline=True, label="per")
+    load_bits = mo.ui.radio(
+        {"1024": 1024, "2048": 2048, "4096": 4096, "8192": 8192},
+        value="2048",
+        inline=True,
+        label="bits",
+    )
+    return load_bits, load_unit
+
+
+@app.cell(hide_code=True)
+def _(bench, census_for, molecules, np, pl):
+    # each dataset's whole train set, and every endpoint's train set
+    train_sets = {}
     for _t in bench.TASKS:
         _smi = molecules.filter((pl.col("task") == _t.key) & (pl.col("split") == "train"))[
             "smiles"
         ].to_list()
-        _groups[("endpoint", f"{_t.dataset} · {_t.endpoint}")] = _smi
-        _groups.setdefault(("dataset", _t.dataset), []).extend(_smi)
+        train_sets[("endpoint", f"{_t.dataset} · {_t.endpoint}")] = _smi
+        train_sets.setdefault(("dataset", _t.dataset), []).extend(_smi)
+    # a compound measured for several endpoints counts once
+    train_sets = {k: list(dict.fromkeys(v)) for k, v in train_sets.items()}
+
+    def bit_load_of(smiles, n_bits):
+        """The 2.2 census of one train set: its numbers, and substructures on a bit → bits."""
+        _c = census_for(smiles, 2, n_bits)
+        _e = _c.n_envs
+        _k, _n = np.unique(_e, return_counts=True)
+        return {
+            "n_train": len(smiles),
+            "substructures": int(_e.sum()),
+            "per_bit": float(_e[_e > 0].mean()),
+            "empty_bits": int((_e == 0).sum()),
+            "few": float((_e <= 5).mean()),  # share of bits with at most 5 substructures
+            "purity": _c.purity()[1],
+        }, pl.DataFrame({"envs": _k, "bits": _n})
+
+    return bit_load_of, train_sets
+
+
+@app.cell(hide_code=True)
+def _(bit_load_of, load_bits, load_unit, mo, pl, train_sets):
     _rows, _hist = [], []
-    with mo.status.spinner("データセットとエンドポイントごとに部分構造を数えています…"):
-        for (_unit, _name), _smi in _groups.items():
-            _smi = list(dict.fromkeys(_smi))  # a compound measured for several endpoints once
-            _c = census_for(_smi, 2, 2048)
-            _e = _c.n_envs
-            _rows.append(
-                {
-                    "unit": _unit,
-                    "name": _name,
-                    "n_train": len(_smi),
-                    "substructures": int(_e.sum()),
-                    "per_bit": float(_e[_e > 0].mean()),
-                    "empty_bits": int((_e == 0).sum()),
-                    "purity": _c.purity()[1],
-                }
-            )
-            _k, _n = np.unique(_e, return_counts=True)
-            _hist.append(pl.DataFrame({"unit": _unit, "name": _name, "envs": _k, "bits": _n}))
+    with mo.status.spinner("部分構造を数えています…"):
+        for (_unit, _name), _smi in train_sets.items():
+            if _unit == load_unit.value:
+                _row, _h = bit_load_of(_smi, load_bits.value)
+                _rows.append({"name": _name, **_row})
+                _hist.append(_h.with_columns(pl.lit(_name).alias("name")))
     bit_load = pl.DataFrame(_rows).sort("per_bit")
     bit_load_hist = pl.concat(_hist)
     return bit_load, bit_load_hist
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    load_unit = mo.ui.radio(["dataset", "endpoint"], value="dataset", inline=True, label="per")
-    return (load_unit,)
-
-
-@app.cell(hide_code=True)
-def _(alt, bit_load, bit_load_hist, load_unit, mo, pl, task):
+def _(alt, bit_load, bit_load_hist, dataset_colours, load_bits, load_unit, mo, pl, task):
     _by_dataset = load_unit.value == "dataset"
     _sel = task.dataset if _by_dataset else f"{task.dataset} · {task.endpoint}"
-    _dataset = pl.col("name").str.split(" · ").list.first().alias("dataset")
-    _load = bit_load.filter(pl.col("unit") == load_unit.value).with_columns(_dataset)
-    _d = (
-        bit_load_hist.filter(pl.col("unit") == load_unit.value)
-        .join(_load, on=["unit", "name"])
-        .with_columns((pl.col("name") == _sel).alias("selected"))
-    )
+    _load = bit_load
+    _d = bit_load_hist
     _w, _h = (290, 220) if _by_dataset else (190, 130)
     _cols = 3 if _by_dataset else 4
     _top = int(_d["bits"].max())
     _n = int(_load["n_train"].max())
+    _most = int(_d["envs"].max())
 
     def _panel(i, r):
         _first = i % _cols == 0
@@ -1495,8 +1507,10 @@ def _(alt, bit_load, bit_load_hist, load_unit, mo, pl, task):
                 x=alt.X(
                     "envs:O",
                     title="substructures on a bit",
-                    axis=alt.Axis(values=[0, 5, 10, 15, 20], labelAngle=0),
-                    scale=alt.Scale(domain=list(range(int(bit_load_hist["envs"].max()) + 1))),
+                    axis=alt.Axis(
+                        values=list(range(0, _most + 1, 5 if _most <= 30 else 10)), labelAngle=0
+                    ),
+                    scale=alt.Scale(domain=list(range(_most + 1))),
                 ),
                 y=alt.Y(
                     "bits:Q",
@@ -1504,7 +1518,8 @@ def _(alt, bit_load, bit_load_hist, load_unit, mo, pl, task):
                     scale=alt.Scale(domain=[0, _top]),
                     axis=alt.Axis(labels=_first, ticks=_first),
                 ),
-                color=alt.condition("datum.selected", alt.value("#d6336c"), alt.value("#4c78a8")),
+                # the dataset colours of 3.2
+                color=alt.value(dataset_colours[_ds_name or _head]),
                 tooltip=[
                     alt.Tooltip("envs:O", title="substructures on a bit"),
                     alt.Tooltip("bits:Q", title="bits"),
@@ -1546,19 +1561,216 @@ def _(alt, bit_load, bit_load_hist, load_unit, mo, pl, task):
         columns=_cols,
         spacing=24 if _by_dataset else 18,
     )
-    _ds = {r["name"]: r for r in bit_load.filter(pl.col("unit") == "dataset").iter_rows(named=True)}
-    _pxr, _exp = _ds["PXR"], _ds["ExpansionRx"]
     mo.vstack(
         [
-            load_unit,
+            mo.hstack([load_unit, load_bits], justify="start", gap=2),
             mo.hstack([_chart], justify="center"),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(bit_load_of, mo, train_sets):
+    # the text is about 2048 bits, whatever the switch above shows
+    _at = {
+        d: bit_load_of(train_sets[("dataset", d)], 2048)[0] for d in ("PXR", "ASAP", "ExpansionRx")
+    }
+    _pxr, _asap, _exp = _at["PXR"], _at["ASAP"], _at["ExpansionRx"]
+    _pxr_long = bit_load_of(train_sets[("dataset", "PXR")], 8192)[0]
+    mo.md(f"""
+    bit 数が 2048 の場合、次のような傾向が見られます。
+
+    * **PXR**
+        * 空の bit がない
+        * 1 bit に入る部分構造がいちばん多い (平均 {_pxr["per_bit"]:.1f} 種類)
+        * purity がいちばん低い ({_pxr["purity"]:.0%})
+    * **ASAP と ExpansionRx**
+        * ほとんどの bit は部分構造が 5 種類以下 (ASAP {_asap["few"]:.0%}、ExpansionRx {_exp["few"]:.0%})。PXR では {_pxr["few"]:.0%} だけ
+        * ExpansionRx は PXR より化合物が多いのに、部分構造の種類は PXR の {_exp["substructures"] / _pxr["substructures"]:.0%} ほど
+
+    PXR の化合物は、構造がかなり多様だとわかります。bit 数を増やすと分布は左 (0 の側) に寄りますが、8192 bit にしても PXR は 1 bit に平均 {_pxr_long["per_bit"]:.1f} 種類の部分構造が入ります。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### <span id="sec-3-2"></span>3.2 · collision と精度
+
+    では、bit 数を増やして collision を減らすと、モデルの精度は良くなるでしょうか。ECFP4 bit のモデルを、bit 数ごとに学習し直しました。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    # checks or unchecks every endpoint below
+    bitlen_all = mo.ui.checkbox(value=True, label="all")
+    return (bitlen_all,)
+
+
+@app.cell(hide_code=True)
+def _(bitlen_all, mo):
+    dataset_colours = {"ASAP": "#0ca678", "ExpansionRx": "#7048e8", "PXR": "#e8590c"}
+    # the same per dataset (rebuilt when the overall "all" flips)
+    bitlen_all_of = mo.ui.dictionary(
+        {d: mo.ui.checkbox(value=bitlen_all.value, label="all") for d in dataset_colours}
+    )
+    return bitlen_all_of, dataset_colours
+
+
+@app.cell(hide_code=True)
+def _(bench, bitlen_all_of, mo):
+    # one checkbox per endpoint: which lines the charts below show (rebuilt when an "all" flips)
+    bitlen_show = mo.ui.dictionary(
+        {
+            t.key: mo.ui.checkbox(value=bitlen_all_of.value[t.dataset], label=t.endpoint)
+            for t in bench.TASKS
+        }
+    )
+    # what the two charts show: one fingerprint measure, one test score
+    bitlen_fp = mo.ui.radio(
+        ["substructures per bit", "purity", "empty bits"],
+        value="substructures per bit",
+        inline=True,
+        label="fingerprint",
+    )
+    bitlen_score = mo.ui.radio(
+        ["Spearman ρ", "R²", "MAE"], value="Spearman ρ", inline=True, label="test score"
+    )
+    return bitlen_fp, bitlen_score, bitlen_show
+
+
+@app.cell(hide_code=True)
+def _(
+    alt,
+    bench,
+    bitlen,
+    bitlen_all,
+    bitlen_all_of,
+    bitlen_fp,
+    bitlen_score,
+    bitlen_show,
+    dataset_colours,
+    mo,
+    pl,
+    task,
+    tasks,
+):
+    # the ECFP4 bit model refitted at each length (precomputed), one line per endpoint
+    _d = (
+        bitlen.join(tasks.select("task", "dataset", "endpoint"), on="task")
+        .with_columns(
+            (pl.col("dataset") + " · " + pl.col("endpoint")).alias("name"),
+            (pl.col("task") == task.key).alias("selected"),
+            (pl.col("empty_bits") / pl.col("n_bits")).alias("empty"),
+        )
+        .filter(pl.col("task").is_in([k for k, on in bitlen_show.value.items() if on]))
+    )
+    _colour = alt.Color(
+        "dataset:N",
+        scale=alt.Scale(domain=list(dataset_colours), range=list(dataset_colours.values())),
+        legend=None,
+    )
+
+    def _lines(field, title, fmt, domain=None):
+        _base = alt.Chart(_d, title=alt.Title(title, fontSize=13, anchor="start")).encode(
+            x=alt.X("n_bits:O", title="bits", axis=alt.Axis(labelAngle=0)),
+            y=alt.Y(
+                f"{field}:Q",
+                title=None,
+                scale=alt.Scale(domain=domain) if domain else alt.Scale(zero=False),
+                axis=alt.Axis(format=fmt),
+            ),
+            color=_colour,
+            detail="name:N",
+            tooltip=[
+                alt.Tooltip("name:N", title="endpoint"),
+                alt.Tooltip("n_bits:O", title="bits"),
+                alt.Tooltip(f"{field}:Q", title=title, format=fmt),
+            ],
+        )
+        # the selected endpoint thicker, on top
+        return (
+            _base.mark_line(point=alt.OverlayMarkDef(size=25), strokeWidth=1.5).transform_filter(
+                "!datum.selected"
+            )
+            + _base.mark_line(point=alt.OverlayMarkDef(size=70), strokeWidth=3.5).transform_filter(
+                "datum.selected"
+            )
+        ).properties(width=400, height=260)
+
+    # the checkboxes as a two-column grid: the dataset (in the colour of its lines), then its
+    # endpoints, which wrap inside their own column
+    _rows = "".join(
+        f'<div style="font-weight:600;white-space:nowrap"><span style="color:{c}">●</span> {d}</div>'
+        '<div style="display:flex;flex-wrap:wrap;gap:4px 18px">'
+        + f'<span style="margin-right:10px">{bitlen_all_of[d]}</span>'
+        + "".join(f"{bitlen_show[t.key]}" for t in bench.TASKS if t.dataset == d)
+        + "</div>"
+        for d, c in dataset_colours.items()
+    )
+    _boxes = mo.Html(
+        '<div style="display:grid;grid-template-columns:max-content 1fr;gap:8px 20px;'
+        "align-items:start;padding:10px 14px;border:1px solid var(--slate-4, #e5e7eb);"
+        f'border-radius:8px;font-size:0.9rem"><div></div><div>{bitlen_all}</div>{_rows}</div>'
+    )
+    _fp = {
+        "substructures per bit": ("per_bit", "substructures per bit", ".1f"),
+        "purity": ("purity", "purity", ".0%"),
+        "empty bits": ("empty", "empty bits", ".0%", [0, 1]),
+    }
+    _score = {
+        "Spearman ρ": ("rho", "Spearman ρ (test)", ".2f", [0, 1]),
+        "R²": ("r2", "R² (test)", ".2f"),
+        "MAE": ("mae", "MAE (test, lower is better)", ".2f"),
+    }
+    # share of empty bits at the longest length, median over the endpoints
+    _empty_long = (
+        bitlen.filter(pl.col("n_bits") == 8192)
+        .select((pl.col("empty_bits") / pl.col("n_bits")).median())
+        .item()
+    )
+    _pxr = {
+        r["n_bits"]: r for r in bitlen.filter(pl.col("task") == "pxr/pEC50").iter_rows(named=True)
+    }
+    mo.vstack(
+        [
+            mo.md(
+                f"線は 1 本が 1 つのエンドポイントで、太い線は上で選んでいる {task.dataset} · {task.endpoint} です。"
+            ),
+            _boxes,
+            # one fingerprint measure beside one test score, each under its own switch
+            mo.hstack(
+                [
+                    mo.vstack([bitlen_fp, _lines(*_fp[bitlen_fp.value])], align="center"),
+                    mo.vstack([bitlen_score, _lines(*_score[bitlen_score.value])], align="center"),
+                ],
+                justify="center",
+                gap=2,
+            ),
             mo.md(
                 f"""
-    * PXR は空の bit がなく、1 bit に入る部分構造が 3 つのデータセットでいちばん多く、purity はいちばん低くなっています
-    * ExpansionRx は化合物が PXR より多いのに、部分構造の種類は {_exp["substructures"] / _pxr["substructures"]:.0%} しかありません。差を決めているのは化合物の数ではなく、構造の多様さです
+    * 1 bit に入る部分構造は減少し、purity は上昇する
+    * 空の bit も増加する。bit 数を増やしても、その分だけ情報が増えるわけではない (8192 bit では、16 エンドポイントの中央値で {_empty_long:.0%} が空)
+    * モデルの精度は、ある程度の bit 数で頭打ちになる
+        * PXR と、ExpansionRx の化合物が多いエンドポイント: 2048 bit あたり
+        * ASAP: 1024 bit から変わらない
 
-    エンドポイントごとに切り替えると、同じデータセットの中でも数字が変わります。ExpansionRx の MBPB と LogD のように、化合物の数が違うからです。
+    bit を増やすと、重なっていた部分構造が別々の bit に分かれ、fingerprint の情報は増えます。それでも精度が頭打ちになる理由はいろいろ考えられますが、増えた情報が予測にあまり効いていないのだと思います。
+
+    * 分かれるのは、ほとんどが珍しい部分構造。PXR では {_pxr[2048]["substructures"]:,} 種類のうち、20 化合物以上に出るのは {_pxr[2048]["frequent_substructures"]:,} 種類で、数個の化合物からはその部分構造の効果を学習しにくい (化合物の数は [2.2](#sec-2-2) の表で bit を選ぶと確認できる)
+    * 予測が外れる主な原因は別にある。test が train から遠いこと ([2.4](#sec-2-4)) や activity cliff ([2.5](#sec-2-5)) は、fingerprint を細かくしても解消しない
     """
+            ),
+            mo.callout(
+                mo.md(
+                    "今回の設定 (LightGBM、`min_child_samples=20`) では、分けた両側に 20 化合物以上ないと"
+                    "分岐しません。珍しい部分構造は、bit を分けても予測に使われないままです。"
+                ),
+                kind="info",
             ),
         ]
     )
@@ -1568,7 +1780,7 @@ def _(alt, bit_load, bit_load_hist, load_unit, mo, pl, task):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 3.2 · 近い化合物があるかどうか
+    ### <span id="sec-3-3"></span>3.3 · 近い化合物があるかどうか
 
     ここからの図は、行を test 化合物と NN の類似度の中央値の順に並べています。
     """)
@@ -1700,9 +1912,9 @@ def _(alt, mo, nn_by_task, pl, row_axis, rows, scores):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 3.3 · どの特徴量が効くか
+    ### <span id="sec-3-4"></span>3.4 · どの特徴量が効くか
 
-    2.6 の 5 つの予測を、全エンドポイントで並べます。数字は test での Spearman ρ で、各行でいちばん高いものを太字にしています。
+    [2.6](#sec-2-6) の 5 つの予測を、全エンドポイントで並べます。数字は test での Spearman ρ で、各行でいちばん高いものを太字にしています。
     """)
     return
 
@@ -1758,7 +1970,7 @@ def _(mo):
     * **RDKit desc** は 16 のうち 11 で ECFP4 bit を上回ります。差が大きいのは ASAP の LogD (0.33 → 0.76) と KSOL (0.04 → 0.34) で、分子全体の性質で決まる値です
     * MERS-CoV と SARS-CoV-2 の pIC50 は、どの特徴量でもほぼ同じです。近い化合物が揃っていると、表現の違いは結果にあまり出ません
 
-    ### 3.4 · 近いペアの差
+    ### <span id="sec-3-5"></span>3.5 · 近いペアの差
 
     最後に、test 化合物と NN の差をモデルが予測できているかを見ます。数字は、予測の差を測定の差に回帰した傾きです。1 なら差の大きさまで再現、0 なら差をまったく予測できていません。NN の予測には、その化合物を学習に使っていないモデル (train の 5-fold の out of fold) の値を使っています。
     """)
@@ -1772,7 +1984,7 @@ def _(mo, slope_heat):
             mo.hstack([slope_heat], justify="center"),
             mo.md(
                 """
-    傾きはどのエンドポイントでも 0.55 以下で、ASAP の MERS-CoV、SARS-CoV-2、KSOL ではほぼ 0 です。MERS-CoV と SARS-CoV-2 は ρ が高いのに、予測の差と測定の差の相関は 0.03 と −0.10 です。モデルは NN と同じあたりの値を出せていても、2 つの化合物の差は予測できていません。2.5 の activity cliff は、まさにこの差です。
+    傾きはどのエンドポイントでも 0.55 以下で、ASAP の MERS-CoV、SARS-CoV-2、KSOL ではほぼ 0 です。MERS-CoV と SARS-CoV-2 は ρ が高いのに、予測の差と測定の差の相関は 0.03 と −0.10 です。モデルは NN と同じあたりの値を出せていても、2 つの化合物の差は予測できていません。[2.5](#sec-2-5) の activity cliff は、まさにこの差です。
     """
             ),
         ]
