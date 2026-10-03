@@ -16,7 +16,8 @@ components are used throughout.
   and two pitfalls (different molecules with the same fingerprint; near-identical molecules with a
   low Tanimoto; the same pair by other fingerprints, MCES and properties), then a dataset /
   endpoint picker that drives train–test distance, the similarity principle, cliffs, identical fingerprints, bit collisions, models on bit / count / descriptor
-  features and TreeSHAP. Reads `results/precomputed/` (DuckDB SQL cells) and computes what is
+  features and TreeSHAP, and a last part that compares the 16 endpoints (substructures per bit,
+  fingerprint length against test scores, neighbours, features, pair differences). Reads `results/precomputed/` (DuckDB SQL cells) and computes what is
   missing
 - `src/molwidgets/` — the widget package. Every whole-molecule drawing has a copy icon in its
   top-right corner that puts the molecule's SMILES on the clipboard; `copy_smiles=False` hides
@@ -88,8 +89,10 @@ components are used throughout.
     lists each molecule's count and the bits whose counts differ
 - `src/molwidgets/bench.py` — the datasets and endpoints of `ecfp_openadmet_ja.py` (loading,
   standardisation, log10(x + 1) for ratio-scale endpoints), features (ECFP4 bit / count, RDKit
-  descriptors), the LightGBM baseline, nearest neighbours and TreeSHAP per endpoint;
-  `dev/precompute.py` writes them to `results/precomputed/`
+  descriptors), the LightGBM baseline, nearest neighbours, TreeSHAP and gain per endpoint, and the
+  bit model refitted at 1024–8192 bits (`bitlen`); `dev/precompute.py` writes them to
+  `results/precomputed/` (`--only-gain` / `--only-bitlen` rebuild one table from the stored
+  molecules)
 - `src/molwidgets/ecfp.py` — a readable re-implementation of ECFP, and `ecfp_story`, which collects
   RDKit's identifiers for every atom and radius for `ECFPStepper`
 
