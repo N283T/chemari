@@ -43,6 +43,15 @@ components are used throughout.
     and says whether the Murcko scaffolds match (`molwidgets.similarity`); a note above it says
     that each method has its own scale. Given one compound only, it shows that compound with its
     values and properties (e.g. under a grid: one selected molecule, then a pair)
+  - `MolScatter`: a scatter plot of molecules (e.g. measured vs predicted) with a card of the
+    same height beside it: hovering a point shows the molecule, clicking pins it (click it again,
+    an empty spot or the card's "Pinned ×" chip to unpin). Under the drawing, `axis_fields` such
+    as measured and predicted are labelled dots on one number line with their difference in a
+    chip, followed by `fields`; a partner molecule given per row (e.g. its nearest neighbour) is
+    listed by id; hovering the id pops up its drawing and clicking it copies its SMILES.
+    `color_by` colours the points by a column (a viridis ramp for numbers, one colour per value
+    otherwise, set with `color_map`), `mark_by` draws those flagged by a boolean one as
+    triangles, `diagonal` draws y = x; `selected` syncs both ways
   - `ECFPMovie`: an ~80 s animated explainer of ECFP4 (radius 0 → 2, duplicates, folding,
     collisions, Tanimoto) for N-methylacetamide, built on real RDKit identifiers; a self-contained
     HTML page (`static/ecfp_movie.html`) shown in an iframe

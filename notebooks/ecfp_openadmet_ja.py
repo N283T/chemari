@@ -65,6 +65,7 @@ def _():
         ECFPStepper,
         MolGrid,
         MolPair,
+        MolScatter,
         MorganBitTiles,
         MorganExplorer,
         bench,
@@ -79,6 +80,7 @@ def _():
         ECFPStepper,
         MolGrid,
         MolPair,
+        MolScatter,
         MorganBitTiles,
         MorganExplorer,
         Path,
@@ -1130,63 +1132,158 @@ def _(mo):
     mo.md(r"""
     ### 2.6 · モデル
 
-    同じ LightGBM (OpenADMET のチャレンジ tutorial と同じ設定) を、4 種類の特徴量で学習した test での成績です。
+    ECFP4 を特徴量にして、測定値を予測するモデルを作ります。モデルは LightGBM です。比較のために、特徴量だけを変えたモデルも学習させています。
 
     * **ECFP4 bit**: 2048 bit
     * **ECFP4 count**: 同じ 2048 次元で、出現回数を残す
     * **RDKit desc**: RDKit の 2D 記述子 217 種 (分子量、logP、TPSA など分子全体の性質)
     * **bit + desc**: 両方を並べたもの
+
+    どのモデルも train で学習し、test を予測しています。基準として、2.4 の NN の測定値をそのまま予測値にした場合 (**NN value**) も並べました。類似性原理だけでどこまで当たるかの目安です。
+
+    棒グラフの下の散布図は、選んだモデルの test での予測です。青い点は NN との Tanimoto が 0.6 以上 (2.5 で「似ている」とした範囲) の化合物、三角は 2.5 の activity cliff の test 化合物です。点にカーソルを合わせると、その化合物が右に出ます。クリックすると固定できます。
     """)
     return
 
 
 @app.cell(hide_code=True)
-def _(alt, bench, metrics, mo, pl, predictions, task):
+def _(alt, bench, metrics, mo, nn_pairs, pl, task):
     _m = metrics.filter(pl.col("task") == task.key).row(0, named=True)
-    _bars = pl.DataFrame(
-        {
-            "features": bench.FEATURES,
-            "Spearman ρ": [_m[f"rho {f}"] for f in bench.FEATURES],
-            "R²": [_m[f"r2 {f}"] for f in bench.FEATURES],
-        }
+    _order = ["NN value", *bench.FEATURES]
+    _yt, _yn = nn_pairs["y_test"].to_numpy(), nn_pairs["y_nn"].to_numpy()
+    _nn = {
+        "rho": _m["rho_1nn"],
+        "r2": float(1 - ((_yn - _yt) ** 2).sum() / ((_yt - _yt.mean()) ** 2).sum()),
+        "mae": float(abs(_yn - _yt).mean()),
+    }
+    _colours = alt.Scale(
+        domain=_order, range=["#adb5bd", "#4c78a8", "#f58518", "#e45756", "#72b7b2"]
     )
-    _bar = (
-        alt.Chart(_bars)
-        .mark_bar()
-        .encode(
-            y=alt.Y("features:N", sort=bench.FEATURES, title=None),
-            x=alt.X("Spearman ρ:Q", scale=alt.Scale(domain=[0, 1])),
-            color=alt.Color("features:N", legend=None, scale=alt.Scale(scheme="tableau10")),
-            tooltip=[
-                "features",
-                alt.Tooltip("Spearman ρ:Q", format=".2f"),
-                alt.Tooltip("R²:Q", format=".2f"),
-            ],
+
+    def _room(scores):
+        # the data's range (with zero) plus room on the right for the value labels
+        _lo, _hi = min(0.0, scores.min()), max(0.0, scores.max())
+        return [_lo, _hi + 0.2 * (_hi - _lo)]
+
+    def _panel(key, title, first, domain=None):
+        _bars = pl.DataFrame(
+            {
+                "features": _order,
+                "score": [_nn[key]] + [_m[f"{key} {f}"] for f in bench.FEATURES],
+            }
         )
-        .properties(height=150, width=360)
-    )
-    _p = predictions.filter(
-        (pl.col("task") == task.key)
-        & (pl.col("split") == "test")
-        & (pl.col("features") == "ECFP4 bit")
-    ).select("id", "y", "pred")
-    _lo, _hi = float(_p["y"].min()), float(_p["y"].max())
-    _scatter = (
-        alt.Chart(_p)
-        .mark_circle(size=18, opacity=0.5)
-        .encode(
-            x=alt.X("y:Q", title=f"measured {task.label}", scale=alt.Scale(domain=[_lo, _hi])),
-            y=alt.Y("pred:Q", title="predicted (ECFP4 bit)", scale=alt.Scale(domain=[_lo, _hi])),
-            tooltip=["id", alt.Tooltip("y:Q", format=".2f"), alt.Tooltip("pred:Q", format=".2f")],
+        _bar = (
+            alt.Chart(_bars, title=alt.Title(title, fontSize=12, anchor="start"))
+            .mark_bar()
+            .encode(
+                y=alt.Y(
+                    "features:N",
+                    sort=_order,
+                    title=None,
+                    axis=alt.Axis(labels=first, ticks=first, domain=first),
+                ),
+                x=alt.X(
+                    "score:Q",
+                    title=None,
+                    scale=alt.Scale(domain=domain or _room(_bars["score"]), nice=False),
+                ),
+                color=alt.Color("features:N", legend=None, scale=_colours),
+                tooltip=["features", alt.Tooltip("score:Q", title=title, format=".2f")],
+            )
+            .properties(height=170, width=265)
         )
-        .properties(height=260, width=260)
+        # labels of negative bars (R² of the NN value) sit right of zero
+        _text = (
+            _bar.mark_text(align="left", dx=3, fontSize=11)
+            .transform_calculate(at="max(datum.score, 0)")
+            .encode(x="at:Q", text=alt.Text("score:Q", format=".2f"), color=alt.value("#495057"))
+        )
+        return _bar + _text
+
+    mo.hstack(
+        [
+            alt.hconcat(
+                _panel("rho", "Spearman ρ", True, [0, 1]),
+                _panel("r2", "R²", False),
+                _panel("mae", "MAE (lower is better)", False),
+                spacing=28,
+            ).resolve_scale(color="shared")
+        ],
+        justify="center",
     )
-    _diag = (
-        alt.Chart(pl.DataFrame({"a": [_lo, _hi]}))
-        .mark_line(strokeDash=[4, 4], color="#adb5bd")
-        .encode(x="a:Q", y="a:Q")
+    return
+
+
+@app.cell(hide_code=True)
+def _(bench, mo):
+    model_pick = mo.ui.radio(
+        ["NN value", *bench.FEATURES], value="ECFP4 bit", inline=True, label="model"
     )
-    mo.hstack([_bar, _scatter + _diag], widths=[1.3, 1], align="center")
+    return (model_pick,)
+
+
+@app.cell(hide_code=True)
+def _(MolScatter, cliffs, mo, model_pick, mols, nn_pairs, pl, predictions, task):
+    _smi = dict(zip(mols["id"], mols["smiles"]))
+    # "NN value" predicts each test compound with its NN's measured value
+    _pred = (
+        nn_pairs.select(
+            pl.col("test_id").alias("id"), pl.col("y_test").alias("y"), pl.col("y_nn").alias("pred")
+        )
+        if model_pick.value == "NN value"
+        else predictions.filter(
+            (pl.col("task") == task.key)
+            & (pl.col("split") == "test")
+            & (pl.col("features") == model_pick.value)
+        ).select("id", "y", "pred")
+    )
+    _p = (
+        _pred.join(nn_pairs.select(pl.col("test_id").alias("id"), "nn_id", "tanimoto"), on="id")
+        .with_columns(
+            pl.col("id").replace_strict(_smi).alias("smiles"),
+            pl.col("nn_id").replace_strict(_smi).alias("nn_smiles"),
+            pl.col("id").is_in(cliffs["test_id"].implode()).alias("cliff"),
+            pl.when(pl.col("tanimoto") >= 0.6)
+            .then(pl.lit("≥ 0.6"))
+            .otherwise(pl.lit("< 0.6"))
+            .alias("NN"),
+        )
+        .sort("tanimoto")
+    )
+    _scatter = mo.ui.anywidget(
+        MolScatter(
+            _p.select(
+                "id",
+                "smiles",
+                pl.col("y").alias("measured"),
+                pl.col("pred").alias("predicted"),
+                pl.col("tanimoto").alias("Tanimoto to the NN"),
+                "cliff",
+                "NN",
+                "nn_id",
+                "nn_smiles",
+            ),
+            x="measured",
+            y="predicted",
+            x_label=f"measured {task.label}",
+            y_label=f"predicted ({model_pick.value})",
+            color_by="NN",
+            color_label="Tanimoto to the NN",
+            color_map={"≥ 0.6": "#1c7ed6", "< 0.6": "#b8c2cc"},
+            mark_by="cliff",
+            mark_label="activity cliff",
+            diagonal=True,
+            same_axes=True,
+            card_title="test compound",
+            info_title=f"prediction ({model_pick.value})",
+            axis_fields=["measured", "predicted"],
+            partner_id_col="nn_id",
+            partner_smiles_col="nn_smiles",
+            partner_label="NN (train)",
+            partner_fields=["Tanimoto to the NN"],
+        )
+    )
+    mo.vstack([model_pick, _scatter])
     return
 
 
