@@ -143,6 +143,63 @@ class MolGrid(anywidget.AnyWidget):
         }
 
 
+class MolScatter(anywidget.AnyWidget):
+    """Scatter plot of molecules with a panel beside it, both `height` pixels tall.
+
+    Hovering a point shows that molecule in the panel; clicking pins it, and the panel stays on
+    the pinned one until it is unpinned (the point again, an empty spot in the plot, or the
+    panel's "Pinned ×" chip). The panel shows the molecule (under `card_title`, with a
+    `mark_label` badge when flagged) and its values (under `info_title`): `axis_fields` (columns
+    on one scale, e.g. measured and predicted) as labelled dots on a shared number line, with the
+    first two's difference in a chip, then `fields` (default: every column not shown elsewhere).
+    A row can name a partner molecule (`partner_id_col` / `partner_smiles_col`, e.g. its nearest
+    neighbour): its id is listed under `partner_label` next to `partner_fields`; hovering the id
+    pops up its drawing and clicking it copies its SMILES.
+
+    `x` and `y` name numeric columns. `color_by` colours the points by a column: a numeric one on
+    a viridis ramp (over `color_range` or the data's range), any other one with a colour per value
+    (`color_map`, else a default palette). `mark_by` draws the points whose boolean column is true
+    as triangles. `diagonal` draws y = x and `same_axes` gives both axes the same range.
+    `selected` holds the pinned point's id and syncs both ways.
+    """
+
+    _esm = _bundle("scatter.js")
+    # the copy-SMILES icon in the corner of each molecule drawing
+    copy_smiles = traitlets.Bool(True).tag(sync=True)
+
+    data = traitlets.List(traitlets.Dict()).tag(sync=True)
+    id_col = traitlets.Unicode("id").tag(sync=True)
+    smiles_col = traitlets.Unicode("smiles").tag(sync=True)
+    x = traitlets.Unicode("x").tag(sync=True)
+    y = traitlets.Unicode("y").tag(sync=True)
+    x_label = traitlets.Unicode("").tag(sync=True)
+    y_label = traitlets.Unicode("").tag(sync=True)
+    color_by = traitlets.Unicode("").tag(sync=True)
+    color_label = traitlets.Unicode("").tag(sync=True)
+    color_range = traitlets.List(allow_none=True, default_value=None).tag(sync=True)
+    color_map = traitlets.Dict().tag(sync=True)  # value -> colour, for a non-numeric color_by
+    mark_by = traitlets.Unicode("").tag(sync=True)
+    mark_label = traitlets.Unicode("").tag(sync=True)
+    diagonal = traitlets.Bool(False).tag(sync=True)
+    same_axes = traitlets.Bool(False).tag(sync=True)
+    fields = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    axis_fields = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    card_title = traitlets.Unicode("").tag(sync=True)
+    info_title = traitlets.Unicode("").tag(sync=True)
+    partner_id_col = traitlets.Unicode("").tag(sync=True)
+    partner_smiles_col = traitlets.Unicode("").tag(sync=True)
+    partner_label = traitlets.Unicode("").tag(sync=True)
+    partner_fields = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    empty_text = traitlets.Unicode("Hover over a point to see the molecule; click to pin it.").tag(
+        sync=True
+    )
+    height = traitlets.Int(520).tag(sync=True)
+    selected = traitlets.Unicode("").tag(sync=True)
+
+    def __init__(self, data: Any = (), **kwargs):
+        super().__init__(data=_records(data), **kwargs)
+
+
 class _Computing(anywidget.AnyWidget):
     """A widget whose browser side waits for Python to recompute after some changes.
 

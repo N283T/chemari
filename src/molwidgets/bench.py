@@ -279,7 +279,7 @@ def features(smiles: list[str]) -> dict[str, np.ndarray]:
 
 
 def make_model():
-    """The notebook's LightGBM (same as the OpenADMET tutorial baseline)."""
+    """The notebook's LightGBM."""
     import lightgbm as lgb
 
     return lgb.LGBMRegressor(
