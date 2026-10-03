@@ -246,10 +246,11 @@ async function render({ model, el: host }) {
     // room for two lines of key from the start (the SHAP key adds a second), so nothing moves and
     // the controls above get some air
     main.appendChild(el("div", { className: "me-muted", style: "font-size:11.5px;line-height:1.9;min-height:3.8em;display:flex;flex-direction:column;justify-content:flex-end" },
-      "<div>" + legendHtml("Highlight", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) +
+      // one line per key, so a key never splits between its title and its items
+      "<div>" + legendHtml("Highlight", [[CENTER, "centre atom"], [ENV, "rest of the environment"]]) + "</div>" +
       (contribActive()
-        ? legendHtml(get("contrib_label"), [[[0.84, 0.2, 0.2], "raises the prediction"], [[0.2, 0.42, 0.9], "lowers it"]])
-        : "") + "</div>"));
+        ? "<div>" + legendHtml(get("contrib_label"), [[[0.84, 0.2, 0.2], "raises the prediction"], [[0.2, 0.42, 0.9], "lowers it"]]) + "</div>"
+        : "")));
     const options = mols.length === 2
       ? [["all", "all"], ["shared", "shared"], ["differ", "differ"], ...(get("mode") === "count" ? [["count differs", "count differs"]] : []), ["only A", "only A"], ["only B", "only B"], ["collide", "⚠ in-molecule collisions"]]
       : [["all", "all"], ["collide", "⚠ in-molecule collisions"]];
