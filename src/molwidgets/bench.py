@@ -14,13 +14,15 @@ from typing import Any
 
 import numpy as np
 
-from .chem import _generator, standardize_smiles
+from .chem import _generator, bit_census, standardize_smiles
 
 HF = "https://huggingface.co/datasets/openadmet/"
 PRECOMPUTED_URL = (
     "https://raw.githubusercontent.com/N283T/openadmet-marimo/main/results/precomputed/"
 )
-TABLES = ["molecules", "neighbours", "predictions", "metrics", "shap", "gain"]
+TABLES = ["molecules", "neighbours", "predictions", "metrics", "shap", "gain", "bitlen"]
+# fingerprint lengths compared in the "bitlen" table
+LENGTHS = [1024, 2048, 4096, 8192]
 FEATURES = ["ECFP4 bit", "ECFP4 count", "RDKit desc", "bit + desc"]
 
 
@@ -181,7 +183,14 @@ def load_raw(dataset: str, data_dir: Path | None = None):
             )
             frames.append(df.drop("CXSMILES", "Set", "Molecule Name"))
         potency, admet = frames
-        return potency.join(admet, on=["id", "smiles_raw", "split"], how="full", coalesce=True)
+        # keep the row order fixed: it reaches the models through subsampling
+        return potency.join(
+            admet,
+            on=["id", "smiles_raw", "split"],
+            how="full",
+            coalesce=True,
+            maintain_order="left_right",
+        )
     return pl.concat(
         [
             _read(f, data_dir)
@@ -333,10 +342,55 @@ def compute_gain(mol):
     return bit_gain(mol["task"][0], make_model().fit(x, tr["y"].to_numpy()))
 
 
+def compute_bitlen(mol, lengths: list[int] | None = None):
+    """The "bitlen" table for one task: the ECFP4 bit model refitted at each fingerprint length,
+    with its test scores and how crowded the train set's bits are at that length (distinct
+    substructures, mean per non-empty bit, empty bits, purity).
+
+    ``usable_bits`` counts the bits LightGBM can split on: on in at least ``min_child_samples``
+    train compounds and off in at least as many. ``frequent_substructures`` is the same count
+    for the substructures before folding (the same at every length)."""
+    import polars as pl
+    from scipy.stats import spearmanr
+
+    tr, te = mol.filter(pl.col("split") == "train"), mol.filter(pl.col("split") == "test")
+    ytr, yte = tr["y"].to_numpy(), te["y"].to_numpy()
+    rows, least = [], make_model().min_child_samples
+
+    def splittable(n_on: np.ndarray) -> int:
+        return int(((n_on >= least) & (n_on <= len(ytr) - least)).sum())
+
+    for n_bits in lengths or LENGTHS:
+        x = fingerprints(tr["smiles"].to_list(), n_bits=n_bits)
+        model = make_model().fit(x, ytr)
+        p = model.predict(fingerprints(te["smiles"].to_list(), n_bits=n_bits))
+        census = bit_census(tr["smiles"].to_list(), 2, n_bits)
+        envs = census.n_envs
+        rows.append(
+            {
+                "task": mol["task"][0],
+                "n_bits": n_bits,
+                "rho": float(spearmanr(p, yte)[0]),
+                "r2": float(1 - ((p - yte) ** 2).sum() / ((yte - yte.mean()) ** 2).sum()),
+                "mae": float(np.abs(p - yte).mean()),
+                "substructures": int(envs.sum()),
+                "per_bit": float(envs[envs > 0].mean()),
+                "empty_bits": int((envs == 0).sum()),
+                "purity": float(census.purity()[1]),
+                "usable_bits": splittable(x.sum(0)),
+                "frequent_substructures": splittable(
+                    np.array([e["count"] for envs in census.examples.values() for e in envs])
+                ),
+            }
+        )
+    return pl.DataFrame(rows)
+
+
 def compute_task(mol):
     """Every precomputed table for one task, from its ``load_task`` rows.
 
-    Returns {"neighbours", "predictions", "metrics", "shap", "gain"} as polars DataFrames.
+    Returns {"neighbours", "predictions", "metrics", "shap", "gain", "bitlen"} as polars
+    DataFrames.
     """
     import polars as pl
     from scipy.stats import pearsonr, spearmanr
@@ -422,6 +476,7 @@ def compute_task(mol):
         "metrics": pl.DataFrame([metrics]),
         "shap": shap,
         "gain": gain,
+        "bitlen": compute_bitlen(mol),
     }
 
 
@@ -429,21 +484,29 @@ def precompute(
     out_dir: Path,
     data_dir: Path | None = None,
     tasks: list[Task] | None = None,
-    only_gain: bool = False,
+    only: str | None = None,
 ) -> None:
-    """Write results/precomputed/<table>.parquet for every task (``only_gain``: just gain)."""
+    """Write results/precomputed/<table>.parquet for every task.
+
+    ``only``: "gain" or "bitlen" writes just that table, refitting only the models it needs. It
+    takes its rows from the molecules.parquet already in ``out_dir``, so the refitted models see
+    the same rows in the same order as the ones behind the other tables.
+    """
     import polars as pl
 
-    tables: dict[str, list] = {t: [] for t in (["gain"] if only_gain else TABLES)}
+    single = {"gain": compute_gain, "bitlen": compute_bitlen}
+    tables: dict[str, list] = {t: [] for t in ([only] if only else TABLES)}
+    stored = pl.read_parquet(out_dir / "molecules.parquet") if only else None
     raws: dict[str, Any] = {}
     for task in tasks or TASKS:
+        if only is not None and stored is not None:
+            mol = stored.filter(pl.col("task") == task.key)
+            tables[only].append(single[only](mol))
+            print(task.key, mol.height, flush=True)
+            continue
         if task.dataset not in raws:
             raws[task.dataset] = load_raw(task.dataset, data_dir)
         mol = load_task(task, raw=raws[task.dataset])
-        if only_gain:
-            tables["gain"].append(compute_gain(mol))
-            print(task.key, mol.height, flush=True)
-            continue
         tables["molecules"].append(mol)
         for name, df in compute_task(mol).items():
             tables[name].append(df)
