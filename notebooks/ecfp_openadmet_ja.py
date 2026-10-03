@@ -111,7 +111,7 @@ def _(Path, bench, mo, pl):
             _computed = {k: pl.concat(v, how="diagonal_relaxed") for k, v in _tables.items()}
     else:
         _computed = {}
-    molecules, neighbours, predictions, metrics, shap = (
+    molecules, neighbours, predictions, metrics, shap, gain = (
         _computed[t] if t in _computed else pl.read_parquet(_where[t]) for t in bench.TABLES
     )
     tasks = pl.DataFrame(
@@ -139,7 +139,7 @@ def _(Path, bench, mo, pl):
             )
         }
     )
-    return metrics, molecules, neighbours, predictions, shap, tasks
+    return gain, metrics, molecules, neighbours, predictions, shap, tasks
 
 
 @app.cell
@@ -1292,13 +1292,18 @@ def _(mo):
     mo.md(r"""
     ### 2.7 · モデルが見ているもの
 
-    ECFP4 bit のモデルについて、TreeSHAP (各 bit がその分子の予測をどれだけ上げたか下げたか) を train の全化合物で平均したものが **mean |SHAP|** です。行をクリックすると、その bit に入る部分構造と、その bit が立っている分子が出ます。
+    ECFP4 bit のモデルがどの bit を使っているかを、2 つの指標で並べます。
+
+    * **gain**: LightGBM の木がその bit で分岐したときに減った誤差の合計 ([`feature_importance(importance_type="gain")`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.feature_importance))
+    * **mean |SHAP|**: TreeSHAP (各 bit がその分子の予測をどれだけ上げたか下げたか) の絶対値を train の全化合物で平均したもの
+
+    行をクリックすると、その bit に入る部分構造と、その bit が立っている分子が下に出ます。
     """)
     return
 
 
 @app.cell(hide_code=True)
-def _(BitImportance, mo, np, pl, shap, task, train):
+def _(BitImportance, gain, mo, np, pl, shap, task, train):
     _s = shap.filter(
         (pl.col("task") == task.key)
         & (pl.col("bit") >= 0)
@@ -1313,7 +1318,10 @@ def _(BitImportance, mo, np, pl, shap, task, train):
     mo.ui.anywidget(
         BitImportance(
             train["smiles"].to_list(),
-            importance={"mean |SHAP|": _imp},
+            importance={
+                "gain": gain.filter(pl.col("task") == task.key).sort("bit")["gain"].to_numpy(),
+                "mean |SHAP|": _imp,
+            },
             effect=_eff,
             effect_label="mean SHAP (bit on)",
             ids=train["id"].to_list(),

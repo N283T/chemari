@@ -74,7 +74,9 @@ components are used throughout.
     or mean |SHAP|), in either direction so unused bits can be browsed too, with each bit's
     direction, its most common substructure and how many substructures and molecules it has;
     below, the selected bit's substructures and the molecules that set it, with the responsible
-    atoms highlighted (click a substructure to keep only its molecules)
+    atoms highlighted (click a substructure to keep only its molecules). `layout="side"` puts the
+    detail beside the table instead (2 : 1, both `height` pixels tall, without the substructure
+    column)
   - `MorganExplorer`: bit-by-bit view of a Morgan fingerprint for one molecule or a pair, with the
     atom environments behind each bit, dataset statistics per bit, and a gallery of the different
     substructures that collide in a selected bit; for a pair, the table can show only the shared

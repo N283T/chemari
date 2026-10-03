@@ -720,9 +720,10 @@ class BitImportance(_Computing):
     mean |SHAP|; the table ranks every bit by the chosen one (or by how many molecules set it, or
     how many substructures share it), in either direction, so bits the model never uses can be
     found too. ``effect`` is an optional signed per-bit value (e.g. mean SHAP in the molecules that
-    set the bit) shown as the direction. Below the table, the selected bit's substructures in
-    ``reference`` and the molecules that set it, with the responsible atoms highlighted; clicking a
-    substructure keeps only the molecules that contain it. Pass ``y`` to label (and order) them.
+    set the bit) shown as the direction, and each bit's most common substructure. Below the table
+    (or beside it, without that column, with ``layout="side"``), the selected bit's substructures
+    in ``reference`` and the molecules that set it, with the responsible atoms highlighted; clicking
+    a substructure keeps only the molecules that contain it. Pass ``y`` to label (and order) them.
     """
 
     _esm = _bundle("importance.js")
@@ -746,6 +747,9 @@ class BitImportance(_Computing):
     mol_filter = traitlets.Int(-1).tag(sync=True)  # unfolded identifier of one substructure, or -1
     mol_page = traitlets.Int(0).tag(sync=True)
     mol_page_size = traitlets.Int(24).tag(sync=True)
+    # "stacked": the detail below the table; "side": beside it, both `height` pixels tall
+    layout = traitlets.Unicode("stacked").tag(sync=True)
+    height = traitlets.Int(520).tag(sync=True)
     mols = traitlets.Dict().tag(sync=True)  # {"total": n, "items": [...]} for the selected bit
 
     def __init__(
@@ -782,7 +786,7 @@ class BitImportance(_Computing):
             **kwargs,
         )
         self.observe(self._rank, names=["sort", "descending"])
-        self.observe(self._refresh, names=["page", "page_size"])
+        self.observe(self._refresh, names=["page", "page_size", "layout"])
         self.observe(self._select, names=["selected"])
         self.observe(self._mol_view_changed, names=["mol_filter", "mol_page"])
         self._signal_done(
@@ -835,8 +839,9 @@ class BitImportance(_Computing):
                     "effect": None if self._effect is None else float(self._effect[bit]),
                     "n_envs": len(examples),
                     "n_mols": int(n_on[bit]),
-                    # the most common substructure, and the share of the bit's molecules it covers
-                    "main_svg": self._svg(main, (96, 72)) if main else "",
+                    # the most common substructure (drawn in the "stacked" layout's table only),
+                    # and the share of the bit's molecules it covers
+                    "main_svg": self._svg(main, (96, 72)) if main and self.layout != "side" else "",
                     "main_env": main["smiles"] if main else "",
                     "main_share": main["count"] / max(int(n_on[bit]), 1) if main else 0.0,
                 }
