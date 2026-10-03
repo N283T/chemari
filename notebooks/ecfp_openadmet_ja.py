@@ -1402,13 +1402,175 @@ def _(MorganExplorer, mo, mols, neighbours, pl, predictions, shap, shap_pick, ta
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
+def _(mo, task):
+    mo.md(f"""
     ---
 
-    ## 第 3 部 · データセットをまたいで見えたこと
+    ## 第 3 部 · データセットをまたいで見る
 
-    全エンドポイントの数字を 1 つの表にまとめます (test での Spearman ρ)。
+    第 2 部では 1 つのエンドポイントずつ見てきました。ここでは 16 のエンドポイントを並べて比べます。上で選んでいる {task.dataset} · {task.endpoint} は太字にしています。
+
+    ### 3.1 · 1 bit に入る部分構造
+
+    2.2 の collision を、データセットごとに数えます。train の化合物に出てくる部分構造を 2048 bit に折りたたんだとき、1 つの bit に何種類の部分構造が入るかの分布です。各エンドポイントの train は、そのエンドポイントの値が測られている化合物なので、エンドポイントごとにも切り替えられます。軸はすべて共通で、1 bit あたりの平均が少ない順に並べています。右上の数字は 1 bit あたりの平均 (per bit)、2.2 の purity、train の化合物数です。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(bench, census_for, mo, molecules, np, pl):
+    # the 2.2 census for each dataset's whole train set, and for every endpoint's train set
+    _groups = {}
+    for _t in bench.TASKS:
+        _smi = molecules.filter((pl.col("task") == _t.key) & (pl.col("split") == "train"))[
+            "smiles"
+        ].to_list()
+        _groups[("endpoint", f"{_t.dataset} · {_t.endpoint}")] = _smi
+        _groups.setdefault(("dataset", _t.dataset), []).extend(_smi)
+    _rows, _hist = [], []
+    with mo.status.spinner("データセットとエンドポイントごとに部分構造を数えています…"):
+        for (_unit, _name), _smi in _groups.items():
+            _smi = list(dict.fromkeys(_smi))  # a compound measured for several endpoints once
+            _c = census_for(_smi, 2, 2048)
+            _e = _c.n_envs
+            _rows.append(
+                {
+                    "unit": _unit,
+                    "name": _name,
+                    "n_train": len(_smi),
+                    "substructures": int(_e.sum()),
+                    "per_bit": float(_e[_e > 0].mean()),
+                    "empty_bits": int((_e == 0).sum()),
+                    "purity": _c.purity()[1],
+                }
+            )
+            _k, _n = np.unique(_e, return_counts=True)
+            _hist.append(pl.DataFrame({"unit": _unit, "name": _name, "envs": _k, "bits": _n}))
+    bit_load = pl.DataFrame(_rows).sort("per_bit")
+    bit_load_hist = pl.concat(_hist)
+    return bit_load, bit_load_hist
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    load_unit = mo.ui.radio(["dataset", "endpoint"], value="dataset", inline=True, label="per")
+    return (load_unit,)
+
+
+@app.cell(hide_code=True)
+def _(alt, bit_load, bit_load_hist, load_unit, mo, pl, task):
+    _by_dataset = load_unit.value == "dataset"
+    _sel = task.dataset if _by_dataset else f"{task.dataset} · {task.endpoint}"
+    _dataset = pl.col("name").str.split(" · ").list.first().alias("dataset")
+    _load = bit_load.filter(pl.col("unit") == load_unit.value).with_columns(_dataset)
+    _d = (
+        bit_load_hist.filter(pl.col("unit") == load_unit.value)
+        .join(_load, on=["unit", "name"])
+        .with_columns((pl.col("name") == _sel).alias("selected"))
+    )
+    _w, _h = (290, 220) if _by_dataset else (190, 130)
+    _cols = 3 if _by_dataset else 4
+    _top = int(_d["bits"].max())
+    _n = int(_load["n_train"].max())
+
+    def _panel(i, r):
+        _first = i % _cols == 0
+        # endpoint names are long: the dataset goes on the line below
+        _ds_name, _, _head = r["name"].rpartition(" · ")
+        _bars = (
+            alt.Chart(
+                _d.filter(pl.col("name") == r["name"]),
+                title=alt.Title(
+                    _head,
+                    subtitle=_ds_name or alt.Undefined,
+                    fontSize=14 if _by_dataset else 13,
+                    fontWeight="bold" if r["name"] == _sel else "normal",
+                    subtitleFontSize=11,
+                    subtitleColor="#495057",
+                    anchor="start",
+                ),
+            )
+            .mark_bar(width={"band": 0.85})
+            .encode(
+                x=alt.X(
+                    "envs:O",
+                    title="substructures on a bit",
+                    axis=alt.Axis(values=[0, 5, 10, 15, 20], labelAngle=0),
+                    scale=alt.Scale(domain=list(range(int(bit_load_hist["envs"].max()) + 1))),
+                ),
+                y=alt.Y(
+                    "bits:Q",
+                    title="bits" if _first else None,
+                    scale=alt.Scale(domain=[0, _top]),
+                    axis=alt.Axis(labels=_first, ticks=_first),
+                ),
+                color=alt.condition("datum.selected", alt.value("#d6336c"), alt.value("#4c78a8")),
+                tooltip=[
+                    alt.Tooltip("envs:O", title="substructures on a bit"),
+                    alt.Tooltip("bits:Q", title="bits"),
+                ],
+            )
+        )
+        # the numbers in a box in the empty top-right corner, clear of the grid lines
+        _big, _small = (17, 12.5) if _by_dataset else (12.5, 11)
+        _pad, _right = 7, _w - 6
+        # wide enough for the longest line (about 0.6 em per character), the same in every panel
+        _box_w = 2 * _pad + max(len(f"{_n:,} compounds") * _small, len("10.6 per bit") * _big) * 0.6
+        _lines = [
+            (f"{r['per_bit']:.1f} per bit", _big, "bold", 6 + _pad),
+            (f"purity {r['purity']:.0%}", _small, "normal", 6 + _pad + _big + 4),
+            (f"{r['n_train']:,} compounds", _small, "normal", 6 + _pad + _big + _small + 8),
+        ]
+        _box = (
+            alt.Chart(pl.DataFrame({"x": [0]}))
+            .mark_rect(fill="white", stroke="#ced4da", strokeWidth=1, cornerRadius=4, opacity=0.95)
+            .encode(
+                x=alt.value(_right - _box_w),
+                x2=alt.value(_right),
+                y=alt.value(6),
+                y2=alt.value(6 + 2 * _pad + _big + 2 * _small + 8),
+            )
+        )
+        _labels = [
+            alt.Chart(pl.DataFrame({"t": [t]}))
+            .mark_text(
+                align="right", baseline="top", fontSize=size, fontWeight=weight, color="#212529"
+            )
+            .encode(x=alt.value(_right - _pad), y=alt.value(y), text="t:N")
+            for t, size, weight, y in _lines
+        ]
+        return alt.layer(_bars, _box, *_labels).properties(width=_w, height=_h)
+
+    _chart = alt.concat(
+        *[_panel(i, r) for i, r in enumerate(_load.iter_rows(named=True))],
+        columns=_cols,
+        spacing=24 if _by_dataset else 18,
+    )
+    _ds = {r["name"]: r for r in bit_load.filter(pl.col("unit") == "dataset").iter_rows(named=True)}
+    _pxr, _exp = _ds["PXR"], _ds["ExpansionRx"]
+    mo.vstack(
+        [
+            load_unit,
+            mo.hstack([_chart], justify="center"),
+            mo.md(
+                f"""
+    * PXR は空の bit がなく、1 bit に入る部分構造が 3 つのデータセットでいちばん多く、purity はいちばん低くなっています
+    * ExpansionRx は化合物が PXR より多いのに、部分構造の種類は {_exp["substructures"] / _pxr["substructures"]:.0%} しかありません。差を決めているのは化合物の数ではなく、構造の多様さです
+
+    エンドポイントごとに切り替えると、同じデータセットの中でも数字が変わります。ExpansionRx の MBPB と LogD のように、化合物の数が違うからです。
+    """
+            ),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### 3.2 · 近い化合物があるかどうか
+
+    ここからの図は、行を test 化合物と NN の類似度の中央値の順に並べています。
     """)
     return
 
@@ -1420,10 +1582,11 @@ def _(db, mo):
         SELECT
             t.dataset || ' · ' || t.endpoint AS name, n.task,
             min(n.tanimoto) AS lo, quantile_cont(n.tanimoto, 0.25) AS q1,
-            median(n.tanimoto) AS med, quantile_cont(n.tanimoto, 0.75) AS q3, max(n.tanimoto) AS hi
+            median(n.tanimoto) AS med, quantile_cont(n.tanimoto, 0.75) AS q3, max(n.tanimoto) AS hi,
+            avg((n.tanimoto >= 0.6)::INT) AS share_close
         FROM neighbours n JOIN tasks t USING (task)
         GROUP BY ALL
-        ORDER BY med
+        ORDER BY med DESC
         """,
         output=False,
         engine=db,
@@ -1431,21 +1594,52 @@ def _(db, mo):
     return (nn_by_task,)
 
 
-@app.cell(hide_code=True)
-def _(alt, mo, nn_by_task, pl, task):
-    # one box per endpoint, drawn from the quantiles computed in SQL (not from every row)
-    _d = nn_by_task.with_columns((pl.col("task") == task.key).alias("selected"))
-    _y = alt.Y("name:N", sort=_d["name"].to_list(), title=None)
-    _color = alt.Color(
-        "selected:N",
-        scale=alt.Scale(domain=[True, False], range=["#d6336c", "#adb5bd"]),
-        legend=None,
+@app.cell
+def _(db, mo):
+    # every score of every model, one row each; best marks the top model per endpoint
+    scores = mo.sql(
+        """
+        WITH long AS (
+            UNPIVOT (
+                SELECT task, rho_1nn AS "rho NN value", COLUMNS('^(rho|pair_slope) ')
+                FROM metrics
+            )
+            ON COLUMNS(* EXCLUDE task) INTO NAME metric VALUE score
+        )
+        SELECT
+            t.dataset || ' · ' || t.endpoint AS name, l.task,
+            split_part(l.metric, ' ', 1) AS stat,
+            substr(l.metric, strpos(l.metric, ' ') + 1) AS model,
+            l.score,
+            l.score = max(l.score) OVER (PARTITION BY l.task, stat) AS best
+        FROM long l JOIN tasks t USING (task)
+        """,
+        output=False,
+        engine=db,
     )
+    return (scores,)
+
+
+@app.cell(hide_code=True)
+def _(alt, nn_by_task, task):
+    # rows in the same order in every chart of Part 3; the selected endpoint in bold
+    rows = nn_by_task["name"].to_list()
+    _sel = f"{task.dataset} · {task.endpoint}"
+    row_axis = alt.Axis(
+        labelFontWeight=alt.expr(f"datum.value == '{_sel}' ? 'bold' : 'normal'"),
+        labelLimit=260,
+    )
+    return row_axis, rows
+
+
+@app.cell(hide_code=True)
+def _(alt, mo, nn_by_task, pl, row_axis, rows, scores):
+    _y = alt.Y("name:N", sort=rows, title=None, axis=row_axis)
     _x = alt.X("lo:Q", title="Tanimoto to the NN (ECFP4)", scale=alt.Scale(domain=[0, 1]))
-    _base = alt.Chart(_d).encode(y=_y, color=_color)
+    _base = alt.Chart(nn_by_task).encode(y=_y)
     _box = (
-        _base.mark_rule().encode(x=_x, x2="hi:Q")
-        + _base.mark_bar(size=12).encode(
+        _base.mark_rule(color="#868e96").encode(x=_x, x2="hi:Q")
+        + _base.mark_bar(size=12, color="#adb5bd").encode(
             x="q1:Q",
             x2="q3:Q",
             tooltip=[
@@ -1453,38 +1647,52 @@ def _(alt, mo, nn_by_task, pl, task):
                 alt.Tooltip("med:Q", title="median", format=".2f"),
                 alt.Tooltip("q1:Q", format=".2f"),
                 alt.Tooltip("q3:Q", format=".2f"),
+                alt.Tooltip("share_close:Q", title="NN ≥ 0.6", format=".0%"),
             ],
         )
-        + _base.mark_tick(color="white", size=12, thickness=2).encode(x="med:Q")
-    ).properties(height=360, width=460)
+        + _base.mark_tick(color="#212529", size=12, thickness=2).encode(x="med:Q")
+    ).properties(
+        width=300, height=380, title=alt.Title("similarity to the NN", fontSize=12, anchor="start")
+    )
+    # NN value → ECFP4 bit, per endpoint
+    _two = scores.filter(
+        (pl.col("stat") == "rho") & pl.col("model").is_in(["NN value", "ECFP4 bit"])
+    )
+    _dy = alt.Y(
+        "name:N", sort=rows, title=None, axis=alt.Axis(labels=False, ticks=False, domain=False)
+    )
+    _db = alt.Chart(_two).encode(y=_dy)
+    _dumbbell = (
+        _db.mark_line(color="#ced4da", strokeWidth=2).encode(x="score:Q", detail="name:N")
+        + _db.mark_circle(size=80, opacity=1).encode(
+            x=alt.X("score:Q", title="Spearman ρ (test)", scale=alt.Scale(domain=[-0.1, 1])),
+            color=alt.Color(
+                "model:N",
+                # the colours of 2.6
+                scale=alt.Scale(domain=["NN value", "ECFP4 bit"], range=["#adb5bd", "#4c78a8"]),
+                title=None,
+                legend=alt.Legend(orient="top"),
+            ),
+            tooltip=["name", "model", alt.Tooltip("score:Q", title="ρ", format=".2f")],
+        )
+    ).properties(
+        width=300, height=380, title=alt.Title("NN value → ECFP4 bit", fontSize=12, anchor="start")
+    )
     mo.vstack(
         [
             mo.md(
-                "test 化合物と NN の類似度を、エンドポイントごとに並べたものです (箱は 25〜75%、白い線は中央値)。"
+                "左は test 化合物と NN の類似度 (箱は 25〜75%、黒い線は中央値) です。"
+                "右は、NN の値をそのまま使った予測 (NN value) と ECFP4 bit のモデルの Spearman ρ です。"
             ),
-            _box,
+            mo.hstack([alt.hconcat(_box, _dumbbell, spacing=24)], justify="center"),
+            mo.md(
+                """
+    * ASAP の MERS-CoV と SARS-CoV-2 は、test 化合物の 98% に Tanimoto 0.6 以上の NN があります。NN value だけで ρ は 0.61 と 0.75 で、モデルはそこから少し上がるだけです
+    * PXR は NN が 0.6 以上の化合物が 18% しかなく、NN value の ρ は 0.05 です。それでも ECFP4 bit のモデルは 0.61 まで出ています。近い化合物がなくても、部分構造の組み合わせから値を予測しています
+    * ASAP の LogD と KSOL は近い化合物があるのに、ECFP4 bit のモデルは NN value と同じくらいか、それより低くなっています (LogD 0.25 → 0.33、KSOL 0.23 → 0.04)
+    """
+            ),
         ]
-    )
-    return
-
-
-@app.cell
-def _(db, mo):
-    _summary = mo.sql(
-        """
-        SELECT
-            t.dataset, t.endpoint,
-            round(m.nn_tanimoto_median, 2) AS nn_tanimoto,
-            round(m.rho_1nn, 2) AS one_nn,
-            round(m."rho ECFP4 bit", 2) AS bit,
-            round(m."rho ECFP4 count", 2) AS count,
-            round(m."rho RDKit desc", 2) AS "desc",
-            round(m."rho bit + desc", 2) AS bit_desc,
-            round(m."pair_slope ECFP4 bit", 2) AS pair_slope_bit
-        FROM metrics m JOIN tasks t USING (task)
-        ORDER BY m."rho ECFP4 bit" DESC
-        """,
-        engine=db,
     )
     return
 
@@ -1492,9 +1700,95 @@ def _(db, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    * **ペア差の再現**: test 化合物と NN の差を、モデルがどれだけの大きさで予測できたか (予測の差を測定の差に回帰した傾き。1 なら大きさまで再現、0 なら差を予測できていない)。NN の予測は、その化合物を学習に使っていないモデル (5-fold の out of fold) で出しています
+    ### 3.3 · どの特徴量が効くか
 
-    _(ここに結論の文章を書く: 近いシリーズでは ECFP4 がよく効く / count はほぼどこでも効く / 物性では記述子 / PXR のような設定では FP だけの単純なモデルは難しいが原因は 1 つではない / ごく近いペアの差はどのデータでも予測できない / ECFP4 は起点)_
+    2.6 の 5 つの予測を、全エンドポイントで並べます。数字は test での Spearman ρ で、各行でいちばん高いものを太字にしています。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(alt, mo, pl, row_axis, rows, scores):
+    def _heat(stat, models, title, domain, scheme):
+        _d = scores.filter((pl.col("stat") == stat) & pl.col("model").is_in(models))
+        _base = alt.Chart(_d).encode(
+            x=alt.X("model:N", sort=models, title=None, axis=alt.Axis(orient="top", labelAngle=0)),
+            y=alt.Y("name:N", sort=rows, title=None, axis=row_axis),
+        )
+        _rect = _base.mark_rect().encode(
+            color=alt.Color(
+                "score:Q", scale=alt.Scale(domain=domain, scheme=scheme, clamp=True), legend=None
+            ),
+            tooltip=["name", "model", alt.Tooltip("score:Q", title=title, format=".2f")],
+        )
+        _ink = alt.condition(
+            f"datum.score > {domain[1] * 0.7}", alt.value("white"), alt.value("#212529")
+        )
+        # the best model of each row in bold
+        _text = [
+            _base.mark_text(fontSize=11, fontWeight=w)
+            .transform_filter(f"{'' if b else '!'}datum.best")
+            .encode(text=alt.Text("score:Q", format=".2f"), color=_ink)
+            for b, w in ((True, "bold"), (False, "normal"))
+        ]
+        return alt.layer(_rect, *_text).properties(width=82 * len(models), height=380)
+
+    rho_heat = _heat(
+        "rho",
+        ["NN value", "ECFP4 bit", "ECFP4 count", "RDKit desc", "bit + desc"],
+        "Spearman ρ",
+        [0, 1],
+        "blues",
+    )
+    slope_heat = _heat(
+        "pair_slope",
+        ["ECFP4 bit", "ECFP4 count", "RDKit desc", "bit + desc"],
+        "slope",
+        [0, 1],
+        "purples",
+    )
+    mo.hstack([rho_heat], justify="center")
+    return (slope_heat,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    * **ECFP4 count** は 16 のうち 15 で ECFP4 bit 以上です。同じ部分構造がいくつあるかも、多くの値に効いています
+    * **RDKit desc** は 16 のうち 11 で ECFP4 bit を上回ります。差が大きいのは ASAP の LogD (0.33 → 0.76) と KSOL (0.04 → 0.34) で、分子全体の性質で決まる値です
+    * MERS-CoV と SARS-CoV-2 の pIC50 は、どの特徴量でもほぼ同じです。近い化合物が揃っていると、表現の違いは結果にあまり出ません
+
+    ### 3.4 · 近いペアの差
+
+    最後に、test 化合物と NN の差をモデルが予測できているかを見ます。数字は、予測の差を測定の差に回帰した傾きです。1 なら差の大きさまで再現、0 なら差をまったく予測できていません。NN の予測には、その化合物を学習に使っていないモデル (train の 5-fold の out of fold) の値を使っています。
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo, slope_heat):
+    mo.vstack(
+        [
+            mo.hstack([slope_heat], justify="center"),
+            mo.md(
+                """
+    傾きはどのエンドポイントでも 0.55 以下で、ASAP の MERS-CoV、SARS-CoV-2、KSOL ではほぼ 0 です。MERS-CoV と SARS-CoV-2 は ρ が高いのに、予測の差と測定の差の相関は 0.03 と −0.10 です。モデルは NN と同じあたりの値を出せていても、2 つの化合物の差は予測できていません。2.5 の activity cliff は、まさにこの差です。
+    """
+            ),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### まとめ
+
+    * ECFP4 は、train に近い化合物があるデータでよく効きます。ただしそのとき、NN の値をそのまま使っても同じくらい当たります
+    * 近い化合物がない PXR でも、ECFP4 のモデルは NN value よりずっと良い予測を出します。bit を部分構造として組み合わせているからです
+    * bit より count、物性値では記述子のほうが良いことが多く、ECFP4 bit は最初に試すものであって、最後に使うものとは限りません
+    * 似た化合物どうしの差は、どのデータ、どの特徴量でもほとんど予測できません。activity cliff を当てたいなら、ECFP4 と木のモデルの組み合わせでは足りません
     """)
     return
 
@@ -1508,7 +1802,7 @@ def _(mo):
 
     * **データ**: [PXR challenge](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test) (CC-BY-4.0)、[ASAP-Polaris-OpenADMET antiviral challenge](https://huggingface.co/datasets/openadmet/ASAP_Polaris_OpenADMET_challenge) (MIT)、[OpenADMET-ExpansionRx challenge](https://huggingface.co/datasets/openadmet/openadmet-expansionrx-challenge-data) (CC-BY-4.0)
     * **事前計算**: `dev/precompute.py` → `results/precomputed/`。計算のコードは `molwidgets.bench`
-    * **ウィジェット**: `ECFPMovie`、`ECFPStepper`、`MorganBitTiles`、`MolGrid`、`MolPair`、`BitAtlas`、`BitImportance`、`MorganExplorer` は、この notebook のために作った anywidget コンポーネントです ([ソース](https://github.com/N283T/openadmet-marimo))
+    * **ウィジェット**: `ECFPMovie`、`ECFPStepper`、`MorganBitTiles`、`MolGrid`、`MolPair`、`BitAtlas`、`BitImportance`、`MolScatter`、`MorganExplorer` は、この notebook のために作った anywidget コンポーネントです ([ソース](https://github.com/N283T/openadmet-marimo))
     * **AI の利用**: ウィジェット、動画、notebook の骨組みのコーディングには Claude (Anthropic) をアシスタントとして使いました。問いの立て方、解析の選び方、解釈は私自身のものです
 
     ### 参考文献
