@@ -20,7 +20,7 @@ HF = "https://huggingface.co/datasets/openadmet/"
 PRECOMPUTED_URL = (
     "https://raw.githubusercontent.com/N283T/openadmet-marimo/main/results/precomputed/"
 )
-TABLES = ["molecules", "neighbours", "predictions", "metrics", "shap"]
+TABLES = ["molecules", "neighbours", "predictions", "metrics", "shap", "gain"]
 FEATURES = ["ECFP4 bit", "ECFP4 count", "RDKit desc", "bit + desc"]
 
 
@@ -313,10 +313,30 @@ def out_of_fold(x: np.ndarray, y: np.ndarray, folds: int = 5) -> np.ndarray:
 # ---------------------------------------------------------------- one task, all tables
 
 
+def bit_gain(key: str, model: Any) -> Any:
+    """LightGBM split gain per bit of a fitted ECFP4 bit model, as a (task, bit, gain) table."""
+    import polars as pl
+
+    gain = model.booster_.feature_importance(importance_type="gain")
+    return pl.DataFrame(
+        {"task": key, "bit": np.arange(len(gain), dtype=np.int32), "gain": gain.astype(np.float32)}
+    )
+
+
+def compute_gain(mol):
+    """Only the "gain" table for one task: refits the ECFP4 bit model of ``compute_task`` (same
+    data, same seed, so the same model) without the rest."""
+    import polars as pl
+
+    tr = mol.filter(pl.col("split") == "train")
+    x = fingerprints(tr["smiles"].to_list())
+    return bit_gain(mol["task"][0], make_model().fit(x, tr["y"].to_numpy()))
+
+
 def compute_task(mol):
     """Every precomputed table for one task, from its ``load_task`` rows.
 
-    Returns {"neighbours", "predictions", "metrics", "shap"} as polars DataFrames.
+    Returns {"neighbours", "predictions", "metrics", "shap", "gain"} as polars DataFrames.
     """
     import polars as pl
     from scipy.stats import pearsonr, spearmanr
@@ -347,7 +367,7 @@ def compute_task(mol):
         "n_identical_fp": int((nn_sim >= 0.999).sum()),
         "rho_1nn": float(spearmanr(ytr[nn], yte)[0]),
     }
-    shap = None
+    shap = gain = None
     for name in FEATURES:
         model = make_model().fit(ftr[name], ytr)
         p_test = model.predict(fte[name])
@@ -373,6 +393,7 @@ def compute_task(mol):
         metrics[f"pair_slope {name}"] = float(np.polyfit(dt, dp, 1)[0])
         metrics[f"pair_r {name}"] = float(pearsonr(dp, dt)[0])
         if name == "ECFP4 bit":
+            gain = bit_gain(key, model)
             # TreeSHAP of the bit model on test and train compounds, on-bits only (long format)
             x = np.vstack([fte[name], ftr[name]])
             c = model.predict(x, pred_contrib=True)
@@ -400,21 +421,29 @@ def compute_task(mol):
         "predictions": pl.concat(preds),
         "metrics": pl.DataFrame([metrics]),
         "shap": shap,
+        "gain": gain,
     }
 
 
 def precompute(
-    out_dir: Path, data_dir: Path | None = None, tasks: list[Task] | None = None
+    out_dir: Path,
+    data_dir: Path | None = None,
+    tasks: list[Task] | None = None,
+    only_gain: bool = False,
 ) -> None:
-    """Write results/precomputed/<table>.parquet for every task."""
+    """Write results/precomputed/<table>.parquet for every task (``only_gain``: just gain)."""
     import polars as pl
 
-    tables: dict[str, list] = {t: [] for t in TABLES}
+    tables: dict[str, list] = {t: [] for t in (["gain"] if only_gain else TABLES)}
     raws: dict[str, Any] = {}
     for task in tasks or TASKS:
         if task.dataset not in raws:
             raws[task.dataset] = load_raw(task.dataset, data_dir)
         mol = load_task(task, raw=raws[task.dataset])
+        if only_gain:
+            tables["gain"].append(compute_gain(mol))
+            print(task.key, mol.height, flush=True)
+            continue
         tables["molecules"].append(mol)
         for name, df in compute_task(mol).items():
             tables[name].append(df)
