@@ -1190,7 +1190,7 @@ def _(mo, model_scores):
     mo.md(f"""
     ## 4 · Inside the model
 
-    What does the model most people train first, **LightGBM on 2048-bit ECFP4** (the same baseline as OpenADMET's challenge tutorial), actually learn? Two ways to look:
+    What does the model most people train first, **LightGBM on 2048-bit ECFP4**, actually learn? Two ways to look:
 
     * **feature importance** (total gain per bit): which bits the trees split on most
     * **TreeSHAP** (LightGBM's `pred_contrib=True`): how much each bit raised or lowered this molecule's prediction; spreading a bit's contribution over the atoms that set it gives a per-atom map (the idea behind Riniker & Landrum's similarity maps)

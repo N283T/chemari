@@ -1240,8 +1240,7 @@ def _(mo, model_scores):
     mo.md(f"""
     ## 4 · モデルの中身
 
-    多くの人が最初に作るモデル、**2048 bit の ECFP4 で学習した LightGBM** (OpenADMET のチャレンジ
-    tutorial と同じベースライン) が何を学習したのかを、2 つの方法で調べます。
+    多くの人が最初に作るモデル、**2048 bit の ECFP4 で学習した LightGBM** が何を学習したのかを、2 つの方法で調べます。
 
     * **特徴量重要度** (bit ごとの gain の合計): 木がどの bit で多く分岐したか
     * **TreeSHAP** (LightGBM の `pred_contrib=True`): 各 bit
