@@ -1,6 +1,6 @@
 """CheMari: chemistry widgets for marimo notebooks (molecule grids, pairs, fingerprints)."""
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 from .chem import (
     BitCensus,

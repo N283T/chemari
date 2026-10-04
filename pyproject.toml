@@ -1,6 +1,6 @@
 [project]
 name = "chemari"
-version = "0.1.3"
+version = "0.1.4"
 description = "CheMari: anywidget chemistry widgets for marimo notebooks (molecule grids, pairs, fingerprints)"
 readme = "README.md"
 requires-python = ">=3.12"

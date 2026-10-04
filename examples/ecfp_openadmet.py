@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "marimo>=0.25",
-#     "chemari @ git+https://github.com/N283T/chemari@v0.1.3",
+#     "chemari @ git+https://github.com/N283T/chemari@v0.1.4",
 #     "polars>=1.30",
 #     "numpy>=2",
 #     "altair>=5.5",
@@ -2221,7 +2221,7 @@ def _(mo):
     * **Data**: [PXR challenge](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test) (CC-BY-4.0), [ASAP-Polaris-OpenADMET antiviral challenge](https://huggingface.co/datasets/openadmet/ASAP_Polaris_OpenADMET_challenge) (MIT), [OpenADMET-ExpansionRx challenge](https://huggingface.co/datasets/openadmet/openadmet-expansionrx-challenge-data) (CC-BY-4.0)
     * **Precomputed tables**: `dev/precompute.py` → `results/precomputed/`. The computation code is `chemari.examples.openadmet`
     * **Widgets**: the widgets in this notebook (`ECFPMovie`, `ECFPStepper`, `MorganBitTiles`, `MolGrid`, `MolPair`, `BitAtlas`, `BitImportance`, `MolScatter`, `MorganExplorer`) are published as a package, [CheMari](https://github.com/N283T/chemari). A PyPI release and more widgets are under consideration
-    * **AI use**: I used Claude (Anthropic) as a coding assistant for the widgets, the video and the notebook scaffolding. The questions I ask, the choice of analyses and the interpretation are my own.
+    * **AI use**: I used Claude (Anthropic) as a coding assistant for the widgets, the video and the notebook scaffolding. The narration of the demo video was generated with Gemini TTS (`gemini-3.8-flash-tts`). The questions I ask, the choice of analyses and the interpretation are my own.
 
     ## References
 

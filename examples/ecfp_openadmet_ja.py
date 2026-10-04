@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "marimo>=0.25",
-#     "chemari @ git+https://github.com/N283T/chemari@v0.1.3",
+#     "chemari @ git+https://github.com/N283T/chemari@v0.1.4",
 #     "polars>=1.30",
 #     "numpy>=2",
 #     "altair>=5.5",
@@ -2214,7 +2214,7 @@ def _(mo):
     * **データ**: [PXR challenge](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test) (CC-BY-4.0)、[ASAP-Polaris-OpenADMET antiviral challenge](https://huggingface.co/datasets/openadmet/ASAP_Polaris_OpenADMET_challenge) (MIT)、[OpenADMET-ExpansionRx challenge](https://huggingface.co/datasets/openadmet/openadmet-expansionrx-challenge-data) (CC-BY-4.0)
     * **事前計算**: `dev/precompute.py` → `results/precomputed/`。計算のコードは `chemari.examples.openadmet`
     * **ウィジェット**: この notebook のウィジェット (`ECFPMovie`、`ECFPStepper`、`MorganBitTiles`、`MolGrid`、`MolPair`、`BitAtlas`、`BitImportance`、`MolScatter`、`MorganExplorer`) は、[CheMari](https://github.com/N283T/chemari) というパッケージにまとめて公開しています。今後は PyPI での公開や、ほかのウィジェットの開発も検討しています
-    * **AI の利用**: ウィジェット、動画、notebook の骨組みのコーディングには Claude (Anthropic) をアシスタントとして使いました。問いの立て方、解析の選び方、解釈は私自身のものです
+    * **AI の利用**: ウィジェット、動画、notebook の骨組みのコーディングには Claude (Anthropic) をアシスタントとして使いました。紹介動画のナレーションは Gemini TTS (`gemini-3.8-flash-tts`) で生成しました。問いの立て方、解析の選び方、解釈は私自身のものです
 
     ## 参考文献
 
