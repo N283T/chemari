@@ -10,3 +10,6 @@ data/
 
 # screen-recording script for the demo video
 dev/video/
+
+# local secrets
+.env
