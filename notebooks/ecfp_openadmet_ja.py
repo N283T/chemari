@@ -19,7 +19,7 @@
 import marimo
 
 __generated_with = "0.25.0"
-app = marimo.App(width="medium", app_title="ECFP4 を中身から見る")
+app = marimo.App(width="medium", app_title="その ECFP4、理解して使っていますか？")
 
 
 @app.cell(hide_code=True)
@@ -32,8 +32,7 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # ECFP4 を中身から見る
-    ### OpenADMET の 3 つのデータセットで
+    # その ECFP4、理解して使っていますか？
 
     分子を機械学習にかけるとき、とりあえずこう書いていないでしょうか。
 
@@ -42,13 +41,23 @@ def _(mo):
     fp = gen.GetFingerprint(mol)
     ```
 
-    これが **ECFP4**<sup><a href="#ref-1">1</a></sup> です。計算が速く、調整するパラメータもほとんどなく、多くのデータで最初に試す表現です。ただ、同じ ECFP4 でも、よく効くデータとそうでないデータがあります。どこで効いて、どこで効かないのか、その理由は何なのかは、中身を知らないとわかりません。
+    これが **ECFP4**<sup><a href="#ref-1">1</a></sup> で、ケモインフォマティクスで最もよく使われる分子表現です。計算が速く、調整するパラメータもほとんどありません。類似検索でも QSAR でも、多くの場合に良い結果が出ます。新しい手法を評価するときも、まず比べる相手はたいてい ECFP4 です。
 
-    この notebook では、ECFP4 の中身を追ったあと ([第 1 部](#part-1))、OpenADMET が公開している 3 つのデータセット・16 のエンドポイントで同じ見方を繰り返します ([第 2 部](#part-2))。データセットを切り替えると、[第 2 部](#part-2)のすべてのセルが切り替わります。最後に、おまけとして 16 のエンドポイントを並べて比べます ([第 3 部](#part-3))。
+    ただ、この 2048 bit が分子の何を記録していて、何を記録していないのかを説明できる人は多くありません。同じ設定で作った fingerprint でも、その中身はデータセットによって大きく違います。この notebook では、ウィジェットで ECFP4 の中身を見ながら理解を深めていきます。
+
+    /// admonition | 名前について
+    **ECFP** (Extended-Connectivity FingerPrint, Rogers & Hahn 2010) と RDKit の **Morgan fingerprint** は同じものです。ECFP*n* の数字は原子のまわりを見る範囲の*直径*で、RDKit では代わりに半径 (radius) で指定します。ECFP4 は `radius=2` にあたります。
+    ///
+
+    この notebook は 3 部構成です。
+
+    * **[第 1 部](#part-1) · ECFP4 の中身**: ECFP4 のアルゴリズムとその特性
+    * **[第 2 部](#part-2) · データセットでの ECFP4**: データセットの中で ECFP4 がどうなっているか
+    * **[第 3 部](#part-3) · おまけ**: データセットどうしを比べて全体を俯瞰する
 
     おすすめの読み方は次の順番です。
 
-    1. [第 1 部](#part-1)と[第 2 部](#part-2)で、ECFP4 の仕組みとウィジェットの見方を確かめる (第 2 部は、まず 1 つのエンドポイントで)
+    1. [第 1 部](#part-1)と[第 2 部](#part-2)で ECFP4 の仕組みとウィジェットの見方を確かめる (第 2 部はまず 1 つのエンドポイントで)
     2. [第 3 部](#part-3)で 16 のエンドポイントを眺める
     3. 気になったエンドポイントを[選び直して](#picker)、第 2 部で中身を見る
     """)
@@ -180,7 +189,7 @@ def _(ECFPMovie, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    同じ手順を好きな化合物で追えます。SMILES を入力するか例を選び、1 ステップずつ進めるか自動再生してください。
+    同じ手順を好きな分子で追えます。SMILES を入力するか例を選び、1 ステップずつ進めるか自動再生してください。
     """)
     return
 
@@ -194,9 +203,17 @@ def _(ECFPStepper, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 実際に ECFP を見てみる
+    動画と上のウィジェットに出てきた用語を整理しておきます。
 
-    下のウィジェットは、実際に生成される ECFP を可視化したものです。右の bit を選ぶと該当する部分構造が分子の上でハイライトされるほか、collision (別の部分構造が同じ bit に入ること) があるかどうかも確認できます。好きな分子に変えたり、radius や folding (bit 数) を変えたりして、いろいろ試してみてください。
+    * **radius**: 原子のまわりを結合何本分まで見るか。0 から 1 つずつ広げ、ECFP4 では 2 まで見る
+    * **部分構造 (environment)**: ある原子を中心に、radius の範囲に入る原子と結合
+    * **folding**: fingerprint を固定長 (ECFP4 では多くの場合 2048 bit) に折りたたむ操作
+    * **bit**: fingerprint の 1 つの要素。その番号に入る部分構造が分子にあれば 1 になる
+    * **collision**: 違う部分構造が同じ bit に入ること
+
+    ### 実際に ECFP4 を見てみる
+
+    下のウィジェットは実際に生成される ECFP4 を可視化したものです。右の bit を選ぶと該当する部分構造が分子の上でハイライトされるほか、collision があるかどうかも確認できます。好きな分子に変えたり、radius や folding (bit 数) を変えたりして、いろいろ試してみてください。
     """)
     return
 
@@ -219,13 +236,13 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ## ECFP4 の注意点
+    ### ECFP4 の注意点
 
-    動画で見た collision のほかにも、ECFP4 には注意するポイントがあります。ここでは 2 分子の fingerprint を比較するウィジェットを使って、それらを見ていきます。
+    動画で見た collision のほかにも、ECFP4 には注意点があります。ここでは 2 つの分子の fingerprint を比較するウィジェットを使って、それらを見ていきます。
 
-    ### 違う分子なのに fingerprint が一致する
+    ### 注意点 1 · 違う分子なのに fingerprint が一致する
 
-    類似検索で、違う分子なのに類似度 1.0 で複数ヒットすることがたまにあります。これは次のようなときに起こります。
+    類似検索で、違う分子が類似度 1.0 で複数ヒットすることがたまにあります。これは次のようなときに起こります。
 
     * 立体化学が違う
     * 環のサイズや鎖の長さが違う
@@ -319,12 +336,12 @@ def _(SAME_FP, mo):
     _by_label = {e["label"]: e for e in SAME_FP}
     same_kind = mo.ui.dropdown(
         {
-            "立体化学": _by_label["(R)- / (S)-thalidomide (stereo)"],
-            "環サイズ": _by_label["cyclohexylamine / cycloheptylamine (ring size)"],
-            "鎖長": _by_label["nonanoic acid / palmitic acid (chain length)"],
+            "stereo": _by_label["(R)- / (S)-thalidomide (stereo)"],
+            "ring size": _by_label["cyclohexylamine / cycloheptylamine (ring size)"],
+            "chain length": _by_label["nonanoic acid / palmitic acid (chain length)"],
         },
-        value="立体化学",
-        label="例",
+        value="stereo",
+        label="example",
     )
     same_kind
     return (same_kind,)
@@ -346,7 +363,7 @@ def _(MolPair, mo, same_kind):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    特に後者は分子の組成そのものが違うのに、同じものとして扱われます。類似検索なら目で見て気づけますが、機械学習では違う分子に対してモデルがまったく同じ予測を返すので、リスクが大きくなります。
+    特に環のサイズや鎖の長さが違う場合は、分子の組成そのものが違うのに同じものとして扱われます。類似検索なら目で見て気づけますが、機械学習では違う分子に対してモデルがまったく同じ予測を返すので、リスクが大きくなります。
 
     理由は単純で、デフォルトの ECFP は部分構造があるかないかしか表現しないためです。
 
@@ -383,7 +400,7 @@ def _(SAME_FP, bench, mo, np, pl):
         ),
         selection="single",
         initial_selection=[0],
-        label="同じ fingerprint になるペア",
+        label="pairs with the same fingerprint",
     )
     same_table
     return (same_table,)
@@ -408,10 +425,10 @@ def _(mo):
     mo.md(r"""
     ただし、どちらも万能ではありません。
 
-    * chirality を入れても区別できない立体がある (lansoprazole と dexlansoprazole の違いはスルホキシドの硫黄の立体で、ECFP はこれを拾わない)
-    * count では、collision が起きている bit で別の部分構造の回数もまとめて数えられるので、collision のデメリットが通常より大きくなることもある
+    * chirality を入れても区別できない立体がある (lansoprazole と dexlansoprazole の違いはスルホキシドの硫黄の立体で、ECFP はこの立体を区別しない)
+    * count では collision が起きている bit で別の部分構造の回数もまとめて数えられるので、collision のデメリットが通常より大きくなることもある
 
-    collision は bit 数を増やせば減らせますが、bit 長が長くなるわりに得られるものが少ないこともあります。データセットに合わせて、使う設定を見極めましょう。
+    collision は bit 数を増やせば減らせますが、bit 数が増えるわりに得られるものが少ないこともあります。データセットに合わせて使う設定を見極めましょう。
     """)
     return
 
@@ -419,42 +436,22 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 似ているのに類似度が思ったより低い
+    ### 注意点 2 · 似ているのに類似度が思ったより低い
 
-    一方で、見た目はよく似ているのに、Tanimoto が 0.4〜0.7 くらいと直感より低くなるペアもあります。ECFP4 は各原子のまわり半径 2 までを見るので、原子が 1 つ変わるだけでそのまわりの部分構造がまとめて変わり、10 個以上の bit が入れ替わるためです。
+    一方で、見た目はよく似ているのに Tanimoto が 0.4〜0.7 くらいと直感より低くなるペアもあります。ECFP4 は各原子のまわり半径 2 までを見るので、原子が 1 つ変わるだけでそのまわりの部分構造がまとめて変わり、10 個以上の bit が入れ替わるためです。
 
-    前の節の鎖長や環サイズの例では、炭素が増えても fingerprint は変わりませんでした。違いは変わった場所にあります。長い鎖や大きい環の途中に同じ単位を足しても、半径 2 の中に見える部分構造はすでにあるものと同じなので、新しい bit は立ちません。一方、原子を置き換えたり、置換基や鎖の端を変えたりすると、そこから半径 2 以内の部分構造がすべて新しくなります。
+    前の節の鎖長や環サイズの例では、炭素が増えても fingerprint は変わりませんでした。この 2 つの違いは、構造のどこが変わったかにあります。
+
+    * 長い鎖や大きい環の途中に同じ単位を足す → 半径 2 の中に見える部分構造はすでにあるものと同じ → 新しい bit は立たない
+    * 原子を置き換える、置換基や鎖の端を変える → そこから半径 2 以内の部分構造がすべて新しくなる
     """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(CLOSE_BUT_FAR, mo):
-    far_kind = mo.ui.dropdown(
-        {e["label"]: e for e in CLOSE_BUT_FAR}, value=CLOSE_BUT_FAR[0]["label"], label="例"
-    )
-    far_kind
-    return (far_kind,)
-
-
-@app.cell(hide_code=True)
-def _(MolPair, far_kind, mo):
-    _e = far_kind.value
-    mo.ui.anywidget(
-        MolPair(
-            {"id": _e["name_a"], "smiles": _e["a"]},
-            {"id": _e["name_b"], "smiles": _e["b"]},
-            show_smiles=False,
-            show_common=True,
-        )
-    )
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    先ほどと同じように、ウィジェットで fingerprint を比べてみましょう。表からペアを選ぶと、右側に片方にしかない bit (differ) が並び、変わった原子のまわりの部分構造がまとめて入れ替わっているのがわかります。
+    <span id="far-pair"></span>下の表からペアを選ぶと、その 2 つの構造と fingerprint の比較が順に表示されます。fingerprint の比較では、右側に片方にしかない bit (differ) が並びます。変わった原子のまわりの部分構造がまとめて入れ替わっているのがわかります。
     """)
     return
 
@@ -484,17 +481,37 @@ def _(CLOSE_BUT_FAR, SAME_FP, bench, mo, pl):
         ),
         selection="single",
         initial_selection=[0],
-        label="見た目は近いのに Tanimoto が低いペア",
+        label="pairs that look alike but have a low Tanimoto",
     )
     far_table
     return far_pairs, far_table
 
 
 @app.cell(hide_code=True)
-def _(MorganExplorer, far_pairs, far_table, mo):
+def _(far_pairs, far_table):
+    # the pair picked in the table, for the two widgets below
     _sel = far_table.value
     _name = _sel["A"][0] if _sel is not None and len(_sel) else far_pairs[0]["name_a"]
-    _e = next(e for e in far_pairs if e["name_a"] == _name)
+    far_pair = next(e for e in far_pairs if e["name_a"] == _name)
+    return (far_pair,)
+
+
+@app.cell(hide_code=True)
+def _(MolPair, far_pair, mo):
+    mo.ui.anywidget(
+        MolPair(
+            {"id": far_pair["name_a"], "smiles": far_pair["a"]},
+            {"id": far_pair["name_b"], "smiles": far_pair["b"]},
+            show_smiles=False,
+            show_common=True,
+        )
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(MorganExplorer, far_pair, mo):
+    _e = far_pair
     mo.ui.anywidget(
         MorganExplorer(
             [{"id": _e["name_a"], "smiles": _e["a"]}, {"id": _e["name_b"], "smiles": _e["b"]}],
@@ -513,31 +530,15 @@ def _(mo):
     * スキャフォールドや MCES のような部分グラフに基づく比較を使う
     * 記述子を加える
 
-    下のウィジェットの similarity タブでは、上の表で選んだペアをいくつかの fingerprint、MCES、物性で比べられます。係数は Tanimoto から Dice や cosine に切り替えられます。手法によって値の出方が違う (MACCS は無関係なペアでも 0.5 前後になる) ので、手法どうしで数値を比べるのではなく、同じ手法でペアを変えたときの値の動きを見てください。
+    [構造を並べたウィジェット](#far-pair)を similarity タブに切り替えると、選んだペアをいくつかの手法と類似度 (係数) で比較できます。手法によって値の出方が違うので、手法どうしで数値を比べるのではなく、同じ手法でペアを変えたときの値の動きを見てください。
     """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(MolPair, far_pairs, far_table, mo):
-    _sel = far_table.value
-    _name = _sel["A"][0] if _sel is not None and len(_sel) else far_pairs[0]["name_a"]
-    _e = next(e for e in far_pairs if e["name_a"] == _name)
-    mo.ui.anywidget(
-        MolPair(
-            {"id": _e["name_a"], "smiles": _e["a"]},
-            {"id": _e["name_b"], "smiles": _e["b"]},
-            show_smiles=False,
-            view="similarity",
-        )
-    )
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ただし、どれも決定的な解決策ではなく、どの程度を「似ている」とするかは結局は感覚に近いものです。スクリーニング、クラスタリング、交差検証の分割などでは類似度のしきい値で機械的に区切ることが多いので、いくつか試しながら、目的に合う方法と基準を選んでください。
+    ただし、どれも決定的な解決策ではなく、どの程度を「似ている」とするかは結局は感覚に近いものです。スクリーニング、クラスタリング、交差検証の分割などでは類似度のしきい値で機械的に区切ることが多いので、いくつか試しながら目的に合う方法と基準を選んでください。
     """)
     return
 
@@ -547,7 +548,7 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ## <span id="part-2"></span>第 2 部 · データセットで見る
+    ## <span id="part-2"></span>第 2 部 · データセットでの ECFP4
     """)
     return
 
@@ -557,7 +558,7 @@ def _(mo):
     mo.md(r"""
     ### 3 つのデータセット
 
-    どれも実際の創薬プロジェクトで測られた値で、チャレンジで使われた train / test の分け方のまま使います。test と同じ構造が train にある化合物は test から外し、同じ split の中で重複する構造は平均しています。比の尺度で測る値 (溶解度、クリアランス、透過性、非結合率など) は log10(x + 1) に変換しています。
+    3 つのデータセットの値は、どれも実際の創薬プロジェクトで測られたものです。train / test は、チャレンジで使われた分け方のまま使います。test と同じ構造が train にある化合物は test から外し、同じ split の中で重複する構造は値を平均しています。比の尺度で測る値 (溶解度、クリアランス、透過性、非結合率など) は log10(x + 1) に変換しています。
     """)
     return
 
@@ -588,11 +589,11 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo, tasks):
     _options = {f"{r['dataset']} · {r['endpoint']}": r["task"] for r in tasks.iter_rows(named=True)}
-    task_pick = mo.ui.dropdown(_options, value="PXR · pEC50", label="データセット · エンドポイント")
+    task_pick = mo.ui.dropdown(_options, value="PXR · pEC50", label="dataset · endpoint")
     mo.vstack(
         [
             mo.md(r"""
-    <span id="picker"></span>下から好きなデータセットとエンドポイントを選んでください。選んだデータの中で、同じ手順で ECFP を見ていきます。データセットの中身にはあえて詳しく触れません。いろいろなデータセットに切り替えて、違いを楽しんでみてください。
+    <span id="picker"></span>下から好きなデータセットとエンドポイントを選んでください。どれを選んでも、同じ手順で ECFP4 を見ていきます。データセットの背景は、上の blog を見てください。いろいろなデータセットに切り替えて、違いを楽しんでみてください。
     """),
             task_pick,
         ]
@@ -715,19 +716,19 @@ def _(census_for, mo, np, task, train):
     mo.md(f"""
     ### <span id="sec-2-2"></span>2.2 · {task.dataset} · {task.endpoint} での ECFP4
 
-    [第 1 部](#part-1)の動画などで ECFP の collision に少し触れましたが、違う部分構造が同じ bit に入る collision には、2 つの場合があります。
+    [第 1 部](#part-1)で見た collision には 2 つの場合があります。
 
     * **分子内**: 同じ分子の違う部分構造が同じ bit に入る。その分子で立つ bit が 1 つ減る
     * **データセット全体**: 別々の分子の違う部分構造が同じ bit に入る。bit が立っていても、どの部分構造によるものかを区別できない<sup><a href="#ref-2">2</a></sup>
 
-    {task.dataset} · {task.endpoint} のデータセットでは、次のようになっています。
+    {task.dataset} · {task.endpoint} では、次のようになっています。
 
-    * 1 分子あたりの部分構造は **{np.median(_n_envs):.0f} 種類** (中央値)
+    * 1 化合物あたりの部分構造は **{np.median(_n_envs):.0f} 種類** (中央値)
     * 分子内の collision がある化合物は train の **{(_n_bits < _n_envs).mean():.0%}**
     * train {train.height:,} 化合物全体の部分構造は **{int(_envs.sum()):,} 種類**。2048 bit に折りたたむので、1 bit に平均 **{_envs[_envs > 0].mean():.0f} 種類**が入る<sup><a href="#ref-3">3</a></sup>
     * bit が立っている化合物のうち、その bit でいちばん多い部分構造を持つものの割合 (purity) は平均 **{_census.purity()[1]:.0%}**
 
-    部分構造の区別には、RDKit が折りたたむ前に付ける識別子を使っています。別の部分構造が同じ識別子になる場合は、ここでは数えられません。
+    部分構造の区別には RDKit が折りたたむ前に付ける識別子を使っています。別の部分構造が同じ識別子になる場合は、ここでは数えられません。
 
     """)
     return
@@ -749,7 +750,7 @@ def _(BitAtlas, mo, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    1 つの分子でも、両方の collision を確認できます。グリッドから化合物を選んでください。
+    1 つの化合物でも両方の collision を確認できます。グリッドから化合物を選んでください。
 
     * 赤: 分子内の collision
     * グレーのバッジ: データセット全体で、同じ bit に入るほかの部分構造の数。bit を選ぶと、その部分構造が下に表示される
@@ -836,7 +837,7 @@ def _(bench, mo, mols, np, pl, task):
         f"""
     * 同じ fingerprint になる化合物は **{twins.height} 組**、あわせて **{int(twins["n"].sum())} 化合物**
     * count で区別できるのは **{_n["count"]} 組**、chirality で区別できるのは **{_n["chirality"]} 組**、どちらでも区別できないのは **{_n["neither"]} 組**
-    * 同じ fingerprint の中での {task.label} の差は、最大で **{twins[f"Δ {task.label}"].max():.2f}**
+    * 同じ fingerprint の中での {task.label} の差は最大で **{twins[f"Δ {task.label}"].max():.2f}**
     """
         if twins.height
         else """
@@ -844,11 +845,11 @@ def _(bench, mo, mols, np, pl, task):
     """
     )
     mo.md(f"""
-    ### <span id="sec-2-3"></span>2.3 · 違う分子なのに fingerprint が同じ
+    ### <span id="sec-2-3"></span>2.3 · 違う分子なのに fingerprint が一致する
 
-    [第 1 部](#part-1)で見た 1 つ目の注意点です。fingerprint が同じなら、fingerprint だけを使うモデルはどの化合物にも同じ値を予測します。
+    [第 1 部](#part-1)の注意点 1 です。fingerprint が同じ化合物には、fingerprint だけを使うモデルは同じ値を予測します。
 
-    {task.dataset} · {task.endpoint} のデータセットでは、次のようになっています。
+    {task.dataset} · {task.endpoint} では、次のようになっています。
     {_numbers}""")
     return (twins,)
 
@@ -861,7 +862,7 @@ def _(mo, twins):
             selection="single",
             initial_selection=[0],
             page_size=6,
-            label="同じ fingerprint になる化合物の組",
+            label="groups of compounds with the same fingerprint",
         )
         if twins.height
         else None
@@ -970,20 +971,20 @@ def _(mo, nn_pairs, task):
     mo.md(f"""
     ### <span id="sec-2-5"></span>2.5 · 類似性原理と activity cliff
 
-    創薬などの化合物の解析には、対になる 2 つの重要な概念があります。類似性原理と、その例外にあたる activity cliff です。
+    創薬などの化合物の解析では、類似性原理と、その例外にあたる activity cliff が対になる重要な概念です。
 
-    * **類似性原理** (similarity principle): 構造が似た分子は性質も似ている、という考え方<sup><a href="#ref-4">4</a></sup>。類似検索や、似た化合物の値を使った予測の前提になっている
-    * **activity cliff**: 構造がよく似ているのに、活性が大きく違う化合物のペア<sup><a href="#ref-5">5</a></sup>。メチル基を 1 つ足すだけで活性が 100 倍以上変わることがある「magic methyl」が有名な例<sup><a href="#ref-6">6</a></sup>
+    * **類似性原理** (similarity principle): 構造が似た分子は性質も似ているという考え方<sup><a href="#ref-4">4</a></sup>。類似検索や似た化合物の値を使った予測の前提になっている
+    * **activity cliff**: 構造がよく似ているのに活性が大きく違う化合物のペア<sup><a href="#ref-5">5</a></sup>。メチル基を 1 つ足すだけで活性が 100 倍以上変わることがある「magic methyl」が有名な例<sup><a href="#ref-6">6</a></sup>
 
-    下の図で、このデータセットではどうなっているかを見ます。
+    下の図で、{task.dataset} · {task.endpoint} ではどうなっているかを見ます。
 
     * 点: test 化合物 ({nn_pairs.height:,} 個)
-    * 横軸: その化合物と NN の Tanimoto
+    * 横軸: NN との類似度
     * 縦軸: NN との {task.label} の差 |Δ|
     * 赤い線: 類似度の区間ごとの |Δ| の平均
     * 破線: ランダムな train–test ペアの |Δ| の平均
 
-    類似性原理が成り立っていれば、右に行くほど点は下に集まります。activity cliff は、ここでは類似度が 0.6 以上で、|Δ| がランダムなペアの平均以上あるペアとしました (図の右上の色を付けた領域)。
+    類似性原理が成り立っていれば、右に行くほど点は下に集まります。activity cliff は、ここでは類似度が 0.6 以上で |Δ| がランダムなペアの平均以上あるペアとしました (図の右上の色を付けた領域)。
     """)
     return
 
@@ -1064,8 +1065,8 @@ def _(mo, task):
     mo.md(rf"""
     下の表は activity cliff のペアです。行を選ぶと、その 2 つを 2 通りの見方で比べられます。
 
-    * **Molecules**: 構造と測定値、物性を並べます。
-    * **Fingerprints**: 2 つの間で違う bit を並べます。`Δ {task.label}` の列は、train の中でその bit が立っている化合物の平均 {task.label} から、立っていない化合物の平均を引いた値です。プラスなら、その bit を持つ化合物は平均より値が高い傾向にあります。
+    * **Molecules**: 構造と測定値、物性を並べる
+    * **Fingerprints**: 2 つの間で違う bit を並べる。`Δ {task.label}` の列は、train の中でその bit が立っている化合物の平均 {task.label} から立っていない化合物の平均を引いた値。プラスなら、その bit を持つ化合物は平均より値が高い傾向にある
     """)
     return
 
@@ -1085,7 +1086,7 @@ def _(cliffs, mo, pl):
         selection="single",
         initial_selection=[0] if _pairs.height else [],
         page_size=6,
-        label="activity cliff のペア",
+        label="activity cliff pairs",
     )
     cliff_table
     return (cliff_table,)
@@ -1096,7 +1097,7 @@ def _(MolPair, MorganExplorer, cliff_table, mo, mols, pl, task, train):
     _sel = cliff_table.value
     if _sel is None or len(_sel) == 0:
         _out = mo.callout(
-            mo.md("このデータセットには、activity cliff にあたるペアがありません。"), kind="info"
+            mo.md("このエンドポイントには activity cliff にあたるペアがありません。"), kind="info"
         )
     else:
         _r = _sel.row(0, named=True)
@@ -1140,16 +1141,16 @@ def _(mo):
     mo.md(r"""
     ### <span id="sec-2-6"></span>2.6 · モデル
 
-    ECFP4 を特徴量にして、測定値を予測するモデルを作ります。モデルは LightGBM です。比較のために、特徴量だけを変えたモデルも学習させています。
+    ECFP4 を特徴量にして測定値を予測するモデルを作ります。モデルは LightGBM です。比較のために、特徴量だけを変えたモデルも学習させています。
 
     * **ECFP4 bit**: 2048 bit
     * **ECFP4 count**: 同じ 2048 次元で、出現回数を残す
     * **RDKit desc**: RDKit の 2D 記述子 217 種 (分子量、logP、TPSA など分子全体の性質)
     * **bit + desc**: 両方を並べたもの
 
-    どのモデルも train で学習し、test を予測しています。基準として、[2.4](#sec-2-4) の NN の測定値をそのまま予測値にした場合 (**NN value**) も並べました。類似性原理だけでどこまで当たるかの目安です。
+    どのモデルも train で学習し、test を予測しています。基準として、[2.4](#sec-2-4) の NN の測定値をそのまま予測値にした場合 (**NN value**) も並べました。類似性原理だけでどこまで予測できるかの目安です。
 
-    棒グラフの下の散布図は、選んだモデルの test での予測です。青い点は NN との Tanimoto が 0.6 以上 ([2.5](#sec-2-5) で「似ている」とした範囲) の化合物、三角は [2.5](#sec-2-5) の activity cliff の test 化合物です。点にカーソルを合わせると、その化合物が右に出ます。クリックすると固定できます。
+    棒グラフの下の散布図は、選んだモデルの test での予測です。青い点は NN との類似度が 0.6 以上 ([2.5](#sec-2-5) で「似ている」とした範囲) の化合物、三角は [2.5](#sec-2-5) の activity cliff の test 化合物です。点にカーソルを合わせると、その化合物が右に表示されます。クリックすると固定できます。
     """)
     return
 
@@ -1298,14 +1299,14 @@ def _(MolScatter, cliffs, mo, model_pick, mols, nn_pairs, pl, predictions, task)
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### <span id="sec-2-7"></span>2.7 · モデルが見ているもの
+    ### <span id="sec-2-7"></span>2.7 · 特徴量重要度
 
-    ECFP4 bit のモデルがどの bit を使っているかを、2 つの指標で並べます。
+    ECFP4 bit のモデルがどの bit を使っているかを 2 つの指標で並べます。
 
     * **gain**: LightGBM の木がその bit で分岐したときに減った誤差の合計 ([`feature_importance(importance_type="gain")`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.feature_importance))
-    * **mean |SHAP|**: TreeSHAP (各 bit がその分子の予測をどれだけ上げたか下げたか) の絶対値を train の全化合物で平均したもの。bit が立っていない化合物の分も含む
+    * **mean |SHAP|**: TreeSHAP (各 bit がその化合物の予測をどれだけ上げたか下げたか) の絶対値を train の全化合物で平均したもの。bit が立っていない化合物の分も含む
 
-    行をクリックすると、その bit に入る部分構造と、その bit が立っている分子が下に出ます。
+    行をクリックすると、その bit に入る部分構造とその bit が立っている化合物が下に表示されます。
     """)
     return
 
@@ -1352,12 +1353,12 @@ def _(mo, neighbours, pl, task):
         value=None
         if _nb.height == 0
         else f"{_nb['test_id'][0]} (Tanimoto {_nb['tanimoto'][0]:.2f})",
-        label="test 化合物 (NN との差が大きい順)",
+        label="test compound (largest difference from the NN first)",
     )
     mo.vstack(
         [
             mo.md(r"""
-    1 つの予測を分解します。test 化合物と train の NN を並べています。原子の色は、bit の TreeSHAP 寄与を、その bit に入る部分構造の原子に均等に割り振ったものです (赤は予測を上げ、青は下げます)。
+    1 つの予測を分解します。test 化合物と train の NN を並べています。原子の色は、bit の TreeSHAP 寄与をその bit に入る部分構造の原子に均等に割り振ったものです (赤は予測を上げ、青は下げます)。
     """),
             shap_pick,
         ]
@@ -1388,13 +1389,13 @@ def _(MorganExplorer, mo, mols, neighbours, pl, predictions, shap, shap_pick, ta
                 {
                     "id": _ids[0],
                     "smiles": _smi[_ids[0]],
-                    "label": f"test · 測定 {_y[_ids[0]]:.2f} · 予測 {_pred[_ids[0]]:.2f}",
+                    "label": f"test · measured {_y[_ids[0]]:.2f} · predicted {_pred[_ids[0]]:.2f}",
                 },
                 {
                     "id": _ids[1],
                     "smiles": _smi[_ids[1]],
                     # no prediction here: the stored one is out of fold, the SHAP is not
-                    "label": f"train · 測定 {_y[_ids[1]]:.2f}",
+                    "label": f"train · measured {_y[_ids[1]]:.2f}",
                 },
             ],
             reference=train["smiles"].to_list(),
@@ -1414,13 +1415,13 @@ def _(mo, task):
     mo.md(f"""
     ---
 
-    ## <span id="part-3"></span>第 3 部 · データセットをまたいで見る
+    ## <span id="part-3"></span>第 3 部 · おまけ: データセットどうしの比較
 
-    [第 2 部](#part-2)では、エンドポイントを 1 つ選んで中身を見てきました。最後におまけとして、16 のエンドポイントを並べて比べます。気になるエンドポイントがあれば、[上の選択](#picker)で切り替えて、第 2 部のウィジェットで中身を見てください。いま選んでいる {task.dataset} · {task.endpoint} は太字にしています。
+    [第 2 部](#part-2)ではエンドポイントを 1 つ選んで中身を見てきました。最後におまけとして 16 のエンドポイントを並べて比べます。気になるエンドポイントがあれば、[上の選択](#picker)で切り替えて第 2 部のウィジェットで中身を見てください。図の中では、いま選んでいる {task.dataset} · {task.endpoint} を太字にしています。
 
     ### <span id="sec-3-1"></span>3.1 · 1 bit に入る部分構造
 
-    [2.2](#sec-2-2) で見たデータセット全体の collision を、データセットごとに比べます。`bits` で折りたたむ長さを変えられます。`endpoint` に切り替えると、エンドポイントごとの分布を見ることができます。
+    [2.2](#sec-2-2) で見たデータセット全体の collision をデータセットごとに比べます。`bits` で bit 数を変えられます。`endpoint` に切り替えると、エンドポイントごとの分布を見られます。
     """)
     return
 
@@ -1597,9 +1598,9 @@ def _(bit_load_of, mo, train_sets):
         * ほとんどの bit は部分構造が 5 種類以下 (ASAP {_asap["few"]:.0%}、ExpansionRx {_exp["few"]:.0%})。PXR では {_pxr["few"]:.0%} だけ
         * ExpansionRx は PXR より化合物が多いのに、部分構造の種類は PXR の {_exp["substructures"] / _pxr["substructures"]:.0%} ほど
 
-    PXR の化合物は、構造がかなり多様だとわかります。bit 数を増やすと分布は左 (0 の側) に寄りますが、8192 bit にしても PXR は 1 bit に平均 {_pxr_long["per_bit"]:.1f} 種類の部分構造が入ります。
+    PXR の化合物は構造がかなり多様だとわかります。bit 数を増やすと分布は左 (0 の側) に寄りますが、8192 bit にしても PXR は 1 bit に平均 {_pxr_long["per_bit"]:.1f} 種類の部分構造が入ります。
 
-    1 つの bit にどんな部分構造が入っているかは、[2.2](#sec-2-2) の表で見られます。[上の選択](#picker)で PXR と ASAP を切り替えると、違いがわかります。
+    1 つの bit にどんな部分構造が入っているかは、[2.2](#sec-2-2) の表で見られます。[上の選択](#picker)で PXR と ASAP を切り替えると違いがわかります。
     """)
     return
 
@@ -1609,7 +1610,7 @@ def _(mo):
     mo.md(r"""
     ### <span id="sec-3-2"></span>3.2 · collision と精度
 
-    では、bit 数を増やして collision を減らすと、モデルの精度は良くなるでしょうか。ECFP4 bit のモデルを、bit 数ごとに学習し直しました。
+    では、bit 数を増やして collision を減らすと、モデルの精度は良くなるでしょうか。ECFP4 bit のモデルを bit 数ごとに学習し直しました。
     """)
     return
 
@@ -1749,7 +1750,7 @@ def _(
     mo.vstack(
         [
             mo.md(
-                f"線は 1 本が 1 つのエンドポイントで、太い線は上で選んでいる {task.dataset} · {task.endpoint} です。"
+                f"線は 1 本が 1 つのエンドポイントで、太い線はいま選んでいる {task.dataset} · {task.endpoint} です。"
             ),
             _boxes,
             # one fingerprint measure beside one test score, each under its own switch
@@ -1764,21 +1765,21 @@ def _(
             mo.md(
                 f"""
     * 1 bit に入る部分構造は減少し、purity は上昇する
-    * 空の bit も増加する。bit 数を増やしても、その分だけ情報が増えるわけではない (8192 bit では、16 エンドポイントの中央値で {_empty_long:.0%} が空)
-    * モデルの精度は、ある程度の bit 数で頭打ちになる
+    * 空の bit も増加する。bit 数を増やしても、その分だけ情報が増えるわけではない (8192 bit では 16 のエンドポイントの中央値で {_empty_long:.0%} が空)
+    * モデルの精度はある程度の bit 数で頭打ちになる
         * PXR と、ExpansionRx の化合物が多いエンドポイント: 2048 bit あたり
         * ASAP: 1024 bit から変わらない
 
-    bit を増やすと、重なっていた部分構造が別々の bit に分かれ、fingerprint の情報は増えます。それでも精度が頭打ちになる理由はいろいろ考えられますが、増えた情報が予測にあまり効いていないのだと思います。
+    bit 数を増やすと、重なっていた部分構造が別々の bit に分かれ、fingerprint の情報は増えます。それでも精度が頭打ちになる理由はいろいろ考えられますが、増えた情報が予測の精度にあまりつながっていないのだと思います。
 
-    * 分かれるのは、ほとんどが珍しい部分構造。PXR では {_pxr[2048]["substructures"]:,} 種類のうち、20 化合物以上に出るのは {_pxr[2048]["frequent_substructures"]:,} 種類で、数個の化合物からはその部分構造の効果を学習しにくい (化合物の数は [2.2](#sec-2-2) の表で bit を選ぶと確認できる)
-    * 予測が外れる主な原因は別にある。test が train から遠いこと ([2.4](#sec-2-4)) や activity cliff ([2.5](#sec-2-5)) は、fingerprint を細かくしても解消しない
+    * 分かれるのはほとんどが珍しい部分構造。PXR では {_pxr[2048]["substructures"]:,} 種類のうち 20 化合物以上に出るのは {_pxr[2048]["frequent_substructures"]:,} 種類で、数個の化合物からはその部分構造が値に与える影響を学習しにくい (化合物の数は [2.2](#sec-2-2) の表で bit を選ぶと確認できる)
+    * 予測が外れる主な原因は別にある。test が train から遠いこと ([2.4](#sec-2-4)) や activity cliff ([2.5](#sec-2-5)) は、bit 数を増やしても解消しない
     """
             ),
             mo.callout(
                 mo.md(
-                    "今回の設定 (LightGBM、`min_child_samples=20`) では、分けた両側に 20 化合物以上ないと"
-                    "分岐しません。珍しい部分構造は、bit を分けても予測に使われないままです。"
+                    "今回の設定 (`min_child_samples=20`) では、LightGBM は両側に 20 化合物以上が残る分岐しか"
+                    "作りません。珍しい部分構造は、別の bit に分かれても予測に使われないままです。"
                 ),
                 kind="info",
             ),
@@ -1792,7 +1793,7 @@ def _(mo):
     mo.md(r"""
     ### <span id="sec-3-3"></span>3.3 · train との近さと精度
 
-    test 化合物に似た化合物が train にあれば、その値は予測の手がかりになります。[2.4](#sec-2-4) の NN との類似度と、[2.6](#sec-2-6) の予測の精度を、16 のエンドポイントで並べます。
+    test 化合物に似た化合物が train にあれば、その測定値は予測の手がかりになります。[2.4](#sec-2-4) の NN との類似度と [2.6](#sec-2-6) の予測の精度を、16 のエンドポイントで並べます。
     """)
     return
 
@@ -1950,9 +1951,9 @@ def _(alt, mo, neighbours, nn_by_task, pl, predictions, row_axis, rows, scores):
 
     エンドポイントどうしで比べると、NN との類似度が高いほど NN value の ρ は高くなります。モデルが NN value を上回る幅は、類似度が低いエンドポイントほど大きくなります (PXR で {_gain["pxr/pEC50"]:+.2f}、ASAP の pIC50 で {_gain["asap/mers"]:+.2f} と {_gain["asap/sars2"]:+.2f})。
 
-    同じエンドポイントの中でも、似た NN がある test 化合物のほうがモデルの誤差は小さく、16 のうち {_closer_better} でそうなっています。PXR では、類似度が 0.6 以上の化合物の MAE は {_pxr_mae[True]:.2f}、0.6 未満は {_pxr_mae[False]:.2f} です。
+    同じエンドポイントの中でも、似た NN がある test 化合物のほうがモデルの誤差は小さく、16 のうち {_closer_better} のエンドポイントでそうなっています。PXR では類似度が 0.6 以上の化合物の MAE は {_pxr_mae[True]:.2f}、0.6 未満は {_pxr_mae[False]:.2f} です。
 
-    test 化合物それぞれの NN と、その構造は [2.4](#sec-2-4) で見られます。
+    test 化合物それぞれの NN とその構造は [2.4](#sec-2-4) で見られます。
     """
             ),
         ]
@@ -2075,11 +2076,11 @@ def _(alt, mo, score_heat, score_pick, score_view):
             ),
             mo.md(
                 """
-    ECFP4 bit だけのモデルがいちばん良いエンドポイントは、ほとんどありませんでした。多くのエンドポイントで、記述子を足すと精度が上がります。
+    ECFP4 bit だけのモデルがいちばん良いエンドポイントはほとんどありませんでした。多くのエンドポイントで、記述子を足すと精度が上がります。
 
-    ただし、上がり幅はエンドポイントごとに違います。同じ LogD でも、bit + desc にしたときの ρ の上がり幅は ASAP で +0.42、ExpansionRx で +0.03 です。どの特徴量が合うかは、測る値の種類だけでなくデータセットによっても変わります。特徴量や設定を変えて比べると、そのデータセットの傾向が見えてきます。
+    ただし、上がり幅はエンドポイントごとに違います。同じ LogD でも、ECFP4 bit から bit + desc にしたときの ρ の上がり幅は ASAP で +0.42、ExpansionRx で +0.03 です。どの特徴量が合うかは、測る値の種類だけでなくデータセットによっても変わります。特徴量や設定を変えて比べると、そのデータセットの傾向が見えてきます。
 
-    これは、ECFP4 の精度が悪いという話ではありません。単独では精度が低いモデルでも、ほかのモデルと違う外し方をしているなら、アンサンブルで精度が上がる見込みがあります。選んだエンドポイントで、どの化合物の予測が外れているかは [2.6](#sec-2-6) の散布図で見られます。
+    これは ECFP4 の精度が悪いという話ではありません。単独では精度が低いモデルでも、ほかのモデルと違う外し方をしているなら、アンサンブルで精度が上がる見込みがあります。選んだエンドポイントでどの化合物の予測が外れているかは、[2.6](#sec-2-6) の散布図で見られます。
     """
             ),
         ]
@@ -2092,7 +2093,7 @@ def _(mo):
     mo.md(r"""
     ### <span id="sec-3-5"></span>3.5 · activity cliff と精度
 
-    [2.5](#sec-2-5) の activity cliff は、NN と構造が似ているのに値が大きく違う test 化合物でした。その化合物でモデルの誤差がどうなるかを、16 のエンドポイントで比べます。比べる相手は、同じく NN との類似度が 0.6 以上で、activity cliff ではない化合物です。
+    [2.5](#sec-2-5) の activity cliff は、NN と構造が似ているのに値が大きく違う test 化合物でした。その化合物でモデルの誤差がどうなるかを、16 のエンドポイントで比べます。比べる相手は、同じく NN との類似度が 0.6 以上で activity cliff ではない化合物です。
     """)
     return
 
@@ -2175,7 +2176,7 @@ def _(alt, cliff_error, cliff_model, mo, pl, row_axis, rows, tasks):
             mo.hstack([_chart], justify="center"),
             mo.md(
                 f"""
-    activity cliff の化合物では、16 のうち {_larger} のエンドポイントで誤差が大きくなります。大きさは、それ以外の化合物の {_ratio.median():.1f} 倍です (中央値)。特徴量を変えても、この傾向は変わりません。
+    activity cliff の化合物では、16 のうち {_larger} のエンドポイントで誤差が大きくなります。誤差の大きさは、それ以外の化合物の {_ratio.median():.1f} 倍です (中央値)。特徴量を変えてもこの傾向は変わりません。
 
     activity cliff のペアの構造と、2 つの間で違う bit は [2.5](#sec-2-5) で見られます。
     """
@@ -2192,13 +2193,13 @@ def _(mo):
 
     ## <span id="summary"></span>まとめ
 
-    この notebook では、ECFP4 を数字だけでなく中身から見てきました。なんとなく ECFP を使っていた方には、初めて知ることも多かったのではないでしょうか。構造を実際に目で見ると、仕組みがつかみやすくなります。
+    この notebook では、ECFP4 を数字だけでなく中身から見てきました。なんとなく ECFP4 を使っていた方には、初めて知ることも多かったのではないでしょうか。構造を実際に目で見ると、仕組みがつかみやすくなります。
 
-    [第 2 部](#part-2)と[第 3 部](#part-3)では、データセットの中での ECFP4 を見ました。興味深いのは、collision の数などがデータセットごとに大きく違うことです。これは、ECFP を使うだけでは見えてきません。特に PXR の中身は、ほかの 2 つとかなり違っていました。私も PXR のチャレンジに参加しましたが、そのときは気づいていませんでした。まだ見ていない方は、ぜひ[第 2 部](#picker)に戻って確かめてみてください。
+    [第 2 部](#part-2)と[第 3 部](#part-3)では、データセットの中での ECFP4 を見ました。興味深いのは、collision の数などがデータセットごとに大きく違うことです。これは ECFP4 を使うだけでは見えてきません。特に PXR の中身はほかの 2 つとかなり違っていました。私も PXR のチャレンジに参加しましたが、そのときはこの違いに気づいていませんでした。
 
-    モデルを学習したあとに特徴量の重要度を確かめるのは、よくある手順です。ただ fingerprint では、bit が何を表すのかがわかりにくく、確かめづらい面がありました。[2.7](#sec-2-7) のウィジェットでは、重要な bit の部分構造と、その bit を持つ化合物をその場で見られます。見てみると、重要な bit が意味のありそうな構造だとは限らず、むしろよくある部分構造であることも多いとわかります (データセットによります)。複数のデータセットで見比べると、違いがよくわかります。
+    モデルを学習したあとに特徴量重要度を確かめるのはよくある手順です。ただ fingerprint では bit が何を表すのかがわかりにくく、確かめづらい面がありました。[2.7](#sec-2-7) のウィジェットでは、重要な bit の部分構造とその bit が立っている化合物をその場で見られます。見てみると、重要な bit が意味のありそうな構造だとは限らず、むしろよくある部分構造であることも多いとわかります (データセットによります)。複数のデータセットで見比べると違いがよくわかります。
 
-    この notebook の結果は、今回のデータセットでのものです。一般に成り立つとは言い切れません。ぜひこの notebook とウィジェット ([`molwidgets`](https://github.com/N283T/openadmet-marimo)) を使って、ECFP への理解を深めたり、ご自身のデータセットで ECFP を調べたりしてみてください。
+    この notebook の結果は、今回のデータセットでのものです。一般に成り立つとは言い切れません。ぜひこの notebook とウィジェット ([`molwidgets`](https://github.com/N283T/openadmet-marimo)) を使って、ECFP4 への理解を深めたり、ご自身のデータセットで ECFP4 を調べたりしてみてください。
     """)
     return
 
@@ -2208,14 +2209,14 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ### この notebook について
+    ## この notebook について
 
     * **データ**: [PXR challenge](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test) (CC-BY-4.0)、[ASAP-Polaris-OpenADMET antiviral challenge](https://huggingface.co/datasets/openadmet/ASAP_Polaris_OpenADMET_challenge) (MIT)、[OpenADMET-ExpansionRx challenge](https://huggingface.co/datasets/openadmet/openadmet-expansionrx-challenge-data) (CC-BY-4.0)
     * **事前計算**: `dev/precompute.py` → `results/precomputed/`。計算のコードは `molwidgets.bench`
     * **ウィジェット**: `ECFPMovie`、`ECFPStepper`、`MorganBitTiles`、`MolGrid`、`MolPair`、`BitAtlas`、`BitImportance`、`MolScatter`、`MorganExplorer` は、この notebook のために作った anywidget コンポーネントです ([ソース](https://github.com/N283T/openadmet-marimo))
     * **AI の利用**: ウィジェット、動画、notebook の骨組みのコーディングには Claude (Anthropic) をアシスタントとして使いました。問いの立て方、解析の選び方、解釈は私自身のものです
 
-    ### 参考文献
+    ## 参考文献
 
     1. <span id="ref-1"></span>Rogers, D.; Hahn, M. Extended-Connectivity Fingerprints. *J. Chem. Inf. Model.* **2010**, 50, 742–754. [doi:10.1021/ci100050t](https://doi.org/10.1021/ci100050t)
     2. <span id="ref-2"></span>Virany, W.; Tripp, A. Hash Collisions in Molecular Fingerprints: Effects on Property Prediction and Bayesian Optimization. AI for Science workshop, NeurIPS 2025. [arXiv:2511.17078](https://arxiv.org/abs/2511.17078) (collision が類似度を高めに見せることと、予測への影響)
