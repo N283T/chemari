@@ -1,4 +1,4 @@
-"""Precompute the ECFP4-across-datasets tables for notebooks/ecfp_openadmet_ja.py.
+"""Precompute the ECFP4-across-datasets tables for examples/ecfp_openadmet_ja.py.
 
 Writes results/precomputed/{molecules,neighbours,predictions,metrics,shap,gain,bitlen}.parquet.
 Uses local copies under data/ (and data/other/) when present, else downloads from Hugging Face.
@@ -10,7 +10,7 @@ Uses local copies under data/ (and data/other/) when present, else downloads fro
 import sys
 from pathlib import Path
 
-from molwidgets.bench import precompute
+from chemari.examples.openadmet import precompute
 
 ROOT = Path(__file__).resolve().parents[1]
 

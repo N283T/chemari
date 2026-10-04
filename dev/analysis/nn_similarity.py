@@ -5,7 +5,7 @@
   bits are; how many bits one methyl changes
 * are the bits most correlated with pEC50 stand-ins for logP?
 
-Same data preparation as notebooks/ecfp_pxr.py. Writes results/nn_similarity/summary.md.
+Same data preparation as examples/ecfp_pxr.py. Writes results/nn_similarity/summary.md.
 
     uv run python dev/analysis/nn_similarity.py
 """
@@ -16,7 +16,7 @@ from rdkit import Chem
 from rdkit.Chem import Crippen
 from scipy.stats import spearmanr
 
-from molwidgets import fingerprint_matrix
+from chemari import fingerprint_matrix
 
 OUT = ROOT / "results" / "nn_similarity"
 

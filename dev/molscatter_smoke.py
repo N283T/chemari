@@ -25,7 +25,8 @@ def _():
     import numpy as np
     import polars as pl
 
-    from molwidgets import MolScatter, bench
+    from chemari import MolScatter
+    from chemari.examples import openadmet as bench
 
     return MolScatter, Path, bench, np, pl
 

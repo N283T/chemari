@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "marimo>=0.25",
-#     "molwidgets @ git+https://github.com/N283T/openadmet-marimo",
+#     "chemari @ git+https://github.com/N283T/chemari@v0.1.0",
 #     "polars>=1.30",
 #     "numpy>=2",
 #     "altair>=5.5",
@@ -16,7 +16,7 @@
 import marimo
 
 __generated_with = "0.25.0"
-app = marimo.App(width="medium", app_title="Do you really know your ECFP4?")
+app = marimo.App(width="medium", app_title="その ECFP4、理解して使っていますか？")
 
 
 @app.cell(hide_code=True)
@@ -29,44 +29,51 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # Do you really know your ECFP4?
-    ### What it encodes and where it fails, tested on PXR data
+    # その ECFP4、理解して使っていますか？
+    ### 中身と弱点を PXR データで確かめる
 
-    When you feed molecules to a machine-learning model, you have probably written something like this:
+    分子を機械学習にかけるとき、とりあえずこう書いていないでしょうか。
 
     ```python
     gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
     fp = gen.GetFingerprint(mol)
     ```
 
-    That is **ECFP4**, the most widely used molecular representation in cheminformatics. It is quick to compute with almost nothing to tune, and it works well for a lot of similarity search and QSAR. When a new method is benchmarked, ECFP4 is usually the first thing it is compared against.
+    これが **ECFP4**
+    です。ケモインフォマティクスで最もよく使われる分子表現で、計算が速く、調整するパラメータもほとんどなく、類似検索でも
+    QSAR でも多くの場合よく効きます。新しい手法を評価するときも、まず比べる相手はたいてい ECFP4
+    です。
 
-    Few people can say what those 2048 bits record about a molecule and what they leave out, though. If you don't know where ECFP4 is weak, you won't know why it fails when you hit a dataset where it does.
+    ただ、この 2048 bit
+    が分子の何を記録していて、何を記録していないのかを説明できる人は多くありません。弱点を知らないまま使っていると、効かないデータに当たったときに理由がわかりません。
 
-    /// admonition | A note on names
-    **ECFP** (Extended-Connectivity FingerPrint, Rogers & Hahn 2010) and RDKit's **Morgan fingerprint** are the same thing. The number in ECFP*n* is the *diameter* of the neighbourhood around each atom. RDKit asks for the radius instead, so ECFP4 is `radius=2`.
+    /// admonition | 名前について
+    **ECFP** (Extended-Connectivity FingerPrint, Rogers & Hahn 2010) と、RDKit の **Morgan
+    fingerprint** は同じものです。ECFP*n* の数字は原子のまわりを見る範囲の*直径*で、RDKit
+    では代わりに半径 (radius) で指定します。ECFP4 は `radius=2` にあたります。
     ///
 
-    The notebook has two parts.
+    この notebook は 2 部構成です。
 
-    **Part 1 · How it works**: how ECFP4 turns a molecule into bits.
+    **第 1 部 · 中身**: ECFP4 が分子から bit を作る手順を追います。
 
-    * What ECFP4 computes
-    * 1 · A closer look at ECFP4
+    * ECFP4 の中身
+    * 1 · ECFP4 の中身を見てみる
 
-    **Part 2 · Where it fails**: a dataset picked because ECFP4 does poorly on it (OpenADMET's PXR induction data), to see where and why it breaks.
+    **第 2 部 · 弱点**: あえて ECFP4 が効かないデータセット (OpenADMET の PXR 誘導データ)
+    を使って、どこで、なぜ崩れるのかを見ます。
 
-    * 2 · A dataset where ECFP4 struggles: PXR
-    * 3 · Where ECFP4 breaks: the similarity principle, activity cliffs, identical fingerprints, whole-molecule properties
-    * 4 · Inside the model: what a LightGBM trained on ECFP4 learned
-    * 5 · Model lab: counts, fold size, chirality and descriptors
-    * 6 · Take-aways
+    * 2 · ECFP4 が効かないデータ: PXR
+    * 3 · ECFP4 が崩れるところ: 類似性原理、activity cliff、同一の fingerprint、分子全体の性質
+    * 4 · モデルの中身: ECFP4 で学習した LightGBM が何を覚えたのか
+    * 5 · Model lab: count、bit 長、キラリティ、記述子を試す
+    * 6 · まとめ
 
     ---
 
-    ## Part 1 · How ECFP4 works
+    ## 第 1 部 · ECFP4 の中身
 
-    Start with the 80-second video on what ECFP4 computes and how it behaves.
+    まずは 80 秒の動画で、ECFP4 の中身と性質を見てください。
     """)
     return
 
@@ -80,15 +87,16 @@ def _(ECFPMovie, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    In short, ECFP4 has these properties:
+    動画の内容をまとめると、ECFP4 には次の性質があります。
 
-    * the fingerprint only records which substructures are present
-    * how often a substructure occurs, where it sits and what the molecule is like as a whole are all lost
-    * folding pushes unrelated substructures onto the same bit
-    * Tanimoto similarity counts shared bits, collisions included
+    * fingerprint が記録するのはどの部分構造があるかだけ
+    * 部分構造が何回出てくるか 分子のどこにあるか 分子全体としてどうかは残らない
+    * folding によって無関係な部分構造が同じ bit に押し込まれる
+    * Tanimoto 類似度は衝突した bit も含めて共通の bit を数える
 
-    /// admonition | Substructures and environments
-    An ECFP4 substructure is circular: one atom plus every atom and bond within the radius around it. It is also called an atom environment, which is what "environment" and `# envs` mean in the widgets.
+    /// admonition | 部分構造と環境
+    ECFP4 の部分構造は、ある原子を中心に radius 以内の原子と結合をまとめた円形のものです。原子環境
+    (atom environment) とも呼ばれ、ウィジェットに出てくる environment や `# envs` はこれを指します。
     ///
     """)
     return
@@ -97,7 +105,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    The widget below runs the same steps on any molecule. Type a SMILES or pick an example, then step through with **next** or press **play**.
+    下のウィジェットでは、同じ手順を好きな化合物で追えます。SMILES を入力するか例を選び、「次へ」で 1 ステップずつ進めるか、自動再生してください。
     """)
     return
 
@@ -122,7 +130,7 @@ def _():
 
     alt.data_transformers.disable_max_rows()  # a few charts plot all ~4.6k compounds
 
-    from molwidgets import (
+    from chemari import (
         BitAtlas,
         BitImportance,
         ECFPMovie,
@@ -235,20 +243,24 @@ def _(Chem, census_for, mo, np, rdFingerprintGenerator, train):
     )
     mo.md(
         f"""
-    ## 1 · A closer look at ECFP4
+    ## 1 · ECFP4 の中身を見てみる
 
-    Here we look at ECFP4 on molecules from the PXR dataset used in Part 2.
+    ここでは第 2 部で使う PXR データセットの分子で ECFP4 を見ます。
 
-    A compound in this dataset has **{_per_mol:.0f} distinct substructures** (median). Across all {train.height:,} train compounds there are **{int(_envs.sum()):,}**, and folding them into 2048 bits puts **{_envs[_envs > 0].mean():.0f}** into each bit on average. No bit holds just one.
+    このデータセットの化合物には、1 分子あたり **{_per_mol:.0f} 種類** (中央値)
+    の部分構造があります。train {train.height:,} 化合物全体では **{int(_envs.sum()):,}
+    種類**になり、これを 2048 bit に folding するので、1 bit には平均
+    **{_envs[_envs > 0].mean():.0f} 種類**の部分構造が入ります。部分構造が 1 種類だけの bit
+    はありません。
 
-    Pick a compound in the grid to see the molecule (left) and its bits (right) below.
+    グリッドから化合物を選ぶと、その下に分子 (左) と bit の一覧 (右) が表示されます。
 
-    * **hover a bit**: highlights where in the molecule it comes from
-    * **red**: the bit is shared with another substructure of the same molecule (a collision)
-    * **collisions only**: show only the colliding bits
-    * **grey badge**: how many other substructures in the dataset share the bit
-    * **click a row**: list those substructures
-    * **radius / fold to**: rebuild the bits
+    * **bit にマウスを乗せる**: 分子のどこから来た bit かが光る
+    * **赤**: 分子内の別の部分構造と同じ bit に落ちている (衝突)
+    * **collisions only**: 衝突している bit だけを表示
+    * **グレーのバッジ**: データセット内でこの bit を共有するほかの部分構造の数
+    * **行をクリック**: その bit を共有する部分構造の一覧
+    * **radius / fold to**: bit を作り直す
     """
     )
     return
@@ -297,20 +309,21 @@ def _(MorganBitTiles, data, grid, mo, pl, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Things to notice:
+    見どころ:
 
-    * **OADMET-0006254 collides with itself**
-      * at 2048 bits the quaternary carbon `C(C)(S)(C)C` and the aromatic `c(N)(c)c` both land on bit 381
-      * press collisions only to see it; at 8192 bits the collision is gone
-    * **radius-0 bits are set by many molecules**
-      * a single atom turns up in all kinds of molecules
-      * bit 80 (`[C;D2;H2]`, a CH₂) is set in more than 60% of the train compounds
-      * in a carboxylic acid the carbonyl carbon `[C;D3;H0]` and the hydroxyl oxygen `[O;D1;H1]` fall on the same bit, 807
-    * **a substructure that occurs several times gets one row**
-      * three methyls or four aromatic CH are shown once, as ×3 or ×4
-      * the bit vector keeps no counts
+    * **OADMET-0006254 は分子内で衝突している**
+      * 2048 bit では 4 級炭素 `C(C)(S)(C)C` と芳香族の `c(N)(c)c` が同じ bit 381 に落ちる
+      * collisions only で確認できる 8192 bit にすると衝突は消える
+    * **radius 0 の bit は多くの分子で立つ**
+      * 原子 1 個だけの部分構造なので分子の種類を問わず現れる
+      * CH₂ の bit 80 (`[C;D2;H2]`) は train 化合物の 6 割以上で立つ
+      * カルボン酸ではカルボニル炭素 `[C;D3;H0]` とヒドロキシ酸素 `[O;D1;H1]` が同じ bit 807
+        に落ちる
+    * **同じ部分構造は何度出ても 1 行にまとまる**
+      * メチル 3 つや芳香族 CH 4 つも 1 行で ×3 や ×4 と表示される
+      * bit ベクトルには回数が残らない
 
-    An ECFP4 bit records only whether a substructure is present, and one bit is often shared by unrelated substructures.
+    ECFP4 の bit は部分構造があるかどうかだけを記録し、1 つの bit を別々の部分構造が共有していることも珍しくありません。
     """)
     return
 
@@ -319,7 +332,7 @@ def _(mo):
 def _(BitAtlas, mo, train):
     mo.vstack(
         [
-            mo.md("Across the whole train set, each bit holds substructures like these."),
+            mo.md("train 全体では、各 bit に次のような部分構造が入っています。"),
             mo.ui.anywidget(BitAtlas(train["smiles"].to_list(), ids=train["id"].to_list())),
         ]
     )
@@ -333,23 +346,36 @@ def _(hygiene, mo, test, train):
             mo.md(r"""
     ---
 
-    ## Part 2 · Where ECFP4 fails
+    ## 第 2 部 · ECFP4 の弱点
 
-    ## 2 · A dataset where ECFP4 struggles: PXR
+    ## 2 · ECFP4 が効かないデータ: PXR
 
-    The **pregnane X receptor (PXR)** is a nuclear receptor that senses foreign molecules and turns up CYP3A4, P-gp and other clearance genes. A drug that activates PXR can speed up the metabolism of other drugs, so PXR induction is a common drug–drug interaction (DDI) risk. OpenADMET measured it for more than 11,000 compounds and ran a [blind challenge](https://openadmet.ghost.io/announcing-the-next-openadmet-blind-challenge-predicting-pxr-induction/) [on Hugging Face](https://huggingface.co/spaces/openadmet/pxr-challenge) to predict **pEC50** for 513 new ones.
+    **Pregnane X receptor (PXR)** は、体に入ってきた異物を感知して CYP3A4 や P-gp
+    などの発現を引き上げる核内受容体です。PXR
+    を活性化する薬はほかの薬の代謝まで速めてしまうので、PXR 誘導は薬物相互作用 (DDI)
+    の代表的なリスクです。OpenADMET はこれを 11,000 以上の化合物で測定し、新しい 513 化合物の
+    **pEC50**
+    を予測する[ブラインドチャレンジ](https://openadmet.ghost.io/announcing-the-next-openadmet-blind-challenge-predicting-pxr-induction/)を
+    [Hugging Face 上で](https://huggingface.co/spaces/openadmet/pxr-challenge)開催しました。
 
-    In that challenge, models built on ECFP4 kept ending up near the bottom. In my own entry (4th of 95), a LightGBM on ECFP4 alone reached a CV MAE of about 0.57, while ensembles of descriptors and embeddings got below 0.40. Other teams saw the same thing.
+    このチャレンジでは、ECFP4 を使ったモデルが一貫して下位に沈みました。私自身の参加 (95 チーム中 4
+    位) でも、ECFP4 だけの LightGBM は CV MAE が 0.57
+    前後で、記述子や埋め込みを組み合わせたアンサンブルは 0.40
+    を切っています。ほかのチームも同じ傾向を報告しています。
 
-    The data are [OpenADMET's PXR release on Hugging Face](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test) (CC-BY-4.0). We use the **train** set and the full **test** set, whose labels were published after the challenge. Every SMILES is standardized the same way: largest fragment, neutralized, stereochemistry kept, canonical SMILES.
+    データは [Hugging Face で公開されている OpenADMET の PXR
+    データ](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test) (CC-BY-4.0)
+    です。**train** と、チャレンジ終了後にラベルが公開された **test** 全体を使います。SMILES
+    はすべて同じ手順で標準化しています: 最大フラグメントを残して中和し、立体化学は保ったまま
+    canonical SMILES にします。
     """),
             mo.hstack(
                 [
                     mo.stat(f"{train.height:,}", label="train"),
                     mo.stat(f"{test.height:,}", label="test"),
-                    mo.stat(str(hygiene["changed"]), label="neutralized"),
-                    mo.stat(str(hygiene["dup_within"]), label="duplicates after standardization"),
-                    mo.stat(str(hygiene["overlap"]), label="train–test overlap"),
+                    mo.stat(str(hygiene["changed"]), label="中和した化合物"),
+                    mo.stat(str(hygiene["dup_within"]), label="標準化後の重複"),
+                    mo.stat(str(hygiene["overlap"]), label="train と test の重複"),
                 ],
                 widths="equal",
                 gap=0.5,
@@ -362,14 +388,18 @@ def _(hygiene, mo, test, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    The 513 test compounds are not a random sample. OpenADMET took the **63** hits from its screen that were potent (EC50 ≤ 1 µM) and inactive in cells lacking PXR, and bought Enamine analogues with an **ECFP4 Tanimoto similarity above 0.4** to them. This is plain hit expansion, the usual way to follow up a screen.
+    513 個の test 化合物は、ランダムに選ばれたものではありません。OpenADMET
+    はスクリーニングで活性が強く (EC50 ≤ 1 µM)、PXR を欠く細胞では活性を示さなかった **63**
+    化合物をヒットとし、それらとの **ECFP4 Tanimoto 類似度が 0.4 を超える**類縁体を Enamine
+    から購入しました。スクリーニングのヒットから類縁体を集める、創薬でよくあるヒット展開のやり方です。
 
-    Two things follow from how the set was built:
+    この作り方から、次の 2 つが言えます。
 
-    * every test compound has a similar compound in train
-    * that similar compound is usually potent
+    * どの test 化合物にも train の中に似た化合物がある
+    * その似た化合物はたいてい活性が強い
 
-    For each compound we find its **nearest neighbour (NN)** in train by ECFP4 Tanimoto (2048 bits; train compounds skip themselves).
+    各化合物について、ECFP4 Tanimoto (2048 bit) で train 中の**最近傍 (NN)** を探します (train
+    化合物は自分自身を除く)。
     """)
     return
 
@@ -446,16 +476,19 @@ def _(S_test, S_train, alt, mo, nn_test, np, pl, test, y_test, y_train):
             mo.hstack([_density, _scatter], justify="start", gap=2),
             mo.md(
                 f"""
-    **Left: similarity to the nearest neighbour**
+    **左: 最近傍との類似度**
 
-    * the NN similarity from test to train (median **{np.median(S_test.max(1)):.2f}**) is higher than within train (**{np.median(S_train.max(1)):.2f}**)
-    * the test set sits inside the applicability domain of train
+    * test から train への NN 類似度 (中央値 **{np.median(S_test.max(1)):.2f}**) は train どうし
+      (**{np.median(S_train.max(1)):.2f}**) より高い
+    * test は train の適用範囲の内側にある
 
-    **Right: test pEC50 against the nearest neighbour's pEC50**
+    **右: test の pEC50 と最近傍の pEC50**
 
-    * the neighbours are mostly potent (mean pEC50 **{_nn.mean():.2f}**, train overall {y_train.mean():.2f}, **{(_nn >= 5.5).mean():.0%}** at 5.5 or above)
-    * the test compounds themselves still range from {y_test.min():.1f} to {y_test.max():.1f}
-    * this is SAR exploration around the hits, and ECFP4 Tanimoto cannot tell you whether a close analogue keeps the activity
+    * 最近傍はほとんどが強い (平均 pEC50 **{_nn.mean():.2f}** train 全体は {y_train.mean():.2f}
+      **{(_nn >= 5.5).mean():.0%}** が 5.5 以上)
+    * それでも test 自身の pEC50 は {y_test.min():.1f}〜{y_test.max():.1f} に広がる
+    * ヒットのまわりの SAR 探索になっていて 似ていても活性が残るかどうかは ECFP4 Tanimoto
+      からはわからない
     """
             ),
         ]
@@ -465,10 +498,11 @@ def _(S_test, S_train, alt, mo, nn_test, np, pl, test, y_test, y_train):
 
 @app.cell(hide_code=True)
 def _(mo):
-    k_slider = mo.ui.slider(1, 50, value=1, step=1, label="neighbours k", show_value=True)
+    k_slider = mo.ui.slider(1, 50, value=1, step=1, label="近傍の数 k", show_value=True)
     mo.md(
         f"""
-    The simplest fingerprint model there is: predict each test compound's pEC50 as the mean of its **k most similar** train compounds. {k_slider}
+    最も単純な fingerprint モデルとして、各 test 化合物の pEC50 を**最も似ている k 個**の train
+    化合物の平均で予測してみます。{k_slider}
     """
     )
     return (k_slider,)
@@ -524,10 +558,7 @@ def _(S_test, alt, k_slider, mo, np, pl, spearmanr, test, y_test, y_train):
                         [
                             mo.stat(f"{_mae:.2f}", label=f"MAE ({_k}-NN)"),
                             mo.stat(f"{_rho:.2f}", label="Spearman ρ"),
-                            mo.stat(
-                                f"{_rand:.2f}",
-                                label="MAE when predicting with a random train compound",
-                            ),
+                            mo.stat(f"{_rand:.2f}", label="ランダムな train 化合物で予測した MAE"),
                         ]
                     ),
                 ],
@@ -535,11 +566,11 @@ def _(S_test, alt, k_slider, mo, np, pl, spearmanr, test, y_test, y_train):
                 align="center",
             ),
             mo.md("""
-    * with k = 1, ρ ≈ 0: almost no ranking power
-    * the MAE is about the same as predicting with a random train compound
-    * a larger k lowers the MAE, but only because the predictions drift toward the mean (the points collapse into a vertical band)
+    * k = 1 では ρ ≈ 0 で 順位づけの力はほぼない
+    * MAE もランダムな train 化合物で予測した場合とほぼ同じ
+    * k を増やすと MAE は下がるが 予測が平均値に寄るだけ (点が縦の帯に集まる)
 
-    The test set was built from ECFP4 neighbours of train, yet the nearest neighbour's activity says almost nothing about a test compound.
+    test は train の ECFP4 近傍から作られているのに、最近傍の活性は test の予測にほとんど役立ちません。
     """),
         ]
     )
@@ -549,11 +580,13 @@ def _(S_test, alt, k_slider, mo, np, pl, spearmanr, test, y_test, y_train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 3 · Where ECFP4 breaks
+    ## 3 · ECFP4 が崩れるところ
 
-    ### 3a · Measuring the similarity principle
+    ### 3a · 類似性原理を測ってみる
 
-    The similar property principle says that the more alike two molecules are, the smaller their difference in activity should be. We bin all ~8.5 million train pairs by Tanimoto similarity and look at |Δ pEC50| in each bin.
+    類似性原理 (similar property principle) によれば、構造が似ている 2
+    分子ほど活性の差は小さくなるはずです。train の全ペア約 850 万組を Tanimoto
+    類似度で区切り、区間ごとの |Δ pEC50| を見ます。
     """)
     return
 
@@ -621,13 +654,13 @@ def _(alt, mo, pair_dy, pair_sim, pl, random_pair_dy, similarity_curve):
                     (_band + _line + _rule).properties(height=260, width=360),
                     mo.vstack(
                         [
-                            mo.stat(f"{random_pair_dy:.2f}", label="|Δ pEC50|, random pairs"),
+                            mo.stat(f"{random_pair_dy:.2f}", label="ランダムなペアの |Δ pEC50|"),
                             mo.stat(
-                                f"{pair_dy[_hi].mean():.2f}", label="|Δ pEC50|, Tanimoto ≥ 0.5"
+                                f"{pair_dy[_hi].mean():.2f}", label="Tanimoto ≥ 0.5 の |Δ pEC50|"
                             ),
                             mo.stat(
                                 f"{(pair_dy[_hi] > 1).mean():.0%}",
-                                label="pairs ≥ 0.5 that differ more than 10-fold",
+                                label="Tanimoto ≥ 0.5 で 10 倍以上違うペア",
                             ),
                         ]
                     ),
@@ -636,12 +669,14 @@ def _(alt, mo, pair_dy, pair_sim, pl, random_pair_dy, similarity_curve):
                 align="center",
             ),
             mo.md(f"""
-    **On PXR, looking alike says little about being equally active.** Pairs with Tanimoto ≥ 0.5 still differ by {pair_dy[_hi].mean() / random_pair_dy:.0%} of what random pairs do, and {(pair_dy[_hi] > 1).mean():.0%} of them differ more than 10-fold in potency.
+    **PXR では、似ていても活性が近いとはあまり言えません。** Tanimoto ≥ 0.5 のペアでも |Δ pEC50|
+    はランダムなペアの {pair_dy[_hi].mean() / random_pair_dy:.0%}
+    までしか縮まらず、{(pair_dy[_hi] > 1).mean():.0%} のペアは活性が 10 倍以上違います。
 
-    * line: mean |Δ pEC50| per bin; shading: up to the 90th percentile; dashed line: random pairs
-    * hover a point for the number of pairs in the bin
+    * 線は区間ごとの |Δ pEC50| の平均 網掛けは 90 パーセンタイルまで 破線はランダムなペア
+    * 点にマウスを乗せると区間のペア数が出る
 
-    The premise of an ECFP4 model, that similar molecules have similar activity, holds only loosely for PXR.
+    似た分子は活性も似ている、という ECFP4 モデルの前提が、PXR ではあまり成り立ちません。
     """),
         ]
     )
@@ -657,9 +692,10 @@ def _(MolPair, mo, train):
     mo.vstack(
         [
             mo.md(f"""
-    ### 3b · Browsing activity cliffs
+    ### 3b · activity cliff を眺める
 
-    An **activity cliff** is a pair of compounds that look alike but differ a lot in activity (here pEC50). The two below differ only by one methyl on the benzene ring (the common part is blue), yet their EC50 values are about {10**_dy:.0f}-fold apart.
+    **activity cliff** とは、見た目は似ているのに活性値 (このデータでは pEC50) が大きく違うペアのことです。たとえば次の 2
+    つは、ベンゼン環のメチル 1 つしか違いませんが (青は共通部分)、EC50 は約 {10**_dy:.0f} 倍違います。
     """),
             mo.ui.anywidget(
                 MolPair(
@@ -722,7 +758,10 @@ def _(mo, np):
     mo.vstack(
         [
             mo.md(r"""
-    First, a word on how pEC50 is measured. It comes from fitting an S-shaped dose–response curve to the responses at several concentrations. A potent compound reaches a plateau inside the tested range, so the midpoint of the curve (EC50) is well defined. A weak compound is still rising at the highest concentration, so its EC50 is an extrapolation.
+    その前に、pEC50 の測り方を押さえておきます。pEC50 は、いくつかの濃度で測った応答に S
+    字の用量反応曲線を当てはめて求めた値です。強い化合物は測定範囲の中で応答が頭打ちになるので、曲線の中点
+    (EC50) がはっきり決まります。弱い化合物は最高濃度でも応答が上がりきらず、EC50
+    は曲線を延ばした外挿になります。
     """),
             mo.hstack(
                 [
@@ -750,8 +789,10 @@ def _(mo, np):
 
 @app.cell(hide_code=True)
 def _(mo, pl, train):
-    min_sim = mo.ui.slider(0.4, 0.9, value=0.55, step=0.05, label="min Tanimoto", show_value=True)
-    min_dy = mo.ui.slider(0.5, 3.0, value=1.5, step=0.25, label="min |Δ pEC50|", show_value=True)
+    min_sim = mo.ui.slider(
+        0.4, 0.9, value=0.55, step=0.05, label="Tanimoto の下限", show_value=True
+    )
+    min_dy = mo.ui.slider(0.5, 3.0, value=1.5, step=0.25, label="|Δ pEC50| の下限", show_value=True)
     _bins = (
         train.with_columns(
             pl.col("pEC50")
@@ -770,37 +811,45 @@ def _(mo, pl, train):
                 [
                     mo.stat(
                         f"{_low['median 95% CI width'].item():.1f}",
-                        label="CI width, pEC50 < 3 (median)",
+                        label="pEC50 < 3 の CI 幅 (中央値)",
                     ),
                     mo.stat(
                         f"{_high['median 95% CI width'].item():.1f}",
-                        label="CI width, pEC50 ≥ 6 (median)",
+                        label="pEC50 ≥ 6 の CI 幅 (中央値)",
                     ),
                     mo.stat(
                         f"{_low['n'].item()} ({_low['n'].item() / train.height:.0%})",
-                        label="train compounds with pEC50 < 3",
+                        label="pEC50 < 3 の train 化合物",
                     ),
                 ],
                 widths="equal",
                 gap=0.5,
             ),
             mo.md(r"""
-    The pEC50 of a weak compound is a rough estimate. If one side of a cliff sits in that range, the measurement is uncertain enough that the difference cannot be read as a structural effect at face value.
+    弱い化合物の pEC50 は幅を持った推定値です。cliff の片方がこの範囲にあると、測定の不確かさが大きいので、pEC50
+    の差をそのまま構造の違いとは読めません。
 
-    Set what "similar" and "different" mean with the sliders, pick a pair from the table, and compare the two fingerprints bit by bit below. The only bits a fingerprint model can use to explain the difference are the ones present in just one molecule, and they are usually a few common substructures.
+    スライダーで「似ている」と「違う」の基準を決め、表からペアを選ぶと、下で 2 つの fingerprint を
+    bit ごとに比べられます。fingerprint モデルがこの差の説明に使えるのは片方にしかない bit
+    だけで、たいていありふれた部分構造が数個です。
 
-    The table is sorted by **SALI** (structure–activity landscape index, Guha & Van Drie 2008): SALI = |Δ pEC50| / (1 − Tanimoto). It grows when the activity gap is large and the structural difference small, so the steepest cliffs come first.
+    表は **SALI** (Structure–Activity Landscape Index, Guha & Van Drie 2008) の大きい順に並んでいます。
+    SALI = |Δ pEC50| / (1 − Tanimoto) で、構造の違いが小さいのに活性の差が大きいほど大きくなります。上にあるペアほど「崖」が急です。
 
-    * **only A / only B**: show the bits present in one molecule only
-    * **# mols / # envs**: molecules that set the bit / distinct substructures in it
-    * **Δ pEC50**: mean pEC50 of molecules with the bit minus those without
+    * **only A / only B**: 片方にしかない bit だけ表示
+    * **# mols / # envs**: その bit が立つ分子数 / 入っている部分構造の種類数
+    * **Δ pEC50**: その bit がある分子とない分子の平均 pEC50 の差
 
-    /// details | How Δ pEC50 is calculated
-    The train compounds (4,139) are split by whether the bit is set in their fingerprint, at the radius and bit count chosen in the widget, and Δ is the difference between the two mean pEC50 values. No model is involved.
+    /// details | Δ pEC50 の算出方法
+    train 全体 (4,139 化合物) を、ウィジェットで選んだ radius / bit 数の fingerprint でその bit
+    が立っている化合物と立っていない化合物に分け、pEC50
+    の平均の差をとったものです。モデルは使っていません。
 
-    * bits tend to be set together, for example across a scaffold series, so Δ is not the effect of that bit alone
-    * a small group gives extreme values (a bit set in almost every compound has only ~100 compounds without it)
-    * for a colliding bit, Δ averages over every substructure in it
+    * bit どうしは一緒に立つことが多く 同じ骨格のシリーズならまとめて立つ Δ はその bit
+      の効果とは限らない
+    * 片方の群が小さいと極端な値になる (ほぼ全化合物で立つ bit は「立っていない」側が 100
+      個ほどしかない)
+    * 衝突した bit では 中に入っている部分構造すべてをまとめた平均になる
     ///
     """),
             mo.hstack([min_sim, min_dy], justify="start", gap=2),
@@ -856,8 +905,8 @@ def _(cliff_example, cliffs, mo):
         initial_selection=[0] if cliffs.height else None,
         page_size=6,
         freeze_columns_right=["SALI"],
-        label=f"{cliffs.height:,} pairs · highest SALI first"
-        + (f" · the example above is rank {_rank}" if _rank else ""),
+        label=f"{cliffs.height:,} ペア · SALI の大きい順"
+        + (f" · 上の例は rank {_rank}" if _rank else ""),
     )
     cliff_table
     return (cliff_table,)
@@ -867,7 +916,7 @@ def _(cliff_example, cliffs, mo):
 def _(MorganExplorer, cliff_table, mo, train):
     _sel = cliff_table.value
     if _sel is None or len(_sel) == 0:
-        cliff_explorer = mo.md("_Select a pair in the table above._")
+        cliff_explorer = mo.md("_上の表からペアを選んでください。_")
     else:
         _r = _sel.row(0, named=True)
         _smi = dict(zip(train["id"], train["smiles"]))
@@ -894,12 +943,13 @@ def _(cliffs, mo, pl):
     _lip = cliffs.filter(pl.col("Δ logP (A−B)") > 0).height if _n else 0
     mo.md(
         f"""
-    Among these {_n} pairs:
+    この条件の {_n} ペアについて:
 
-    * in {_noisy}, the weaker compound's CI is wider than 1.5 log units: with that much uncertainty the difference cannot be read as structure at face value
-    * in {_lip} ({_lip / max(_n, 1):.0%}), the more potent compound also has the higher calculated logP: a whole-molecule property is at work, not any single bit
+    * {_noisy} ペアは弱いほうの CI 幅が 1.5 log 単位を超える 不確かさが大きいので 差をそのまま構造の違いとは読めない
+    * {_lip} ペア ({_lip / max(_n, 1):.0%}) は強いほうが計算 logP も高い 個々の bit
+      ではなく分子全体の性質が効いている
 
-    With measurement uncertainty on top and whole-molecule properties involved, a cliff's gap cannot be explained by the fingerprint alone.
+    cliff の差は、測定の不確かさがあるうえに分子全体の性質も関わっているので、fingerprint だけでは説明できません。
     """
     )
     return
@@ -908,9 +958,11 @@ def _(cliffs, mo, pl):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 3c · Different molecules, identical fingerprints
+    ### 3c · 違う分子なのに、fingerprint は同じ
 
-    If two different molecules produce exactly the same bit vector, any model built on those bits **must** predict the same value for both. Below are all such groups in train, with the reason the fingerprint cannot tell them apart.
+    2 つの異なる分子がまったく同じ bit ベクトルになるなら、その bit
+    で作ったモデルは両者に**必ず**同じ値を予測します。train の中のそうしたグループを、fingerprint
+    が区別できない理由とあわせてすべて示します。
     """)
     return
 
@@ -925,8 +977,8 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
         flat = {Chem.MolToSmiles(m, isomericSmiles=False) for m in mols}
         if len(flat) > 1:
             # Different constitution, same set of radius-2 environments: only repeat counts differ.
-            return "ring size / chain length"
-        return "stereochemistry"  # same constitution: only stereo differs
+            return "環サイズ / 鎖長"
+        return "立体化学"  # same constitution: only stereo differs
 
     _groups = defaultdict(list)
     for _i, _fp in enumerate(X_train):
@@ -945,7 +997,7 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
     _summary = fp_twins.group_by("group", "why").agg(
         (pl.col("pEC50").max() - pl.col("pEC50").min()).alias("range")
     )
-    _n_stereo = _summary.filter(pl.col("why") != "ring size / chain length").height
+    _n_stereo = _summary.filter(pl.col("why") != "環サイズ / 鎖長").height
     _chiral_gen = rdFingerprintGenerator.GetMorganGenerator(
         radius=2, fpSize=2048, includeChirality=True
     )
@@ -962,9 +1014,7 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
         )
 
     _n_split = sum(
-        _splits(g)
-        for g in _twins
-        if why_identical([_smiles[k] for k in g]) != "ring size / chain length"
+        _splits(g) for g in _twins if why_identical([_smiles[k] for k in g]) != "環サイズ / 鎖長"
     )
 
     # one row per group: stereo groups first, then ring size / chain length; largest spread first
@@ -974,10 +1024,7 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
     _table_rows = []
     for _g in sorted(
         _twins,
-        key=lambda g: (
-            why_identical([_smiles[k] for k in g]) == "ring size / chain length",
-            -np.ptp(_y[g]),
-        ),
+        key=lambda g: (why_identical([_smiles[k] for k in g]) == "環サイズ / 鎖長", -np.ptp(_y[g])),
     ):
         _why = why_identical([_smiles[k] for k in _g])
         _a, _b = sorted(_g, key=lambda k: -_y[k])[:2]
@@ -990,8 +1037,8 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
                 "pEC50 B": _y[_b],
                 "Δ pEC50": round(float(_y[_a] - _y[_b]), 2),
                 "includeChirality": "—"
-                if _why == "ring size / chain length"
-                else ("splits" if _splits(_g) else "no split"),
+                if _why == "環サイズ / 鎖長"
+                else ("分かれる" if _splits(_g) else "分かれない"),
             }
         )
     twin_table = mo.ui.table(
@@ -999,33 +1046,35 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
         selection="single",
         initial_selection=[0],
         page_size=10,
-        label="groups sharing a fingerprint (select a row to compare below)",
+        label="同じ fingerprint のグループ (行を選ぶと下で比べられる)",
     )
     mo.vstack(
         [
             mo.md(
                 f"""
-    **{len(_twins)} groups** ({fp_twins.height} train compounds) share a fingerprint, and pEC50 differs by up to **{_summary["range"].max():.2f}** within a group. There are two reasons.
+    **{len(_twins)} グループ** (train 化合物 {fp_twins.height} 個) が同じ fingerprint
+    に重なっていて、グループ内の pEC50 の差は最大 **{_summary["range"].max():.2f}** です。理由は 2
+    つあります。
 
-    **Stereochemistry ({_n_stereo} groups)**
+    **立体化学 ({_n_stereo} グループ)**
 
-    * RDKit's ECFP4 ignores chirality and E/Z geometry unless you pass `includeChirality=True`
-    * each group is one compound recorded once with its stereo specified and once without
-    * examples
-        * lansoprazole (OADMET-0003758) and dexlansoprazole (OADMET-0003782), Δ 0.94
-        * bupivacaine (OADMET-0001982) and levobupivacaine (OADMET-0003731)
-        * rifampicin with (OADMET-0002338) and without (OADMET-0003649) E/Z labels
-    * `includeChirality=True` separates {_n_split} of the {_n_stereo} groups; the sulfoxide stereocentre of lansoprazole is not picked up either way
+    * RDKit の ECFP4 は `includeChirality=True` を渡さない限り キラリティも二重結合の E/Z も無視する
+    * どのグループも 同じ化合物について立体を指定したレコードとしていないレコードの組
+    * 例
+        * lansoprazole (OADMET-0003758) と dexlansoprazole (OADMET-0003782) 差 0.94
+        * bupivacaine (OADMET-0001982) と levobupivacaine (OADMET-0003731)
+        * rifampicin の E/Z 表記あり (OADMET-0002338) となし (OADMET-0003649)
+    * `includeChirality=True` にすると {_n_stereo} グループ中 {_n_split} グループが分かれる
+      lansoprazole のスルホキシドの立体中心は拾われない
 
-    **Ring size / chain length ({len(_twins) - _n_stereo} groups)**
+    **環サイズ / 鎖長 ({len(_twins) - _n_stereo} グループ)**
 
-    * within radius 2 every atom sees the same surroundings, so the set of substructures is identical and only their counts differ
-    * a bit vector keeps no counts and cannot tell them apart; a count fingerprint can
-    * but a count fingerprint is folded the same way: when different substructures collide in
-      one bit their counts are added, so a bit's value is not necessarily how often one
-      substructure occurs
+    * radius 2 の範囲ではどの原子も同じ周囲を見るので 部分構造の集合は同じで違うのは出てくる回数だけ
+    * bit ベクトルは回数を持たないので区別できない count fingerprint なら区別できる
+    * ただし count fingerprint も同じように折りたたむので 別の部分構造が同じ bit に衝突すると
+      その回数も足し合わされる bit の値は「その部分構造が何回あるか」とは限らない
 
-    Molecules with the same bit vector get the same prediction from any model; ECFP4 does not see stereo (by default) or counts.
+    bit ベクトルが同じ分子は、どのモデルでも同じ予測になります。立体 (デフォルトでは) と出現回数は ECFP4 からは読み取れません。
     """
             ),
             twin_table,
@@ -1038,7 +1087,7 @@ def _(Chem, X_train, mo, np, pl, rdFingerprintGenerator, train):
 def _(MorganExplorer, mo, train, twin_smiles, twin_table):
     _sel = twin_table.value
     if _sel is None or len(_sel) == 0:
-        twin_explorer = mo.md("_Select a group in the table above._")
+        twin_explorer = mo.md("_上の表からグループを選んでください。_")
     else:
         _r = _sel.row(0, named=True)
         twin_explorer = mo.ui.anywidget(
@@ -1069,9 +1118,11 @@ def _(MorganExplorer, mo, train, twin_smiles, twin_table):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 3d · What a bag of substructures cannot express
+    ### 3d · 部分構造の寄せ集めでは表せないもの
 
-    PXR's ligand-binding pocket is large, flexible and hydrophobic, and it is known to accept very different scaffolds. If binding depends less on specific substructures than on how lipophilic and how large the whole molecule is, a representation built from the presence of local substructures is a poor fit.
+    PXR
+    のリガンド結合ポケットは大きく、柔軟で、疎水的で、まったく異なる骨格を受け入れることで知られています。結合を決めているのが特定の部分構造ではなく、分子全体がどれだけ脂溶的で大きいかだとすると、部分構造の有無で分子を表す
+    ECFP4 とは相性が悪いことになります。
     """)
     return
 
@@ -1106,7 +1157,7 @@ def _(Chem, Crippen, Descriptors, np, rdmd, test, train):
 
 @app.cell(hide_code=True)
 def _(DESCRIPTORS, mo):
-    prop_pick = mo.ui.dropdown(list(DESCRIPTORS), value="MolLogP", label="descriptor")
+    prop_pick = mo.ui.dropdown(list(DESCRIPTORS), value="MolLogP", label="記述子")
     prop_pick
     return (prop_pick,)
 
@@ -1161,24 +1212,23 @@ def _(
 
     mo.vstack(
         [
-            mo.md(
-                "**A single whole-molecule number ranks the test set better than an ECFP4 kNN.**"
-            ),
+            mo.md("**分子全体の数値 1 つでも、ECFP4 の kNN より test をうまく順位づけられます。**"),
             mo.hstack(
                 [
-                    mo.stat(f"{_rho_logp:.2f}", label="Spearman ρ, logP alone (test)"),
-                    mo.stat(f"{_knn_rho(1):.2f}", label="ρ, ECFP4 kNN with k = 1 (test)"),
-                    mo.stat(f"{_knn_rho(50):.2f}", label="ρ, ECFP4 kNN with k = 50 (test)"),
+                    mo.stat(f"{_rho_logp:.2f}", label="logP だけの Spearman ρ (test)"),
+                    mo.stat(f"{_knn_rho(1):.2f}", label="ECFP4 kNN k=1 の ρ (test)"),
+                    mo.stat(f"{_knn_rho(50):.2f}", label="ECFP4 kNN k=50 の ρ (test)"),
                 ],
                 widths="equal",
                 gap=0.5,
             ),
             mo.md(f"""
-    * left: the chosen descriptor against pEC50; right: Spearman ρ of each of the 14 descriptors with pEC50 (train)
-    * among pairs with Tanimoto ≥ 0.5, the logP difference tracks the pEC50 difference, if weakly (ρ = {_rho_pairs:.2f})
-    * a bit vector has no axis for "slightly more lipophilic": adding a methyl either sets a bit or it doesn't
+    * 左は選んだ記述子と pEC50 の分布 右は 14 個の記述子それぞれと pEC50 の Spearman ρ (train)
+    * Tanimoto ≥ 0.5 のペアの中でも logP の差は活性の差と弱いながら連動する (ρ = {_rho_pairs:.2f})
+    * bit ベクトルには「少しだけ脂溶性が高い」という軸がない メチルを 1 つ足しても bit
+      が立つか立たないかだけ
 
-    Continuous whole-molecule properties such as lipophilicity cannot be expressed as a set of substructures that are present or absent.
+    脂溶性のような分子全体の連続的な性質は、部分構造があるかないかの集まりでは表せません。
     """),
         ]
     )
@@ -1188,14 +1238,18 @@ def _(
 @app.cell(hide_code=True)
 def _(mo, model_scores):
     mo.md(f"""
-    ## 4 · Inside the model
+    ## 4 · モデルの中身
 
-    What does the model most people train first, **LightGBM on 2048-bit ECFP4**, actually learn? Two ways to look:
+    多くの人が最初に作るモデル、**2048 bit の ECFP4 で学習した LightGBM** が何を学習したのかを、2 つの方法で調べます。
 
-    * **feature importance** (total gain per bit): which bits the trees split on most
-    * **TreeSHAP** (LightGBM's `pred_contrib=True`): how much each bit raised or lowered this molecule's prediction; spreading a bit's contribution over the atoms that set it gives a per-atom map (the idea behind Riniker & Landrum's similarity maps)
+    * **特徴量重要度** (bit ごとの gain の合計): 木がどの bit で多く分岐したか
+    * **TreeSHAP** (LightGBM の `pred_contrib=True`): 各 bit
+      がこの分子の予測をどれだけ上げたか下げたか 寄与をその bit
+      を立てた原子に配分すると原子ごとのマップになる (Riniker & Landrum の similarity map
+      と同じ発想)
 
-    On the test set this model reaches MAE **{model_scores["MAE"]:.2f}** and Spearman ρ **{model_scores["rho"]:.2f}**. It is the ECFP4-bit baseline of the Model lab in section 5, where its predictions are plotted against the truth.
+    このモデルの test での成績は MAE **{model_scores["MAE"]:.2f}**、Spearman ρ
+    **{model_scores["rho"]:.2f}** です。5 章の Model lab の基準 (ECFP4 bit) と同じ設定なので、予測と実測の比較はそちらで見られます。
     """)
     return
 
@@ -1205,7 +1259,7 @@ def _(fingerprint_matrix, lgb, mo, np, spearmanr, test, train, y_test, y_train):
     N_BITS = 2048  # the usual default, as in most first models
     Xm_train = fingerprint_matrix(train["smiles"].to_list(), 2, N_BITS).astype(np.float32)
     Xm_test = fingerprint_matrix(test["smiles"].to_list(), 2, N_BITS).astype(np.float32)
-    with mo.status.spinner(f"Training LightGBM on {N_BITS}-bit ECFP4…"):
+    with mo.status.spinner(f"{N_BITS} bit の ECFP4 で LightGBM を学習中…"):
         model = lgb.LGBMRegressor(
             n_estimators=400,
             learning_rate=0.05,
@@ -1243,21 +1297,23 @@ def _(N_BITS, Xm_train, model, np):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### The most important bits, and what is inside them
+    ### 重要度の高い bit と、その中身
 
-    The table below ranks the model's bits by importance.
+    下の表は、モデルの bit を重要度の高い順に並べたものです。
 
-    * **gain** / **mean |SHAP|**: the importance (share of the total over all bits); rank by either
-    * **mean SHAP (bit on)**: the bit's average contribution in the molecules that set it; red raises the prediction, blue lowers it
-    * **main substructure**: the bit's most common substructure, and the share of the bit's molecules that contain it
-    * click a row to see the substructures inside the bit and the molecules that set it
-    * click a column header again to flip the order and see the bits the model never used (gain 0)
+    * **gain** / **mean |SHAP|**: 重要度 (全 bit に対する割合) どちらで並べるか選べる
+    * **mean SHAP (bit on)**: その bit が立っている分子での平均寄与 赤は予測を上げ 青は下げる
+    * **main substructure**: その bit で一番多い部分構造と その bit が立つ分子のうちそれを含む割合
+    * 行をクリックすると その bit に入る部分構造と その bit が立っている分子が下に出る
+    * 列見出しをもう一度押すと並びが逆になり モデルが使わなかった bit (gain 0) を見られる
 
-    /// details | Definitions
-    * **gain**: total loss reduction from the splits on the bit during training (LightGBM [`feature_importance(importance_type="gain")`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.feature_importance))
-    * **mean |SHAP|**: the absolute TreeSHAP contribution of the bit (LightGBM [`predict(pred_contrib=True)`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.predict)), averaged over all train molecules ([SHAP](https://shap.readthedocs.io/en/latest/))
-    * **mean SHAP (bit on)**: the same contribution, signed, averaged over the molecules that set the bit
-    * bits with gain 0 are ordered by how many molecules set them
+    /// details | 各指標の定義
+    * **gain**: その bit での分岐が学習中に減らした損失の合計 (LightGBM の
+      [`feature_importance(importance_type="gain")`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.feature_importance))
+    * **mean |SHAP|**: train の全分子について その bit の TreeSHAP 寄与 (LightGBM の
+      [`predict(pred_contrib=True)`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.predict)) の絶対値を平均したもの ([SHAP](https://shap.readthedocs.io/en/latest/))
+    * **mean SHAP (bit on)**: 同じ寄与を その bit が立っている分子だけで平均したもの (符号つき)
+    * gain 0 の bit どうしは 立っている分子の多い順に並ぶ
     ///
     """)
     return
@@ -1312,33 +1368,34 @@ def _(N_BITS, Xm_test, bit_gain, census_for, mo, np, pl, pred_test, spearmanr, t
     _share = np.median(_top_bits["top substructure share"])
     _mixed = _top_bits.filter(pl.col("top substructure share") < 0.8)["bit"].to_list()
     _mixed_note = (
-        f"* the exceptions are bits where a second substructure is also common ({' '.join(map(str, _mixed))}); for these the importance cannot be pinned on one substructure"
+        f"* 例外は 2 番目の部分構造も多くの分子に現れる bit ({' '.join(map(str, _mixed))}) で こうした bit の重要度はどの部分構造のものか決められない"
         if _mixed
-        else "* in all top 15 bits the most common substructure accounts for at least 80%"
+        else "* 上位 15 bit に 一番多い部分構造が 8 割を切る bit はない"
     )
     mo.vstack(
         [
             mo.md("""
-    **Each top bit holds many substructures, but in most of them one substructure dominates.**
+    **重要度上位の bit には何種類もの部分構造が入っていますが、ほとんどは 1 つの部分構造がその bit
+    を占めています。**
     """),
             mo.hstack(
                 [
-                    mo.stat(f"{_envs:.0f}", label="substructures per top-15 bit (median)"),
-                    mo.stat(
-                        f"{_share:.0%}",
-                        label="share of the most common substructure (median)",
-                    ),
+                    mo.stat(f"{_envs:.0f}", label="上位 15 bit あたりの部分構造数 (中央値)"),
+                    mo.stat(f"{_share:.0%}", label="一番多い部分構造が占める割合 (中央値)"),
                 ],
                 widths="equal",
                 gap=0.5,
             ),
             mo.md(f"""
-    * at {N_BITS} bits a top-15 bit holds about {_envs:.0f} substructures, yet in the median bit {_share:.0%} of the molecules that set it contain its most common one
+    * {N_BITS} bit では上位 15 bit に 1 bit あたり約 {_envs:.0f} 種類入るが その bit が立つ分子の中央値
+      {_share:.0%} は一番多い部分構造 1 つで説明できる
     {_mixed_note}
-    * the model never uses {_n0:,} bits; the most frequent of them is set in {_n0_mols:,} molecules (bit {_n0_bit}). Retraining without them gives about the same test score (MAE 0.59)
-    * test molecules with more of these bits have slightly larger errors (Spearman {_rho0:.2f}; MAE {_mae_lo:.2f} with 0–2 of them, {_mae_hi:.2f} with 7 or more)
+    * モデルが一度も使わなかった bit は {_n0:,} 個 一番多く立つものは {_n0_mols:,} 分子 (bit {_n0_bit})
+      これらを落として学習し直しても test の成績はほぼ同じ (MAE 0.59)
+    * こうした bit が多い test 分子ほど誤差はわずかに大きい (Spearman {_rho0:.2f} 0〜2 個で MAE
+      {_mae_lo:.2f} 7 個以上で {_mae_hi:.2f})
 
-    Importance belongs to bits, but a top bit is usually one substructure, so it can be read as that substructure's importance; for the exceptions, check what is inside.
+    重要度は bit につく値ですが、上位の bit はたいてい 1 つの部分構造が占めているので、その部分構造の重要度として読めます。例外の bit は中身を確かめる必要があります。
     """),
         ]
     )
@@ -1348,11 +1405,18 @@ def _(N_BITS, Xm_test, bit_gain, census_for, mo, np, pl, pred_test, spearmanr, t
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### Reading one prediction
+    ### 1 つの予測を読み解く
 
-    The pair below is the second-hardest test compound of the whole challenge, **OADMET-0006254** (pEC50 2.06, the molecule that collided with itself in section 1), next to its nearest train neighbour **OADMET-0002810** (pEC50 5.95). The only change is a benzene CH turned into a pyridine N. According to OpenADMET's analysis, a related co-crystal structure shows this nitrogen hydrogen-bonding to SER247, which probably changes how the ligand sits in the pocket. Every Tier-1 team over-predicted this compound.
+    下のペアは、チャレンジ全体で 2 番目に難しかった test 化合物 **OADMET-0006254** (pEC50
+    2.06、セクション 1 で自分自身と衝突していた分子) と、train での最近傍 **OADMET-0002810** (pEC50
+    5.95) です。違いはベンゼンの CH → ピリジンの N の 1 か所だけ。OpenADMET
+    の解析によれば、関連する共結晶構造ではこの窒素が SER247
+    と水素結合しており、ポケット内でのリガンドの収まり方が変わっている可能性が高いそうです。Tier-1
+    のチームは、どこもこの化合物を過大に予測しました。
 
-    Atom colours show the model's TreeSHAP contributions (red raises the predicted pEC50, blue lowers it). Click a bit to show its substructure instead. The **SHAP** columns give each bit's contribution for A and B, and the menu offers the other worst-predicted test compounds.
+    原子の色はモデルの TreeSHAP 寄与です (赤は予測 pEC50 を上げ、青は下げます)。bit
+    をクリックすると、代わりにその部分構造が表示されます。表の **SHAP** 列は、A と B それぞれでの
+    bit の寄与です。メニューからは、ほかに予測が大きく外れた test 化合物も選べます。
     """)
     return
 
@@ -1384,7 +1448,7 @@ def _(cliff_pairs, mo, pl):
             [cliff_pairs.filter(pl.col("test id") == "OADMET-0006254"), _worst.head(7)]
         )
     _labels = {
-        f"{r['test id']} (true {r['test pEC50']:.2f}, predicted {r['predicted']:.2f}) vs {r['NN id']}": r[
+        f"{r['test id']} (実測 {r['test pEC50']:.2f}, 予測 {r['predicted']:.2f}) vs {r['NN id']}": r[
             "test id"
         ]
         for r in _worst.iter_rows(named=True)
@@ -1392,7 +1456,7 @@ def _(cliff_pairs, mo, pl):
     pair_pick = mo.ui.dropdown(
         _labels,
         value=next(k for k in _labels if k.startswith("OADMET-0006254")),
-        label="pair (test compound and its nearest train neighbour)",
+        label="ペア (test 化合物と、train での最近傍)",
     )
     pair_pick
     return (pair_pick,)
@@ -1453,7 +1517,7 @@ def _(
 
 @app.cell(hide_code=True)
 def _(N_BITS, census_for, mo, pair_X, pair_contrib, pair_smiles, pair_y, train):
-    from molwidgets import molecule_bit_tiles
+    from chemari import molecule_bit_tiles
 
     _a, _b = pair_X.astype(bool)
     _diff = pair_contrib[0, :-1] - pair_contrib[1, :-1]  # per-feature A − B
@@ -1475,14 +1539,21 @@ def _(N_BITS, census_for, mo, pair_X, pair_contrib, pair_smiles, pair_y, train):
     _rare = sum(c <= 3 for c in _train_count)
     mo.md(
         f"""
-    **Where does the prediction gap come from?** The model predicts A − B = **{_gap:+.2f}** (measured: {_measured:+.2f}). TreeSHAP splits this gap over the bits: the **{int(_differ.sum())}** bits that differ between A and B contribute **{_diff[_differ].sum():+.2f}**, the **{int(_shared.sum())}** shared bits **{_diff[_shared].sum():+.2f}**, and bits absent from both **{_diff[_neither].sum():+.2f}**.
+    **予測の差はどこから来るのか?** モデルの予測は A − B = **{_gap:+.2f}** (実測は {_measured:+.2f})
+    です。TreeSHAP でこの差を bit ごとに分けると、A と B で違う **{int(_differ.sum())}** 個の bit が
+    **{_diff[_differ].sum():+.2f}**、共通の **{int(_shared.sum())}** 個の bit が
+    **{_diff[_shared].sum():+.2f}**、どちらにもない bit が **{_diff[_neither].sum():+.2f}** です。
 
-    * a small structural change flips {int(_differ.sum())} bits, because every substructure within radius 2 of the changed atom changes
-    * even so, the predicted gap is only {abs(_gap):.2f}, far from the measured {abs(_measured):.2f}; the shared bits push A's prediction up by {_lift:+.2f}
-    * {_rare} of the {len(_only_a)} substructures only A has appear in 3 or fewer train compounds, so the weight on their bits was learned from other substructures in the same bits
-    * the atom map can only show bits that are set; absent bits matter to the trees too, but cannot be drawn on atoms
+    * 構造の小さな違いでも {int(_differ.sum())} 個の bit が変わる 違う原子から radius 2
+      以内の部分構造がすべて変わるため
+    * それでも予測の差は {abs(_gap):.2f} しかなく 実測の差 {abs(_measured):.2f} には届かない 共通の
+      bit は A の予測を {_lift:+.2f} 押し上げている
+    * A にしかない部分構造 {len(_only_a)} 種類のうち {_rare} 種類は train に 3
+      分子以下しか出てこない その bit の重みは 同じ bit に入る別の部分構造から学習されたもの
+    * 原子マップに描けるのは立っている bit だけ bit
+      が立っていないことも木にとっては意味があるが原子の上には描けない
 
-    The model reproduced only {abs(_gap) / abs(_measured):.0%} of the measured difference.
+    モデルが予測できた差は、実測の差の {abs(_gap) / abs(_measured):.0%} だけでした。
     """
     )
     return
@@ -1493,14 +1564,16 @@ def _(mo):
     mo.md(r"""
     ## 5 · Model lab
 
-    Each weakness above has a matching fix:
+    ここまでに見た弱点には、それぞれ対応する手があります。
 
-    * **count fingerprint**: keeps occurrence counts (3c)
-    * **more bits**: fewer collisions (1)
-    * **include chirality**: tells stereoisomers apart (3c)
-    * **whole-molecule descriptors**: cover what substructures cannot (3d)
+    * **count fingerprint**: 出現回数を残す (3c)
+    * **bit 数を増やす**: 衝突を減らす (1)
+    * **キラリティを含める**: 立体を区別する (3c)
+    * **分子全体の記述子**: 部分構造では表せない性質を補う (3d)
 
-    LightGBM is trained on train and scored on the 513 test compounds. The three reference settings are precomputed; change the settings and press **Train** to add a row to the scoreboard. The "precomputed" row uses CheMeleon (see below) and was computed outside the notebook under the same conditions.
+    LightGBM を train で学習し、test の 513 化合物で評価します。3
+    つの基準設定は計算済みで、設定を変えて**学習**を押すとスコアボードに行が追加されます。「参考」の行は
+    CheMeleon (後述) を使ったもので、notebook の外で同じ条件で計算した結果です。
     """)
     return
 
@@ -1508,9 +1581,9 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     lab_features = mo.ui.multiselect(
-        ["ECFP bit", "ECFP count", "RDKit descriptors"],
+        ["ECFP bit", "ECFP count", "RDKit 記述子"],
         value=["ECFP count"],
-        label="features",
+        label="特徴量",
     )
     lab_radius = mo.ui.dropdown(
         {"ECFP2 (radius 1)": 1, "ECFP4 (radius 2)": 2, "ECFP6 (radius 3)": 3},
@@ -1518,10 +1591,10 @@ def _(mo):
         label="radius",
     )
     lab_bits = mo.ui.dropdown(
-        {"256": 256, "1024": 1024, "2048": 2048, "8192": 8192}, value="2048", label="bits"
+        {"256": 256, "1024": 1024, "2048": 2048, "8192": 8192}, value="2048", label="bit 数"
     )
-    lab_chiral = mo.ui.checkbox(label="include chirality")
-    lab_run = mo.ui.run_button(label="Train")
+    lab_chiral = mo.ui.checkbox(label="キラリティを含める")
+    lab_run = mo.ui.run_button(label="学習")
     mo.hstack(
         [lab_features, lab_radius, lab_bits, lab_chiral, lab_run], justify="start", gap=1, wrap=True
     )
@@ -1541,7 +1614,7 @@ def _(Chem, mo, np, test, train):
         out[~np.isfinite(out)] = np.nan
         return out
 
-    with mo.status.spinner("Computing RDKit descriptors…"):
+    with mo.status.spinner("RDKit 記述子を計算中…"):
         R_train = rdkit_descriptors(train["smiles"].to_list())
         R_test = rdkit_descriptors(test["smiles"].to_list())
     return R_test, R_train
@@ -1580,7 +1653,7 @@ def _(
         """Fit LightGBM on train, return test metrics and predictions."""
         tr = featurize(train["smiles"].to_list(), parts, radius, n_bits, chiral)
         te = featurize(test["smiles"].to_list(), parts, radius, n_bits, chiral)
-        if "RDKit descriptors" in parts:
+        if "RDKit 記述子" in parts:
             tr.append(R_train)
             te.append(R_test)
         model = lgb.LGBMRegressor(
@@ -1596,7 +1669,7 @@ def _(
         pred = model.predict(np.hstack(te))
         fp_desc = " + ".join(p.replace("ECFP", f"ECFP{2 * radius}") for p in parts)
         if any(p.startswith("ECFP") for p in parts):
-            fp_desc += f" · {n_bits} bit{' · chiral' if chiral else ''}"
+            fp_desc += f" · {n_bits} bit{' · キラリティあり' if chiral else ''}"
         return {
             "features": fp_desc,
             "MAE": round(float(np.abs(pred - y_test).mean()), 3),
@@ -1611,11 +1684,11 @@ def _(
 
 @app.cell
 def _(evaluate, mo):
-    with mo.status.spinner("Training the three reference models…"):
+    with mo.status.spinner("3 つの基準モデルを学習中…"):
         baseline_runs = [
             evaluate(["ECFP bit"]),
-            evaluate(["RDKit descriptors"]),
-            evaluate(["ECFP bit", "RDKit descriptors"]),
+            evaluate(["RDKit 記述子"]),
+            evaluate(["ECFP bit", "RDKit 記述子"]),
         ]
     return (baseline_runs,)
 
@@ -1628,7 +1701,7 @@ def _(np, pl, spearmanr, test, y_test):
 
     _file = "chemeleon_test_predictions.csv"
     _local = _Path("results") / _file
-    _url = "https://raw.githubusercontent.com/N283T/openadmet-marimo/main/results/" + _file
+    _url = "https://raw.githubusercontent.com/N283T/chemari/main/results/" + _file
     try:
         _preds = test.select("id").join(pl.read_csv(_local if _local.exists() else _url), on="id")
     except (OSError, pl.exceptions.PolarsError):
@@ -1657,8 +1730,8 @@ def _(mo):
 @app.cell
 def _(evaluate, lab_bits, lab_chiral, lab_features, lab_radius, lab_run, mo, set_runs):
     mo.stop(not lab_run.value)
-    mo.stop(not lab_features.value, mo.md("Pick at least one feature family.").callout(kind="warn"))
-    with mo.status.spinner("Training…"):
+    mo.stop(not lab_features.value, mo.md("特徴量を 1 つ以上選んでください。").callout(kind="warn"))
+    with mo.status.spinner("学習中…"):
         _res = evaluate(lab_features.value, lab_radius.value, lab_bits.value, lab_chiral.value)
     set_runs(lambda runs: [*runs, _res])
     return
@@ -1671,7 +1744,7 @@ def _(baseline_runs, get_runs, mo, pl, reference_runs, y_test):
     _board = pl.DataFrame(
         [
             {k: v for k, v in r.items() if not k.startswith("_")}
-            | {"source": "reference" if i < _nb else "precomputed" if i < _nb + _nr else "yours"}
+            | {"source": "基準" if i < _nb else "参考" if i < _nb + _nr else "追加"}
             for i, r in enumerate(all_runs)
         ]
     )
@@ -1680,7 +1753,7 @@ def _(baseline_runs, get_runs, mo, pl, reference_runs, y_test):
         selection="single",
         # the newest run of your own, else the best baseline
         initial_selection=[len(all_runs) - 1 if get_runs() else _nb - 1],
-        label=f"Scoreboard (SD of the true test pEC50 = {y_test.std():.2f}; pick a row to inspect it)",
+        label=f"スコアボード (test の実測 pEC50 の SD = {y_test.std():.2f}。行を選ぶと詳しく見られます)",
         page_size=8,
     )
     run_pick
@@ -1739,11 +1812,11 @@ def _(all_runs, alt, mo, nn_sim_test, pl, run_pick, test, y_test):
         [
             mo.hstack([_scatter, _bias + _zero], justify="start", gap=2),
             mo.md(f"""
-    **Every model pulls its predictions toward the mean.**
+    **どのモデルも予測が平均に寄ります。**
 
-    * the predictions have an SD of {_pred.std():.2f} against {y_test.std():.2f} for the truth
-    * weak compounds are predicted too potent and potent ones too weak (box plot on the right)
-    * of the three reference models, ECFP4 alone has the narrowest spread
+    * 予測の SD は {_pred.std():.2f} で 実測の {y_test.std():.2f} より小さい
+    * 弱い化合物は強めに 強い化合物は弱めに予測される (右の箱ひげ図)
+    * 基準の 3 つでは ECFP4 だけのモデルがいちばん幅が狭い
     """),
         ]
     )
@@ -1753,50 +1826,69 @@ def _(all_runs, alt, mo, nn_sim_test, pl, run_pick, test, y_test):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Worth trying (numbers are test MAE):
+    試してみる価値があるもの (数字は test の MAE):
 
-    * **bits → counts**: adds occurrence counts and separates the ring-size groups from 3c; 0.59 → 0.55
-    * **fold size**: 256 bits is clearly worse (0.64), while 2048 and 8192 are close (0.59 → 0.58)
-    * **include chirality**: few compounds change, so the score hardly moves, but the stereo groups from 3c become separable
-    * **RDKit descriptors**: the 217 descriptors alone reach 0.56, better than ECFP4 (0.59); combined with ECFP4, 0.53
-    * **a pretrained GNN's embeddings** (for reference): with the output of [CheMeleon](https://github.com/JacksonBurns/chemeleon), a GNN pretrained to predict Mordred descriptors, as features: [0.54](https://github.com/N283T/openadmet-marimo/blob/main/results/chemeleon_lightgbm.csv)
+    * **bit → count**: 出現回数が加わり 3c の環サイズ違いも区別できる 0.59 → 0.55
+    * **bit 数**: 256 では明らかに悪い (0.64) が 2048 と 8192 の差は小さい (0.59 → 0.58)
+    * **キラリティを含める**: 変わる化合物が少なくスコアはほぼ同じ 3c
+      の立体のグループは区別できるようになる
+    * **RDKit 記述子**: 記述子だけ (217 種) で 0.56 と ECFP4 (0.59) を上回り ECFP4 と組み合わせると
+      0.53
+    * **事前学習済み GNN の埋め込み** (参考): Mordred 記述子の予測で事前学習した GNN [CheMeleon](https://github.com/JacksonBurns/chemeleon)
+      の出力を特徴量にすると [0.54](https://github.com/N283T/chemari/blob/main/results/chemeleon_lightgbm.csv)
 
-    Combining substructures (a fingerprint) with whole-molecule properties (descriptors) helps most. CheMeleon, a GNN pretrained to predict descriptors, is in a sense that combination too, and pretrained GNNs also helped in [my challenge report](https://n283t.github.io/openadmet-pxr-model-report/). Still, every model pulls its predictions toward the mean.
+    部分構造 (fingerprint) と分子全体の性質 (記述子) を組み合わせるのが一番効きます。記述子を予測するように事前学習した
+    CheMeleon もある意味その組み合わせで、[チャレンジでの私のレポート](https://n283t.github.io/openadmet-pxr-model-report/) でも GNN
+    の事前学習モデルが効きました。ただ、どのモデルでも予測が平均に寄る傾向は残ります。
 
-    ## 6 · Take-aways
+    ## 6 · まとめ
 
-    **About ECFP4**
+    **ECFP4 について**
 
-    * **ECFP4 records which local substructures are present**: counts, stereo (by default) and whole-molecule properties are lost
-    * **folding puts unrelated substructures on the same bit**: although a bit that is set often is usually dominated by one substructure
-    * **a high Tanimoto does not guarantee similar activity**
+    * **ECFP4 は局所的な部分構造があるかどうかの集まり**: 出現回数 立体 (デフォルト)
+      分子全体の性質は残らない
+    * **folding で無関係な部分構造が同じ bit に入る**: ただしよく立つ bit はたいてい 1
+      つの部分構造が占めている
+    * **Tanimoto が高くても活性が近いとは限らない**
 
-    **What happened on PXR**
+    **PXR で起きたこと**
 
-    * **the test set is close to train, yet the nearest neighbour's activity is of little use**: the test set was built from ECFP4 neighbours, but kNN with k = 1 has a rank correlation near 0
-    * **whole-molecule properties matter too**: logP alone ranks the test set better than an ECFP4 kNN, and a model on RDKit descriptors alone beats one on ECFP4 alone
-    * **cliffs carry measurement uncertainty**: the pEC50 of a weak compound is extrapolated, so a gap cannot be read as structure at face value
+    * **test は train に近いのに 最近傍の活性はほとんど当てにならない**: test は ECFP4
+      近傍として作られたが kNN (k=1) の順位相関はほぼ 0
+    * **分子全体の性質も効いている**: logP 1 つでも ECFP4 の kNN より test をよく順位づけ
+      RDKit 記述子だけのモデルは ECFP4 だけのモデルを上回った
+    * **cliff の差には測定の不確かさが混ざる**: 弱い化合物の pEC50 は外挿で幅を持つので 差をそのまま構造の違いとは読めない
 
-    **When you use ECFP4**
+    **ECFP4 を使うときは**
 
-    * for regression, try counts as well (better than bits on PXR); in a colliding bin, though, the counts of different substructures add up
-    * switch on chirality when stereo matters
-    * combine it with whole-molecule descriptors
-    * before interpreting a bit, check which substructures are in it
+    * 回帰では count も試す (PXR では bit より良かった) ただし衝突した bit
+      には別々の部分構造の回数が足し合わされる
+    * 立体が効くならキラリティをオンにする
+    * 分子全体の記述子と組み合わせる
+    * bit を解釈するときは その bit に入っている部分構造まで確かめる
 
-    ECFP4 is still a solid place to start. Knowing what is inside it and where it fails tells you what to suspect, and what to add, when it doesn't work on your data.
+    ECFP4
+    は今でも手堅い出発点です。中身と弱点を知っていれば、効かないデータに当たったときに、何を疑い何を足せばいいかがわかります。
 
     ---
 
-    ### About this notebook
+    ### この notebook について
 
-    * **Data:** [openadmet/pxr-challenge-train-test](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test) (CC-BY-4.0): the train set plus the phase 1 and phase 2 unblinded test labels. The test-set design and the analysis of the hardest compounds come from references [4]–[6].
-    * **Widgets:** `ECFPMovie`, `ECFPStepper`, `MolGrid`, `MorganBitTiles`, `BitAtlas` and `MorganExplorer` are anywidget components written for this notebook ([source](https://github.com/N283T/openadmet-marimo)).
-    * **AI use:** I used Claude (Anthropic) as a coding assistant for the widgets, the video and the notebook scaffolding. The question, the choice of analyses and the interpretation come from my own work on the PXR challenge, and every number shown is computed live in this notebook.
+    * **データ:**
+      [openadmet/pxr-challenge-train-test](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test)
+      (CC-BY-4.0)。train と、フェーズ 1・フェーズ 2 で公開された test のラベルを使っています。test
+      の設計と最難関化合物の解析は、参考文献 [4]–[6] によります。
+    * **ウィジェット:** `ECFPMovie`、`ECFPStepper`、`MolGrid`、`MorganBitTiles`、`BitAtlas`、`MorganExplorer`
+      は、この notebook のために作った anywidget コンポーネントです
+      ([ソース](https://github.com/N283T/chemari))。
+    * **AI の利用:** ウィジェット、動画、notebook の骨組みのコーディングには、Claude (Anthropic)
+      をアシスタントとして使いました。問いの立て方、解析の選び方、解釈は私自身の PXR
+      チャレンジでの取り組みに基づくもので、表示している数値はすべてこの notebook
+      の中でその場で計算しています。
 
-    For what other participants did, the [post-challenge analysis](https://openadmet.ghost.io/dont-look-back-in-error-what-we-learned-predicting-pxr-induction-part-i/) has a table of the methods used by the 28 Tier 1 teams, and the [results post](https://openadmet.ghost.io/its-the-end-of-the-pxr-challenge-as-we-know-it-and-i-feel-fine/) links each team's model report. Mine (4th in the activity track) is [here](https://n283t.github.io/openadmet-pxr-model-report/). As you might guess, no fingerprint model made it into my final ensemble.
+    参加者がどんな手法を使ったかは、[チャレンジ後の解析](https://openadmet.ghost.io/dont-look-back-in-error-what-we-learned-predicting-pxr-induction-part-i/)に Tier 1 の 28 チーム分の表としてまとまっています。各チームのモデルレポートは[結果発表](https://openadmet.ghost.io/its-the-end-of-the-pxr-challenge-as-we-know-it-and-i-feel-fine/)から読めます。私のレポート (Activity トラック 4 位) は[こちら](https://n283t.github.io/openadmet-pxr-model-report/)です。お察しのとおり、fingerprint を使ったモデルは最終的なアンサンブルに採用しませんでした。
 
-    ### References
+    ### 参考文献
 
     1. Rogers, D.; Hahn, M. Extended-Connectivity Fingerprints. *J. Chem. Inf. Model.* **2010**, 50, 742–754. [doi:10.1021/ci100050t](https://doi.org/10.1021/ci100050t)
     2. Morgan, H. L. The Generation of a Unique Machine Description for Chemical Structures. *J. Chem. Doc.* **1965**, 5, 107–113. [doi:10.1021/c160017a018](https://doi.org/10.1021/c160017a018)

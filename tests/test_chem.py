@@ -1,6 +1,6 @@
 import numpy as np
 
-from molwidgets import (
+from chemari import (
     MorganExplorer,
     bit_census,
     fingerprint_matrix,
@@ -59,7 +59,7 @@ def test_ecfp_trace_matches_rdkit_feature_count():
     from rdkit import Chem
     from rdkit.Chem import rdFingerprintGenerator
 
-    from molwidgets import ecfp_trace
+    from chemari import ecfp_trace
 
     for smi in ["CC(=O)Nc1ccc(O)cc1", "C1CCNCC1", "CC(C)(C)NS(=O)(=O)C1(CNc2c(Br)cncc2C#N)CCC1"]:
         for r in (1, 2, 3):
@@ -69,14 +69,14 @@ def test_ecfp_trace_matches_rdkit_feature_count():
 
 
 def test_ecfp_trace_symmetric_atoms_share_identifiers():
-    from molwidgets import ecfp_trace
+    from chemari import ecfp_trace
 
     layer0 = ecfp_trace("c1ccccc1", 1).steps[0]
     assert len({s.identifier for s in layer0}) == 1
 
 
 def test_stepper_renders_click_targets():
-    from molwidgets import ECFPStepper
+    from chemari import ECFPStepper
 
     w = ECFPStepper("CCO", max_radius=2)
     assert w.svg.count('class="es-hit"') == 3
@@ -90,7 +90,7 @@ def test_ecfp_story_uses_rdkit_identifiers():
     from rdkit import Chem
     from rdkit.Chem import rdFingerprintGenerator
 
-    from molwidgets.ecfp import ecfp_story
+    from chemari.ecfp import ecfp_story
 
     smi = "CC(=O)NC"  # the movie's molecule: letters a-j are its kept identifiers
     story = ecfp_story(smi, 2)
@@ -110,14 +110,14 @@ def test_ecfp_story_uses_rdkit_identifiers():
 
 
 def test_ecfp_story_sorts_aromatic_bonds_last():
-    from molwidgets.ecfp import ecfp_story
+    from chemari.ecfp import ecfp_story
 
     row = ecfp_story("CC(=O)Nc1ccc(O)cc1", 1)["layers"][1][4]  # the aromatic C bonded to N
     assert [order for order, _ in row["nbrs"]] == [1.0, 1.5, 1.5]
 
 
 def test_bit_tiles_merge_symmetry_and_flag_collisions():
-    from molwidgets import molecule_bit_tiles
+    from chemari import molecule_bit_tiles
 
     acid = "CC(C)Cc1ccc(cc1)C(C)C(=O)O"  # ibuprofen
     tiles = molecule_bit_tiles(acid, 2, 2048)
@@ -129,7 +129,7 @@ def test_bit_tiles_merge_symmetry_and_flag_collisions():
 
 
 def test_bit_tiles_widget_gallery():
-    from molwidgets import MorganBitTiles
+    from chemari import MorganBitTiles
 
     ref = ["CC(=O)O", "CCO", "c1ccccc1O"]
     w = MorganBitTiles("CC(=O)O", reference=ref, ids=["a", "b", "c"])
@@ -144,7 +144,7 @@ def test_movie_uses_real_rdkit_identifiers():
     from rdkit import Chem
     from rdkit.Chem import rdFingerprintGenerator as G
 
-    from molwidgets import ECFPMovie
+    from chemari import ECFPMovie
 
     page = ECFPMovie().page
     assert "Inside ECFP4" in page
@@ -171,7 +171,7 @@ def test_movie_uses_real_rdkit_identifiers():
 
 
 def test_widgets_bump_rev_after_recomputing():
-    from molwidgets import BitAtlas, ECFPStepper
+    from chemari import BitAtlas, ECFPStepper
 
     w = ECFPStepper("CCO")
     before, svg = w.rev, w.svg
@@ -186,7 +186,7 @@ def test_widgets_bump_rev_after_recomputing():
 def test_bit_importance_ranks_bits_and_shows_their_substructures():
     import numpy as np
 
-    from molwidgets import BitImportance
+    from chemari import BitImportance
 
     gain = np.zeros(64)
     gain[[5, 9]] = [1.0, 3.0]
@@ -215,7 +215,7 @@ def test_bit_importance_ranks_bits_and_shows_their_substructures():
 def test_common_substructure_maps_atoms_and_bonds():
     from rdkit import Chem
 
-    from molwidgets import common_substructure
+    from chemari import common_substructure
 
     a, b = Chem.MolFromSmiles("Cc1ccccc1NC(C)=O"), Chem.MolFromSmiles("Cc1ccc(C)cc1NC(C)=O")
     pairs, bonds_a, bonds_b = common_substructure(a, b)
@@ -229,7 +229,7 @@ def test_common_substructure_maps_atoms_and_bonds():
 
 
 def test_mol_pair_widget():
-    from molwidgets import MolPair
+    from chemari import MolPair
 
     w = MolPair(
         {"id": "a", "smiles": "CC(=O)Nc1ccc(O)cc1", "pEC50": 5.0},
@@ -279,7 +279,7 @@ def test_mol_pair_widget():
 
 
 def test_copy_smiles_option():
-    from molwidgets import MolGrid, MolPair
+    from chemari import MolGrid, MolPair
 
     assert MolPair("CCO", "CCN").copy_smiles
     assert not MolPair("CCO", "CCN", copy_smiles=False).copy_smiles
@@ -289,7 +289,7 @@ def test_copy_smiles_option():
 def test_mol_pair_properties():
     import pytest
 
-    from molwidgets import MolPair
+    from chemari import MolPair
 
     keys = [m["key"] for m in MolPair("CCO", "CCN").data["property_meta"]]
     assert keys == ["MW", "cLogP", "HBD", "HBA"]  # rule of five by default
@@ -309,7 +309,7 @@ def test_mol_pair_properties():
 
 
 def test_explorer_chirality():
-    from molwidgets import MorganExplorer
+    from chemari import MorganExplorer
 
     r, s = "O=C1CC[C@@H](N2C(=O)c3ccccc3C2=O)C(=O)N1", "O=C1CC[C@H](N2C(=O)c3ccccc3C2=O)C(=O)N1"
     w = MorganExplorer([{"smiles": r}, {"smiles": s}])
@@ -323,7 +323,7 @@ def test_explorer_chirality():
 
 
 def test_bit_purity():
-    from molwidgets import bit_census
+    from chemari import bit_census
 
     census = bit_census(["CCO", "CCN", "CCO"], n_bits=2048)
     purity, mean = census.purity()

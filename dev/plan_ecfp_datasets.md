@@ -1,7 +1,7 @@
 # Plan: ECFP4 across OpenADMET datasets (new notebook)
 
 Working title: 「ECFP4 を中身から見る — OpenADMET の 3 つのデータセットで」
-File: `notebooks/ecfp_openadmet_ja.py` (Japanese first, English later). The current
+File: `examples/ecfp_openadmet_ja.py` (Japanese first, English later). The current
 `ecfp_pxr*.py` notebooks stay as they are; their cells are reused where they fit.
 
 ## Message

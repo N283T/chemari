@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "marimo>=0.25",
-#     "molwidgets @ git+https://github.com/N283T/openadmet-marimo",
+#     "chemari @ git+https://github.com/N283T/chemari@v0.1.0",
 #     "polars>=1.30",
 #     "numpy>=2",
 #     "altair>=5.5",
@@ -19,7 +19,7 @@
 import marimo
 
 __generated_with = "0.25.0"
-app = marimo.App(width="medium", app_title="その ECFP4、理解して使っていますか？")
+app = marimo.App(width="medium", app_title="Do you really know your ECFP4?")
 
 
 @app.cell(hide_code=True)
@@ -32,34 +32,34 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # その ECFP4、理解して使っていますか？
+    # Do you really know your ECFP4?
 
-    分子を機械学習にかけるとき、とりあえずこう書いていないでしょうか。
+    When you feed molecules to a machine-learning model, you have probably written something like this:
 
     ```python
     gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
     fp = gen.GetFingerprint(mol)
     ```
 
-    これが **ECFP4**<sup><a href="#ref-1">1</a></sup> で、ケモインフォマティクスで最もよく使われる分子表現です。計算が速く、調整するパラメータもほとんどありません。類似検索でも QSAR でも、多くの場合に良い結果が出ます。新しい手法を評価するときも、まず比べる相手はたいてい ECFP4 です。
+    That is **ECFP4**<sup><a href="#ref-1">1</a></sup>, the most widely used molecular representation in cheminformatics. It is quick to compute with almost nothing to tune, and it works well for a lot of similarity search and QSAR. When a new method is benchmarked, ECFP4 is usually the first thing it is compared against.
 
-    ただ、この 2048 bit が分子の何を記録していて、何を記録していないのかを説明できる人は多くありません。同じ設定で作った fingerprint でも、その中身はデータセットによって大きく違います。この notebook では、ウィジェットで ECFP4 の中身を見ながら理解を深めていきます。
+    Few people can say what those 2048 bits record about a molecule and what they leave out, though. Fingerprints built with the same settings can look very different from one dataset to another. This notebook uses widgets to look inside ECFP4 and build that understanding.
 
-    /// admonition | 名前について
-    **ECFP** (Extended-Connectivity FingerPrint, Rogers & Hahn 2010) と RDKit の **Morgan fingerprint** は同じものです。ECFP*n* の数字は原子のまわりを見る範囲の*直径*で、RDKit では代わりに半径 (radius) で指定します。ECFP4 は `radius=2` にあたります。
+    /// admonition | A note on names
+    **ECFP** (Extended-Connectivity FingerPrint, Rogers & Hahn 2010) and RDKit's **Morgan fingerprint** are the same thing. The number in ECFP*n* is the *diameter* of the neighbourhood around each atom. RDKit asks for the radius instead, so ECFP4 is `radius=2`.
     ///
 
-    この notebook は 3 部構成です。
+    The notebook has three parts.
 
-    * **[第 1 部](#part-1) · ECFP4 の中身**: ECFP4 のアルゴリズムとその特性
-    * **[第 2 部](#part-2) · データセットでの ECFP4**: データセットの中で ECFP4 がどうなっているか
-    * **[第 3 部](#part-3) · おまけ**: データセットどうしを比べて全体を俯瞰する
+    * **[Part 1](#part-1) · Inside ECFP4**: the algorithm and its properties
+    * **[Part 2](#part-2) · ECFP4 on datasets**: what ECFP4 looks like inside a dataset
+    * **[Part 3](#part-3) · Extra**: comparing datasets to get an overview
 
-    おすすめの読み方は次の順番です。
+    The suggested reading order:
 
-    1. [第 1 部](#part-1)と[第 2 部](#part-2)で ECFP4 の仕組みとウィジェットの見方を確かめる (第 2 部はまず 1 つのエンドポイントで)
-    2. [第 3 部](#part-3)で 16 のエンドポイントを眺める
-    3. 気になったエンドポイントを[選び直して](#picker)、第 2 部で中身を見る
+    1. Read [Part 1](#part-1) and [Part 2](#part-2) to learn how ECFP4 works and how to read the widgets (in Part 2, start with a single endpoint)
+    2. Browse all 16 endpoints in [Part 3](#part-3)
+    3. [Pick](#picker) an endpoint that caught your eye and look inside it in Part 2
     """)
     return
 
@@ -73,7 +73,7 @@ def _():
     import numpy as np
     import polars as pl
 
-    from molwidgets import (
+    from chemari import (
         BitAtlas,
         BitImportance,
         ECFPMovie,
@@ -83,9 +83,9 @@ def _():
         MolScatter,
         MorganBitTiles,
         MorganExplorer,
-        bench,
         census_for,
     )
+    from chemari.examples import openadmet as bench
 
     _ = alt.data_transformers.disable_max_rows()
     return (
@@ -114,7 +114,9 @@ def _(Path, bench, mo, pl):
     _where = bench.open_tables(Path("results/precomputed"))
     _missing = [t for t in bench.TABLES if t not in _where]
     if _missing:
-        with mo.status.spinner(f"事前計算がないので計算中 ({', '.join(_missing)})… 数分かかります"):
+        with mo.status.spinner(
+            f"No precomputed tables found, computing them here ({', '.join(_missing)})… this takes a few minutes"
+        ):
             _tables = {t: [] for t in bench.TABLES}
             _raw = {}
             for _task in bench.TASKS:
@@ -142,15 +144,16 @@ def _(Path, bench, mo, pl):
         ]
     )
     _sources = "\n".join(
-        f"* `{k}`: {'この場で計算' if k in _computed else _where[k]}" for k in bench.TABLES
+        f"* `{k}`: {'computed here' if k in _computed else _where[k]}" for k in bench.TABLES
     )
     mo.accordion(
         {
-            "データの読み込みについて": mo.md(
-                "計算に時間のかかる部分 (記述子、モデルの学習、TreeSHAP) は事前に計算して parquet "
-                "ファイルにしてあり、リポジトリの `results/precomputed/` から読み込みます。"
-                "ファイルが見つからないときは、同じコード (`molwidgets.bench`) でこの場で計算します。"
-                "読み込んだ表は DuckDB で SQL を使って集計します。\n\n読み込み元:\n\n" + _sources
+            "About loading the data": mo.md(
+                "The slow parts (descriptors, model training, TreeSHAP) are precomputed and stored as parquet "
+                "files, which are loaded from `results/precomputed/` in the repository. "
+                "If the files are not found, the same code (`chemari.examples.openadmet`) computes them here. "
+                "The loaded tables are aggregated with SQL in DuckDB.\n\nLoaded from:\n\n"
+                + _sources
             )
         }
     )
@@ -173,9 +176,9 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ## <span id="part-1"></span>第 1 部 · ECFP4 の中身
+    ## <span id="part-1"></span>Part 1 · Inside ECFP4
 
-    まずは 80 秒の動画で、ECFP4 が分子から bit を作る手順を見てください。
+    Start with an 80-second video that shows how ECFP4 turns a molecule into bits.
     """)
     return
 
@@ -189,7 +192,7 @@ def _(ECFPMovie, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    同じ手順を好きな分子で追えます。SMILES を入力するか例を選び、1 ステップずつ進めるか自動再生してください。
+    The widget below runs the same steps on any molecule. Type a SMILES or pick an example, then step through with **next** or press **play**.
     """)
     return
 
@@ -203,17 +206,17 @@ def _(ECFPStepper, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    動画と上のウィジェットに出てきた用語を整理しておきます。
+    Here are the terms used in the video and the widget above.
 
-    * **radius**: 原子のまわりを結合何本分まで見るか。0 から 1 つずつ広げ、ECFP4 では 2 まで見る
-    * **部分構造 (environment)**: ある原子を中心に、radius の範囲に入る原子と結合
-    * **folding**: fingerprint を固定長 (ECFP4 では多くの場合 2048 bit) に折りたたむ操作
-    * **bit**: fingerprint の 1 つの要素。その番号に入る部分構造が分子にあれば 1 になる
-    * **collision**: 違う部分構造が同じ bit に入ること
+    * **radius**: how many bonds out from an atom ECFP4 looks. It grows from 0 in steps of 1, and ECFP4 goes up to 2
+    * **substructure (environment)**: the atoms and bonds within the radius around a central atom
+    * **folding**: wrapping the fingerprint into a fixed length (usually 2048 bits for ECFP4)
+    * **bit**: one element of the fingerprint. It is 1 if the molecule has a substructure that maps to that position
+    * **collision**: different substructures landing on the same bit
 
-    ### 実際に ECFP4 を見てみる
+    ### A closer look at ECFP4
 
-    下のウィジェットは実際に生成される ECFP4 を可視化したものです。右の bit を選ぶと該当する部分構造が分子の上でハイライトされるほか、collision があるかどうかも確認できます。好きな分子に変えたり、radius や folding (bit 数) を変えたりして、いろいろ試してみてください。
+    The widget below visualizes the ECFP4 that is actually generated. Select a bit on the right to highlight its substructure on the molecule and to see whether it has a collision. Change the molecule, the radius or the folding (number of bits) and try different settings.
     """)
     return
 
@@ -236,16 +239,16 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ### ECFP4 の注意点
+    ### Pitfalls of ECFP4
 
-    動画で見た collision のほかにも、ECFP4 には注意点があります。ここでは 2 つの分子の fingerprint を比較するウィジェットを使って、それらを見ていきます。
+    Besides the collisions in the video, ECFP4 has other pitfalls. Here we use a widget that compares the fingerprints of two molecules to look at them.
 
-    ### 注意点 1 · 違う分子なのに fingerprint が一致する
+    ### Pitfall 1 · Different molecules, identical fingerprints
 
-    類似検索で、違う分子が類似度 1.0 で複数ヒットすることがたまにあります。これは次のようなときに起こります。
+    In a similarity search, several different molecules sometimes come back with a similarity of 1.0. This happens when:
 
-    * 立体化学が違う
-    * 環のサイズや鎖の長さが違う
+    * the stereochemistry differs
+    * the ring size or chain length differs
     """)
     return
 
@@ -363,14 +366,14 @@ def _(MolPair, mo, same_kind):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    特に環のサイズや鎖の長さが違う場合は、分子の組成そのものが違うのに同じものとして扱われます。類似検索なら目で見て気づけますが、機械学習では違う分子に対してモデルがまったく同じ予測を返すので、リスクが大きくなります。
+    When the ring size or chain length differs, the molecular composition itself differs, yet the molecules are treated as the same. In a similarity search you can spot this by eye. In machine learning the model returns exactly the same prediction for different molecules, so the risk is larger.
 
-    理由は単純で、デフォルトの ECFP は部分構造があるかないかしか表現しないためです。
+    The reason is simple: the default ECFP only records whether a substructure is present.
 
-    * 立体化学は考慮されない → `includeChirality=True` で区別できる
-    * 同じ部分構造が何回出てきても 1 になる (環や鎖が長くなっても増えない) → 回数も記録する count fingerprint で区別できる
+    * Stereochemistry is ignored → `includeChirality=True` tells the pair apart
+    * A substructure counts as 1 however often it occurs (a longer ring or chain adds nothing) → a count fingerprint, which records the number of occurrences, tells the pair apart
 
-    下の表からペアを選び、ウィジェットで count に切り替えたり chirality を ON/OFF したりして、左下の類似度や右の bit のリストがどう変わるか確認してみてください。
+    Pick a pair from the table below, then switch to count or turn chirality on and off in the widget. Watch how the similarity at the bottom left and the bit list on the right change.
     """)
     return
 
@@ -423,12 +426,12 @@ def _(MorganExplorer, SAME_FP, mo, same_table):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ただし、どちらも万能ではありません。
+    Neither is a cure-all, though.
 
-    * chirality を入れても区別できない立体がある (lansoprazole と dexlansoprazole の違いはスルホキシドの硫黄の立体で、ECFP はこの立体を区別しない)
-    * count では collision が起きている bit で別の部分構造の回数もまとめて数えられるので、collision のデメリットが通常より大きくなることもある
+    * Some stereo differences are not separated even with chirality (lansoprazole and dexlansoprazole differ in the stereo of the sulfoxide sulfur, which ECFP does not distinguish)
+    * With counts, a bit with a collision also adds up the counts of the different substructures on it, so the downside of a collision can be larger than usual
 
-    collision は bit 数を増やせば減らせますが、bit 数が増えるわりに得られるものが少ないこともあります。データセットに合わせて使う設定を見極めましょう。
+    Collisions can be reduced with more bits, but the extra bits sometimes bring little. Choose the settings that suit your dataset.
     """)
     return
 
@@ -436,14 +439,14 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 注意点 2 · 似ているのに類似度が思ったより低い
+    ### Pitfall 2 · Similar molecules, lower similarity than expected
 
-    一方で、見た目はよく似ているのに Tanimoto が 0.4〜0.7 くらいと直感より低くなるペアもあります。ECFP4 は各原子のまわり半径 2 までを見るので、原子が 1 つ変わるだけでそのまわりの部分構造がまとめて変わり、10 個以上の bit が入れ替わるためです。
+    The opposite also happens. Some pairs look very similar but have a Tanimoto of only 0.4 to 0.7, lower than intuition suggests. ECFP4 looks out to radius 2 around every atom, so changing one atom changes all the substructures around it, and more than 10 bits can be swapped.
 
-    前の節の鎖長や環サイズの例では、炭素が増えても fingerprint は変わりませんでした。この 2 つの違いは、構造のどこが変わったかにあります。
+    In the chain-length and ring-size examples of the previous section, extra carbons did not change the fingerprint. The difference between the two cases is where in the structure the change happens.
 
-    * 長い鎖や大きい環の途中に同じ単位を足す → 半径 2 の中に見える部分構造はすでにあるものと同じ → 新しい bit は立たない
-    * 原子を置き換える、置換基や鎖の端を変える → そこから半径 2 以内の部分構造がすべて新しくなる
+    * Adding the same unit in the middle of a long chain or a large ring → the substructures within radius 2 are ones that already exist → no new bit is set
+    * Replacing an atom, or changing a substituent or the end of a chain → every substructure within radius 2 of that spot is new
     """)
     return
 
@@ -451,7 +454,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    <span id="far-pair"></span>下の表からペアを選ぶと、その 2 つの構造と fingerprint の比較が順に表示されます。fingerprint の比較では、右側に片方にしかない bit (differ) が並びます。変わった原子のまわりの部分構造がまとめて入れ替わっているのがわかります。
+    <span id="far-pair"></span>Pick a pair from the table below. The two structures and the fingerprint comparison are shown in turn. The fingerprint comparison lists on the right the bits that only one of the two has (differ). You can see that the substructures around the changed atom are swapped out together.
     """)
     return
 
@@ -524,13 +527,13 @@ def _(MorganExplorer, far_pair, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    この問題は ECFP の設定を変えるだけでは避けにくいです。次のような方法があります。
+    This problem is hard to avoid by changing ECFP settings alone. Some options:
 
-    * 別の fingerprint を試す
-    * スキャフォールドや MCES のような部分グラフに基づく比較を使う
-    * 記述子を加える
+    * try another fingerprint
+    * compare with subgraph-based methods such as scaffolds or MCES
+    * add descriptors
 
-    [構造を並べたウィジェット](#far-pair)を similarity タブに切り替えると、選んだペアをいくつかの手法と類似度 (係数) で比較できます。手法によって値の出方が違うので、手法どうしで数値を比べるのではなく、同じ手法でペアを変えたときの値の動きを見てください。
+    Switch the [widget that lines up the structures](#far-pair) to its similarity tab to compare the chosen pair with several methods and similarity coefficients. The values differ from method to method, so do not compare numbers across methods. Instead, watch how the values move when you change the pair within one method.
     """)
     return
 
@@ -538,7 +541,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ただし、どれも決定的な解決策ではなく、どの程度を「似ている」とするかは結局は感覚に近いものです。スクリーニング、クラスタリング、交差検証の分割などでは類似度のしきい値で機械的に区切ることが多いので、いくつか試しながら目的に合う方法と基準を選んでください。
+    None of these is a definitive solution, and what counts as "similar" is in the end close to a matter of judgment. Screening, clustering and cross-validation splits often cut at a similarity threshold mechanically. Try a few and choose the method and threshold that fit your purpose.
     """)
     return
 
@@ -548,7 +551,7 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ## <span id="part-2"></span>第 2 部 · データセットでの ECFP4
+    ## <span id="part-2"></span>Part 2 · ECFP4 on datasets
     """)
     return
 
@@ -556,9 +559,9 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 3 つのデータセット
+    ### Three datasets
 
-    3 つのデータセットの値は、どれも実際の創薬プロジェクトで測られたものです。train / test は、チャレンジで使われた分け方のまま使います。test と同じ構造が train にある化合物は test から外し、同じ split の中で重複する構造は値を平均しています。比の尺度で測る値 (溶解度、クリアランス、透過性、非結合率など) は log10(x + 1) に変換しています。
+    The values in all three datasets were measured in real drug discovery projects. Train/test uses the split from the challenges. Compounds in test whose structure is also in train are dropped from test, and duplicate structures within a split have their values averaged. Values measured on a ratio scale (solubility, clearance, permeability, unbound fraction and so on) are converted to log10(x + 1).
     """)
     return
 
@@ -579,9 +582,9 @@ def _(db, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    * **PXR**: PXR (薬物代謝酵素の発現を制御する核内受容体) の活性化 ([blog](https://openadmet.ghost.io/announcing-the-next-openadmet-blind-challenge-predicting-pxr-induction/))
-    * **ASAP**: 抗ウイルス薬の探索 (ASAP Discovery)。MERS-CoV / SARS-CoV-2 のメインプロテアーゼ阻害と ADMET ([blog](https://polarishub.io/blog/antiviral-competition))
-    * **ExpansionRx**: RNA を標的にした創薬プログラム (Expansion Therapeutics) の ADMET ([blog](https://openadmet.ghost.io/expansionrx-openadmet-blind-challenge/))
+    * **PXR**: activation of PXR (a nuclear receptor that regulates the expression of drug-metabolizing enzymes) ([blog](https://openadmet.ghost.io/announcing-the-next-openadmet-blind-challenge-predicting-pxr-induction/))
+    * **ASAP**: antiviral drug discovery (ASAP Discovery). Inhibition of the MERS-CoV / SARS-CoV-2 main protease, and ADMET ([blog](https://polarishub.io/blog/antiviral-competition))
+    * **ExpansionRx**: ADMET from an RNA-targeted drug discovery program (Expansion Therapeutics) ([blog](https://openadmet.ghost.io/expansionrx-openadmet-blind-challenge/))
     """)
     return
 
@@ -593,7 +596,7 @@ def _(mo, tasks):
     mo.vstack(
         [
             mo.md(r"""
-    <span id="picker"></span>下から好きなデータセットとエンドポイントを選んでください。どれを選んでも、同じ手順で ECFP4 を見ていきます。データセットの背景は、上の blog を見てください。いろいろなデータセットに切り替えて、違いを楽しんでみてください。
+    <span id="picker"></span>Choose a dataset and an endpoint below. Whichever you choose, ECFP4 is examined in the same way. See the blogs above for the background of each dataset. Try switching between datasets to see how they differ.
     """),
             task_pick,
         ]
@@ -629,9 +632,9 @@ def _(alt, mo, mols, task, test, train):
     mo.vstack(
         [
             mo.md(f"""
-    ### <span id="sec-2-1"></span>2.1 · データセットの中身
+    ### <span id="sec-2-1"></span>2.1 · What is in the dataset
 
-    **{task.dataset} · {task.endpoint}**: {task.note}。train {train.height:,} 化合物、test {test.height:,} 化合物です。
+    **{task.dataset} · {task.endpoint}**: {task.note}. {train.height:,} train compounds and {test.height:,} test compounds.
     """),
             mo.hstack(
                 [
@@ -666,9 +669,9 @@ def _(MolGrid, mo, mols, pl):
     mo.vstack(
         [
             mo.md(
-                "データセットの中の化合物を眺めてみましょう。下のグリッドでは、train / test だけに絞ったり、"
-                "部分構造や類似度で検索したりできます。化合物を選ぶと分子量などの情報が表示され、"
-                "2 つ選ぶと化合物どうしを比較できます。"
+                "Take a look at the compounds in the dataset. In the grid below you can filter to train or test only, "
+                "and search by substructure or similarity. Selecting a compound shows information such as molecular weight, "
+                "and selecting two lets you compare them."
             ),
             mol_grid,
         ]
@@ -694,7 +697,9 @@ def _(MolPair, mo, mol_grid, mols, pl, task):
         )
     else:
         _out = mo.callout(
-            mo.md("上のグリッドで化合物を選ぶと、ここに表示されます。2 つ選ぶと比較になります。"),
+            mo.md(
+                "Select a compound in the grid above to show it here. Select two to compare them."
+            ),
             kind="info",
         )
     _out
@@ -714,21 +719,21 @@ def _(census_for, mo, np, task, train):
     _n_envs = np.array([len(_gen.GetSparseCountFingerprint(m).GetNonzeroElements()) for m in _mols])
     _n_bits = np.array([_gen.GetFingerprint(m).GetNumOnBits() for m in _mols])
     mo.md(f"""
-    ### <span id="sec-2-2"></span>2.2 · {task.dataset} · {task.endpoint} での ECFP4
+    ### <span id="sec-2-2"></span>2.2 · ECFP4 on {task.dataset} · {task.endpoint}
 
-    [第 1 部](#part-1)で見た collision には 2 つの場合があります。
+    The collisions seen in [Part 1](#part-1) come in two kinds.
 
-    * **分子内**: 同じ分子の違う部分構造が同じ bit に入る。その分子で立つ bit が 1 つ減る
-    * **データセット全体**: 別々の分子の違う部分構造が同じ bit に入る。bit が立っていても、どの部分構造によるものかを区別できない<sup><a href="#ref-2">2</a></sup>
+    * **Within a molecule**: different substructures of the same molecule land on the same bit. The molecule then has one fewer bit set
+    * **Across the dataset**: different substructures of different molecules land on the same bit. A set bit then does not tell you which substructure caused it<sup><a href="#ref-2">2</a></sup>
 
-    {task.dataset} · {task.endpoint} では、次のようになっています。
+    In {task.dataset} · {task.endpoint}:
 
-    * 1 化合物あたりの部分構造は **{np.median(_n_envs):.0f} 種類** (中央値)
-    * 分子内の collision がある化合物は train の **{(_n_bits < _n_envs).mean():.0%}**
-    * train {train.height:,} 化合物全体の部分構造は **{int(_envs.sum()):,} 種類**。2048 bit に折りたたむので、1 bit に平均 **{_envs[_envs > 0].mean():.0f} 種類**が入る<sup><a href="#ref-3">3</a></sup>
-    * bit が立っている化合物のうち、その bit でいちばん多い部分構造を持つものの割合 (purity) は平均 **{_census.purity()[1]:.0%}**
+    * **{np.median(_n_envs):.0f} distinct substructures** per compound (median)
+    * **{(_n_bits < _n_envs).mean():.0%}** of the train compounds have a collision within the molecule
+    * The {train.height:,} train compounds have **{int(_envs.sum()):,} distinct substructures** in total. Folding into 2048 bits puts an average of **{_envs[_envs > 0].mean():.0f}** on each bit<sup><a href="#ref-3">3</a></sup>
+    * Purity (among the compounds that have a bit set, the share that carry the bit's most common substructure) is **{_census.purity()[1]:.0%}** on average
 
-    部分構造の区別には RDKit が折りたたむ前に付ける識別子を使っています。別の部分構造が同じ識別子になる場合は、ここでは数えられません。
+    Substructures are told apart by the identifier RDKit assigns before folding. Different substructures that get the same identifier are not counted here.
 
     """)
     return
@@ -739,7 +744,7 @@ def _(BitAtlas, mo, train):
     mo.vstack(
         [
             mo.md(
-                "下は train の全 bit です。行を選ぶと、その bit に入っている部分構造が表示されます。"
+                "Below are all the bits of the train set. Select a row to see the substructures that map to that bit."
             ),
             mo.ui.anywidget(BitAtlas(train["smiles"].to_list(), ids=train["id"].to_list())),
         ]
@@ -750,10 +755,10 @@ def _(BitAtlas, mo, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    1 つの化合物でも両方の collision を確認できます。グリッドから化合物を選んでください。
+    A single compound can show both kinds of collision. Select a compound in the grid.
 
-    * 赤: 分子内の collision
-    * グレーのバッジ: データセット全体で、同じ bit に入るほかの部分構造の数。bit を選ぶと、その部分構造が下に表示される
+    * Red: a collision within the molecule
+    * Grey badge: the number of other substructures in the dataset that share the bit. Select a bit and those substructures are shown below
     """)
     return
 
@@ -789,7 +794,9 @@ def _(MorganBitTiles, bits_grid, mo, mols, pl, task, train):
             )
         )
     else:
-        _out = mo.callout(mo.md("上のグリッドで化合物を選ぶと、ここに表示されます。"), kind="info")
+        _out = mo.callout(
+            mo.md("Select a compound in the grid above to show it here."), kind="info"
+        )
     _out
     return
 
@@ -835,21 +842,21 @@ def _(bench, mo, mols, np, pl, task):
     }
     _numbers = (
         f"""
-    * 同じ fingerprint になる化合物は **{twins.height} 組**、あわせて **{int(twins["n"].sum())} 化合物**
-    * count で区別できるのは **{_n["count"]} 組**、chirality で区別できるのは **{_n["chirality"]} 組**、どちらでも区別できないのは **{_n["neither"]} 組**
-    * 同じ fingerprint の中での {task.label} の差は最大で **{twins[f"Δ {task.label}"].max():.2f}**
+    * **{twins.height} groups** of compounds share a fingerprint, **{int(twins["n"].sum())} compounds** in total
+    * **{_n["count"]} groups** can be told apart by count, **{_n["chirality"]} groups** by chirality, and **{_n["neither"]} groups** by neither
+    * The largest difference in {task.label} within a group with the same fingerprint is **{twins[f"Δ {task.label}"].max():.2f}**
     """
         if twins.height
         else """
-    * 同じ fingerprint になる化合物の組はない
+    * No compounds share a fingerprint
     """
     )
     mo.md(f"""
-    ### <span id="sec-2-3"></span>2.3 · 違う分子なのに fingerprint が一致する
+    ### <span id="sec-2-3"></span>2.3 · Different molecules, identical fingerprints
 
-    [第 1 部](#part-1)の注意点 1 です。fingerprint が同じ化合物には、fingerprint だけを使うモデルは同じ値を予測します。
+    This is Pitfall 1 from [Part 1](#part-1). A model that uses only the fingerprint predicts the same value for compounds with the same fingerprint.
 
-    {task.dataset} · {task.endpoint} では、次のようになっています。
+    In {task.dataset} · {task.endpoint}:
     {_numbers}""")
     return (twins,)
 
@@ -900,11 +907,11 @@ def _(MorganExplorer, mo, mols, pl, task, twins, twins_table):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### <span id="sec-2-4"></span>2.4 · Nearest neighbor (NN)
+    ### <span id="sec-2-4"></span>2.4 · Nearest neighbour (NN)
 
-    ここからは類似度を見ていきましょう。test の各化合物について、train の中で ECFP4 の Tanimoto 類似度がいちばん高い化合物を **nearest neighbor (NN)** と呼びます。
+    From here we look at similarity. For each test compound, the train compound with the highest ECFP4 Tanimoto similarity is called its **nearest neighbour (NN)**.
 
-    NN との類似度を見ると、test の化合物に似た構造が train にあるかどうかがわかります。下の分布が右に寄っていれば、test は train にある構造の近くにあります。左に寄っていれば、test には train にない構造が多いことになります。
+    The similarity to the NN shows whether train contains structures like the test compound. If the distribution below sits to the right, test is close to the structures in train. If it sits to the left, test has many structures that train does not.
     """)
     return
 
@@ -969,22 +976,22 @@ def _(neighbours, np, pl, task):
 @app.cell(hide_code=True)
 def _(mo, nn_pairs, task):
     mo.md(f"""
-    ### <span id="sec-2-5"></span>2.5 · 類似性原理と activity cliff
+    ### <span id="sec-2-5"></span>2.5 · The similarity principle and activity cliffs
 
-    創薬などの化合物の解析では、類似性原理と、その例外にあたる activity cliff が対になる重要な概念です。
+    In the analysis of compounds, for example in drug discovery, the similarity principle and its exception, the activity cliff, are a pair of key concepts.
 
-    * **類似性原理** (similarity principle): 構造が似た分子は性質も似ているという考え方<sup><a href="#ref-4">4</a></sup>。類似検索や似た化合物の値を使った予測の前提になっている
-    * **activity cliff**: 構造がよく似ているのに活性が大きく違う化合物のペア<sup><a href="#ref-5">5</a></sup>。メチル基を 1 つ足すだけで活性が 100 倍以上変わることがある「magic methyl」が有名な例<sup><a href="#ref-6">6</a></sup>
+    * **Similarity principle**: the idea that structurally similar molecules have similar properties<sup><a href="#ref-4">4</a></sup>. It underlies similarity search and predictions that use the values of similar compounds
+    * **Activity cliff**: a pair of compounds that are structurally very similar but differ greatly in activity<sup><a href="#ref-5">5</a></sup>. A well-known example is the "magic methyl": adding a single methyl group can sometimes change the activity by 100 times or more<sup><a href="#ref-6">6</a></sup>
 
-    下の図で、{task.dataset} · {task.endpoint} ではどうなっているかを見ます。
+    The figure below shows what this looks like for {task.dataset} · {task.endpoint}.
 
-    * 点: test 化合物 ({nn_pairs.height:,} 個)
-    * 横軸: NN との類似度
-    * 縦軸: NN との {task.label} の差 |Δ|
-    * 赤い線: 類似度の区間ごとの |Δ| の平均
-    * 破線: ランダムな train–test ペアの |Δ| の平均
+    * Dots: test compounds ({nn_pairs.height:,})
+    * x axis: similarity to the NN
+    * y axis: difference in {task.label} from the NN, |Δ|
+    * Red line: mean |Δ| in each similarity bin
+    * Dashed line: mean |Δ| of random train–test pairs
 
-    類似性原理が成り立っていれば、右に行くほど点は下に集まります。activity cliff は、ここでは類似度が 0.6 以上で |Δ| がランダムなペアの平均以上あるペアとしました (図の右上の色を付けた領域)。
+    If the similarity principle holds, the dots gather lower toward the right. Here an activity cliff is a pair with a similarity of 0.6 or more and a |Δ| at or above the mean of random pairs (the coloured region at the top right of the figure).
     """)
     return
 
@@ -1063,10 +1070,10 @@ def _(alt, cliffs, mo, nn_pairs, pl, random_dy, task):
 @app.cell(hide_code=True)
 def _(mo, task):
     mo.md(rf"""
-    下の表は activity cliff のペアです。行を選ぶと、その 2 つを 2 通りの見方で比べられます。
+    The table below lists the activity cliff pairs. Select a row to compare the two compounds in two ways.
 
-    * **Molecules**: 構造と測定値、物性を並べる
-    * **Fingerprints**: 2 つの間で違う bit を並べる。`Δ {task.label}` の列は、train の中でその bit が立っている化合物の平均 {task.label} から立っていない化合物の平均を引いた値。プラスなら、その bit を持つ化合物は平均より値が高い傾向にある
+    * **Molecules**: structures, measured values and properties side by side
+    * **Fingerprints**: the bits that differ between the two. The `Δ {task.label}` column is the mean {task.label} of train compounds with the bit set minus the mean of those without it. A positive value means compounds with that bit tend to have higher values
     """)
     return
 
@@ -1097,7 +1104,7 @@ def _(MolPair, MorganExplorer, cliff_table, mo, mols, pl, task, train):
     _sel = cliff_table.value
     if _sel is None or len(_sel) == 0:
         _out = mo.callout(
-            mo.md("このエンドポイントには activity cliff にあたるペアがありません。"), kind="info"
+            mo.md("This endpoint has no pairs that count as activity cliffs."), kind="info"
         )
     else:
         _r = _sel.row(0, named=True)
@@ -1139,18 +1146,18 @@ def _(MolPair, MorganExplorer, cliff_table, mo, mols, pl, task, train):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### <span id="sec-2-6"></span>2.6 · モデル
+    ### <span id="sec-2-6"></span>2.6 · Models
 
-    ECFP4 を特徴量にして測定値を予測するモデルを作ります。モデルは LightGBM です。比較のために、特徴量だけを変えたモデルも学習させています。
+    We build models that predict the measured value from ECFP4 features, using LightGBM. For comparison, models that differ only in their features are also trained.
 
     * **ECFP4 bit**: 2048 bit
-    * **ECFP4 count**: 同じ 2048 次元で、出現回数を残す
-    * **RDKit desc**: RDKit の 2D 記述子 217 種 (分子量、logP、TPSA など分子全体の性質)
-    * **bit + desc**: 両方を並べたもの
+    * **ECFP4 count**: the same 2048 dimensions, but keeping the number of occurrences
+    * **RDKit desc**: 217 RDKit 2D descriptors (whole-molecule properties such as molecular weight, logP and TPSA)
+    * **bit + desc**: both side by side
 
-    どのモデルも train で学習し、test を予測しています。基準として、[2.4](#sec-2-4) の NN の測定値をそのまま予測値にした場合 (**NN value**) も並べました。類似性原理だけでどこまで予測できるかの目安です。
+    Every model is trained on train and predicts test. As a baseline we also include using the measured value of the NN from [2.4](#sec-2-4) directly as the prediction (**NN value**). It shows how far the similarity principle alone goes.
 
-    棒グラフの下の散布図は、選んだモデルの test での予測です。青い点は NN との類似度が 0.6 以上 ([2.5](#sec-2-5) で「似ている」とした範囲) の化合物、三角は [2.5](#sec-2-5) の activity cliff の test 化合物です。点にカーソルを合わせると、その化合物が右に表示されます。クリックすると固定できます。
+    The scatter plot under the bar chart shows the chosen model's predictions on test. Blue dots are compounds with a similarity of 0.6 or more to the NN (the range counted as "similar" in [2.5](#sec-2-5)), and triangles are the test compounds in the activity cliffs of [2.5](#sec-2-5). Hover over a dot to show that compound on the right. Click to pin it.
     """)
     return
 
@@ -1299,14 +1306,14 @@ def _(MolScatter, cliffs, mo, model_pick, mols, nn_pairs, pl, predictions, task)
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### <span id="sec-2-7"></span>2.7 · 特徴量重要度
+    ### <span id="sec-2-7"></span>2.7 · Feature importance
 
-    ECFP4 bit のモデルがどの bit を使っているかを 2 つの指標で並べます。
+    The bits the ECFP4 bit model uses are ranked by two measures.
 
-    * **gain**: LightGBM の木がその bit で分岐したときに減った誤差の合計 ([`feature_importance(importance_type="gain")`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.feature_importance))
-    * **mean |SHAP|**: TreeSHAP (各 bit がその化合物の予測をどれだけ上げたか下げたか) の絶対値を train の全化合物で平均したもの。bit が立っていない化合物の分も含む
+    * **gain**: the total error reduction from the splits that LightGBM's trees make on that bit ([`feature_importance(importance_type="gain")`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.feature_importance))
+    * **mean |SHAP|**: the absolute TreeSHAP value (how much each bit raised or lowered the prediction for that compound), averaged over all train compounds. Compounds where the bit is not set are included
 
-    行をクリックすると、その bit に入る部分構造とその bit が立っている化合物が下に表示されます。
+    Click a row to show the substructures that map to that bit and the compounds that have it set, below.
     """)
     return
 
@@ -1358,7 +1365,7 @@ def _(mo, neighbours, pl, task):
     mo.vstack(
         [
             mo.md(r"""
-    1 つの予測を分解します。test 化合物と train の NN を並べています。原子の色は、bit の TreeSHAP 寄与をその bit に入る部分構造の原子に均等に割り振ったものです (赤は予測を上げ、青は下げます)。
+    This breaks down a single prediction. A test compound and its NN in train are shown side by side. The colour of each atom is the bit's TreeSHAP contribution, split evenly among the atoms of the substructures on that bit (red raises the prediction, blue lowers it).
     """),
             shap_pick,
         ]
@@ -1415,13 +1422,13 @@ def _(mo, task):
     mo.md(f"""
     ---
 
-    ## <span id="part-3"></span>第 3 部 · おまけ: データセットどうしの比較
+    ## <span id="part-3"></span>Part 3 · Extra: comparing datasets
 
-    [第 2 部](#part-2)ではエンドポイントを 1 つ選んで中身を見てきました。最後におまけとして 16 のエンドポイントを並べて比べます。気になるエンドポイントがあれば、[上の選択](#picker)で切り替えて第 2 部のウィジェットで中身を見てください。図の中では、いま選んでいる {task.dataset} · {task.endpoint} を太字にしています。
+    [Part 2](#part-2) picked one endpoint and looked inside it. As an extra, this part lines up all 16 endpoints for comparison. If one catches your eye, switch to it with the [selection above](#picker) and look inside it with the Part 2 widgets. In the figures, the endpoint you have selected, {task.dataset} · {task.endpoint}, is in bold.
 
-    ### <span id="sec-3-1"></span>3.1 · 1 bit に入る部分構造
+    ### <span id="sec-3-1"></span>3.1 · Substructures on a bit
 
-    [2.2](#sec-2-2) で見たデータセット全体の collision をデータセットごとに比べます。`bits` で bit 数を変えられます。`endpoint` に切り替えると、エンドポイントごとの分布を見られます。
+    This compares the dataset-wide collisions seen in [2.2](#sec-2-2) across datasets. `bits` changes the number of bits. Switching to `endpoint` shows the distribution for each endpoint.
     """)
     return
 
@@ -1471,7 +1478,7 @@ def _(bench, census_for, molecules, np, pl):
 @app.cell(hide_code=True)
 def _(bit_load_of, load_bits, load_unit, mo, pl, train_sets):
     _rows, _hist = [], []
-    with mo.status.spinner("部分構造を数えています…"):
+    with mo.status.spinner("Counting substructures…"):
         for (_unit, _name), _smi in train_sets.items():
             if _unit == load_unit.value:
                 _row, _h = bit_load_of(_smi, load_bits.value)
@@ -1588,19 +1595,19 @@ def _(bit_load_of, mo, train_sets):
     _pxr, _asap, _exp = _at["PXR"], _at["ASAP"], _at["ExpansionRx"]
     _pxr_long = bit_load_of(train_sets[("dataset", "PXR")], 8192)[0]
     mo.md(f"""
-    bit 数が 2048 の場合、次のような傾向が見られます。
+    With 2048 bits, these trends appear.
 
     * **PXR**
-        * 空の bit がない
-        * 1 bit に入る部分構造がいちばん多い (平均 {_pxr["per_bit"]:.1f} 種類)
-        * purity がいちばん低い ({_pxr["purity"]:.0%})
-    * **ASAP と ExpansionRx**
-        * ほとんどの bit は部分構造が 5 種類以下 (ASAP {_asap["few"]:.0%}、ExpansionRx {_exp["few"]:.0%})。PXR では {_pxr["few"]:.0%} だけ
-        * ExpansionRx は PXR より化合物が多いのに、部分構造の種類は PXR の {_exp["substructures"] / _pxr["substructures"]:.0%} ほど
+        * No empty bits
+        * The most substructures per bit (an average of {_pxr["per_bit"]:.1f})
+        * The lowest purity ({_pxr["purity"]:.0%})
+    * **ASAP and ExpansionRx**
+        * Most bits hold 5 or fewer substructures (ASAP {_asap["few"]:.0%}, ExpansionRx {_exp["few"]:.0%}), against only {_pxr["few"]:.0%} for PXR
+        * ExpansionRx has more compounds than PXR, but only about {_exp["substructures"] / _pxr["substructures"]:.0%} as many distinct substructures
 
-    PXR の化合物は構造がかなり多様だとわかります。bit 数を増やすと分布は左 (0 の側) に寄りますが、8192 bit にしても PXR は 1 bit に平均 {_pxr_long["per_bit"]:.1f} 種類の部分構造が入ります。
+    The PXR compounds are structurally quite diverse. More bits move the distribution to the left (toward 0), but even at 8192 bits PXR still has an average of {_pxr_long["per_bit"]:.1f} substructures per bit.
 
-    1 つの bit にどんな部分構造が入っているかは、[2.2](#sec-2-2) の表で見られます。[上の選択](#picker)で PXR と ASAP を切り替えると違いがわかります。
+    Which substructures sit on a given bit can be seen in the table in [2.2](#sec-2-2). Switch between PXR and ASAP with the [selection above](#picker) to see the difference.
     """)
     return
 
@@ -1608,9 +1615,9 @@ def _(bit_load_of, mo, train_sets):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### <span id="sec-3-2"></span>3.2 · collision と精度
+    ### <span id="sec-3-2"></span>3.2 · Collisions and accuracy
 
-    では、bit 数を増やして collision を減らすと、モデルの精度は良くなるでしょうか。ECFP4 bit のモデルを bit 数ごとに学習し直しました。
+    Does the model get more accurate if more bits reduce collisions? We retrained the ECFP4 bit model at each number of bits.
     """)
     return
 
@@ -1750,7 +1757,7 @@ def _(
     mo.vstack(
         [
             mo.md(
-                f"線は 1 本が 1 つのエンドポイントで、太い線はいま選んでいる {task.dataset} · {task.endpoint} です。"
+                f"Each line is one endpoint. The thick line is the one you have selected, {task.dataset} · {task.endpoint}."
             ),
             _boxes,
             # one fingerprint measure beside one test score, each under its own switch
@@ -1764,22 +1771,22 @@ def _(
             ),
             mo.md(
                 f"""
-    * 1 bit に入る部分構造は減少し、purity は上昇する
-    * 空の bit も増加する。bit 数を増やしても、その分だけ情報が増えるわけではない (8192 bit では 16 のエンドポイントの中央値で {_empty_long:.0%} が空)
-    * モデルの精度はある程度の bit 数で頭打ちになる
-        * PXR と、ExpansionRx の化合物が多いエンドポイント: 2048 bit あたり
-        * ASAP: 1024 bit から変わらない
+    * Fewer substructures per bit, and higher purity
+    * More empty bits. Information does not grow in step with the number of bits (at 8192 bits, a median of {_empty_long:.0%} of bits are empty across the 16 endpoints)
+    * Model accuracy levels off at some number of bits
+        * PXR and the ExpansionRx endpoints with many compounds: around 2048 bits
+        * ASAP: unchanged from 1024 bits
 
-    bit 数を増やすと、重なっていた部分構造が別々の bit に分かれ、fingerprint の情報は増えます。それでも精度が頭打ちになる理由はいろいろ考えられますが、増えた情報が予測の精度にあまりつながっていないのだと思います。
+    With more bits, substructures that shared a bit are separated and the fingerprint holds more information. There could be several reasons why accuracy still levels off. I think the added information does not translate much into accuracy.
 
-    * 分かれるのはほとんどが珍しい部分構造。PXR では {_pxr[2048]["substructures"]:,} 種類のうち 20 化合物以上に出るのは {_pxr[2048]["frequent_substructures"]:,} 種類で、数個の化合物からはその部分構造が値に与える影響を学習しにくい (化合物の数は [2.2](#sec-2-2) の表で bit を選ぶと確認できる)
-    * 予測が外れる主な原因は別にある。test が train から遠いこと ([2.4](#sec-2-4)) や activity cliff ([2.5](#sec-2-5)) は、bit 数を増やしても解消しない
+    * Most of the separated substructures are rare ones. In PXR, of {_pxr[2048]["substructures"]:,} substructures only {_pxr[2048]["frequent_substructures"]:,} occur in 20 or more compounds, and a few compounds are not enough to learn what such a substructure does to the value (select a bit in the table in [2.2](#sec-2-2) to see the number of compounds)
+    * The main causes of wrong predictions lie elsewhere. A test set far from train ([2.4](#sec-2-4)) and activity cliffs ([2.5](#sec-2-5)) do not go away with more bits
     """
             ),
             mo.callout(
                 mo.md(
-                    "今回の設定 (`min_child_samples=20`) では、LightGBM は両側に 20 化合物以上が残る分岐しか"
-                    "作りません。珍しい部分構造は、別の bit に分かれても予測に使われないままです。"
+                    "With the current setting (`min_child_samples=20`), LightGBM only makes splits that leave 20 or more compounds on both sides. "
+                    "Rare substructures stay unused for prediction even after they are split onto separate bits."
                 ),
                 kind="info",
             ),
@@ -1791,9 +1798,9 @@ def _(
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### <span id="sec-3-3"></span>3.3 · train との近さと精度
+    ### <span id="sec-3-3"></span>3.3 · Closeness to train and accuracy
 
-    test 化合物に似た化合物が train にあれば、その測定値は予測の手がかりになります。[2.4](#sec-2-4) の NN との類似度と [2.6](#sec-2-6) の予測の精度を、16 のエンドポイントで並べます。
+    If train has compounds similar to a test compound, their measured values are a clue for the prediction. This lines up the similarity to the NN from [2.4](#sec-2-4) and the prediction accuracy from [2.6](#sec-2-6) for the 16 endpoints.
     """)
     return
 
@@ -1938,22 +1945,22 @@ def _(alt, mo, neighbours, nn_by_task, pl, predictions, row_axis, rows, scores):
         [
             mo.md(
                 """
-    * 左: test 化合物と NN の類似度
-    * 右: 精度の比較 (Spearman ρ)。NN の測定値をそのまま予測値にした場合 (NN value) と、ECFP4 bit のモデル
+    * Left: similarity between the test compounds and their NN
+    * Right: accuracy comparison (Spearman ρ). Using the NN's measured value directly as the prediction (NN value), and the ECFP4 bit model
     """
             ),
             mo.hstack([alt.hconcat(_box, _dumbbell, spacing=24)], justify="center"),
             mo.md(
                 f"""
-    * ASAP の pIC50: test のほぼすべてに似た NN がある。NN value だけで ρ は 0.61 と 0.75
-    * PXR: 似た NN がほとんどない。NN value の ρ は 0.05 だがモデルは 0.61
-    * ASAP の KSOL: モデルが NN value を下回る。測定値が上限付近に集まっていて順位がつきにくい
+    * ASAP pIC50: almost every test compound has a similar NN. NN value alone gives ρ of 0.61 and 0.75
+    * PXR: there are almost no similar NNs. NN value has a ρ of 0.05, but the model has 0.61
+    * ASAP KSOL: the model falls below NN value. Measured values cluster near the upper limit, so ranks are hard to separate
 
-    エンドポイントどうしで比べると、NN との類似度が高いほど NN value の ρ は高くなります。モデルが NN value を上回る幅は、類似度が低いエンドポイントほど大きくなります (PXR で {_gain["pxr/pEC50"]:+.2f}、ASAP の pIC50 で {_gain["asap/mers"]:+.2f} と {_gain["asap/sars2"]:+.2f})。
+    Across endpoints, the higher the similarity to the NN, the higher the ρ of NN value. The model's margin over NN value is larger for endpoints with lower similarity (PXR {_gain["pxr/pEC50"]:+.2f}, ASAP pIC50 {_gain["asap/mers"]:+.2f} and {_gain["asap/sars2"]:+.2f}).
 
-    同じエンドポイントの中でも、似た NN がある test 化合物のほうがモデルの誤差は小さく、16 のうち {_closer_better} のエンドポイントでそうなっています。PXR では類似度が 0.6 以上の化合物の MAE は {_pxr_mae[True]:.2f}、0.6 未満は {_pxr_mae[False]:.2f} です。
+    Within a single endpoint too, the model's error is smaller for test compounds that have a similar NN. This holds for {_closer_better} of the 16 endpoints. In PXR, the MAE is {_pxr_mae[True]:.2f} for compounds with a similarity of 0.6 or more and {_pxr_mae[False]:.2f} for those below 0.6.
 
-    test 化合物それぞれの NN とその構造は [2.4](#sec-2-4) で見られます。
+    The NN of each test compound and its structure can be seen in [2.4](#sec-2-4).
     """
             ),
         ]
@@ -1964,9 +1971,9 @@ def _(alt, mo, neighbours, nn_by_task, pl, predictions, row_axis, rows, scores):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### <span id="sec-3-4"></span>3.4 · 特徴量と精度
+    ### <span id="sec-3-4"></span>3.4 · Features and accuracy
 
-    [2.6](#sec-2-6) の 5 つの予測を 16 のエンドポイントで並べます。
+    This lines up the five predictions from [2.6](#sec-2-6) across the 16 endpoints.
     """)
     return
 
@@ -2076,11 +2083,11 @@ def _(alt, mo, score_heat, score_pick, score_view):
             ),
             mo.md(
                 """
-    ECFP4 bit だけのモデルがいちばん良いエンドポイントはほとんどありませんでした。多くのエンドポイントで、記述子を足すと精度が上がります。
+    For almost no endpoint is the ECFP4 bit model alone the best. For many endpoints, adding descriptors improves accuracy.
 
-    ただし、上がり幅はエンドポイントごとに違います。同じ LogD でも、ECFP4 bit から bit + desc にしたときの ρ の上がり幅は ASAP で +0.42、ExpansionRx で +0.03 です。どの特徴量が合うかは、測る値の種類だけでなくデータセットによっても変わります。特徴量や設定を変えて比べると、そのデータセットの傾向が見えてきます。
+    The size of the gain differs by endpoint, though. For the same LogD, going from ECFP4 bit to bit + desc raises ρ by +0.42 in ASAP and by +0.03 in ExpansionRx. Which features fit depends on the dataset as well as on the kind of value measured. Comparing features and settings shows the tendencies of each dataset.
 
-    これは ECFP4 の精度が悪いという話ではありません。単独では精度が低いモデルでも、ほかのモデルと違う外し方をしているなら、アンサンブルで精度が上がる見込みがあります。選んだエンドポイントでどの化合物の予測が外れているかは、[2.6](#sec-2-6) の散布図で見られます。
+    This does not mean ECFP4 is inaccurate. A model that is weak on its own can still improve an ensemble if its errors differ from those of the other models. The scatter plot in [2.6](#sec-2-6) shows which compounds are mispredicted for the selected endpoint.
     """
             ),
         ]
@@ -2091,9 +2098,9 @@ def _(alt, mo, score_heat, score_pick, score_view):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### <span id="sec-3-5"></span>3.5 · activity cliff と精度
+    ### <span id="sec-3-5"></span>3.5 · Activity cliffs and accuracy
 
-    [2.5](#sec-2-5) の activity cliff は、NN と構造が似ているのに値が大きく違う test 化合物でした。その化合物でモデルの誤差がどうなるかを、16 のエンドポイントで比べます。比べる相手は、同じく NN との類似度が 0.6 以上で activity cliff ではない化合物です。
+    The activity cliffs in [2.5](#sec-2-5) were test compounds that are structurally close to their NN but differ greatly in value. This compares the model's error on those compounds across the 16 endpoints. The comparison group is the compounds that also have a similarity of 0.6 or more to the NN but are not activity cliffs.
     """)
     return
 
@@ -2176,9 +2183,9 @@ def _(alt, cliff_error, cliff_model, mo, pl, row_axis, rows, tasks):
             mo.hstack([_chart], justify="center"),
             mo.md(
                 f"""
-    activity cliff の化合物では、16 のうち {_larger} のエンドポイントで誤差が大きくなります。誤差の大きさは、それ以外の化合物の {_ratio.median():.1f} 倍です (中央値)。特徴量を変えてもこの傾向は変わりません。
+    For activity cliff compounds, the error is larger in {_larger} of the 16 endpoints. The error is {_ratio.median():.1f} times that of the other compounds (median). Changing the features does not change this trend.
 
-    activity cliff のペアの構造と、2 つの間で違う bit は [2.5](#sec-2-5) で見られます。
+    The structures of the activity cliff pairs and the bits that differ between the two can be seen in [2.5](#sec-2-5).
     """
             ),
         ]
@@ -2191,15 +2198,15 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ## <span id="summary"></span>まとめ
+    ## <span id="summary"></span>Summary
 
-    この notebook では、ECFP4 を数字だけでなく中身から見てきました。なんとなく ECFP4 を使っていた方には、初めて知ることも多かったのではないでしょうか。構造を実際に目で見ると、仕組みがつかみやすくなります。
+    This notebook looked at ECFP4 from the inside, not only through numbers. If you have been using ECFP4 without much thought, much of this may have been new. Seeing the structures directly makes the mechanism easier to grasp.
 
-    [第 2 部](#part-2)と[第 3 部](#part-3)では、データセットの中での ECFP4 を見ました。興味深いのは、collision の数などがデータセットごとに大きく違うことです。これは ECFP4 を使うだけでは見えてきません。特に PXR の中身はほかの 2 つとかなり違っていました。私も PXR のチャレンジに参加しましたが、そのときはこの違いに気づいていませんでした。
+    [Part 2](#part-2) and [Part 3](#part-3) looked at ECFP4 inside datasets. What is interesting is that the number of collisions and similar quantities differ greatly from dataset to dataset. You cannot see this just by using ECFP4. PXR in particular looked quite different inside from the other two. I took part in the PXR challenge myself, and I did not notice this difference at the time.
 
-    モデルを学習したあとに特徴量重要度を確かめるのはよくある手順です。ただ fingerprint では bit が何を表すのかがわかりにくく、確かめづらい面がありました。[2.7](#sec-2-7) のウィジェットでは、重要な bit の部分構造とその bit が立っている化合物をその場で見られます。見てみると、重要な bit が意味のありそうな構造だとは限らず、むしろよくある部分構造であることも多いとわかります (データセットによります)。複数のデータセットで見比べると違いがよくわかります。
+    Checking feature importance after training a model is a common step. With fingerprints, though, what a bit stands for is hard to see, which made the check difficult. The widget in [2.7](#sec-2-7) shows the substructures of an important bit and the compounds that have it set right on the spot. It turns out that an important bit is not always a meaningful structure and is often a common substructure instead (this depends on the dataset). Comparing several datasets makes the difference clear.
 
-    この notebook の結果は、今回のデータセットでのものです。一般に成り立つとは言い切れません。ぜひこの notebook とウィジェット ([`molwidgets`](https://github.com/N283T/openadmet-marimo)) を使って、ECFP4 への理解を深めたり、ご自身のデータセットで ECFP4 を調べたりしてみてください。
+    The results in this notebook come from these datasets and do not necessarily hold in general. Please use this notebook and the widgets ([`chemari`](https://github.com/N283T/chemari)) to deepen your understanding of ECFP4, or to examine ECFP4 on your own datasets.
     """)
     return
 
@@ -2209,18 +2216,18 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ## この notebook について
+    ## About this notebook
 
-    * **データ**: [PXR challenge](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test) (CC-BY-4.0)、[ASAP-Polaris-OpenADMET antiviral challenge](https://huggingface.co/datasets/openadmet/ASAP_Polaris_OpenADMET_challenge) (MIT)、[OpenADMET-ExpansionRx challenge](https://huggingface.co/datasets/openadmet/openadmet-expansionrx-challenge-data) (CC-BY-4.0)
-    * **事前計算**: `dev/precompute.py` → `results/precomputed/`。計算のコードは `molwidgets.bench`
-    * **ウィジェット**: `ECFPMovie`、`ECFPStepper`、`MorganBitTiles`、`MolGrid`、`MolPair`、`BitAtlas`、`BitImportance`、`MolScatter`、`MorganExplorer` は、この notebook のために作った anywidget コンポーネントです ([ソース](https://github.com/N283T/openadmet-marimo))
-    * **AI の利用**: ウィジェット、動画、notebook の骨組みのコーディングには Claude (Anthropic) をアシスタントとして使いました。問いの立て方、解析の選び方、解釈は私自身のものです
+    * **Data**: [PXR challenge](https://huggingface.co/datasets/openadmet/pxr-challenge-train-test) (CC-BY-4.0), [ASAP-Polaris-OpenADMET antiviral challenge](https://huggingface.co/datasets/openadmet/ASAP_Polaris_OpenADMET_challenge) (MIT), [OpenADMET-ExpansionRx challenge](https://huggingface.co/datasets/openadmet/openadmet-expansionrx-challenge-data) (CC-BY-4.0)
+    * **Precomputed tables**: `dev/precompute.py` → `results/precomputed/`. The computation code is `chemari.examples.openadmet`
+    * **Widgets**: the widgets in this notebook (`ECFPMovie`, `ECFPStepper`, `MorganBitTiles`, `MolGrid`, `MolPair`, `BitAtlas`, `BitImportance`, `MolScatter`, `MorganExplorer`) are published as a package, [CheMari](https://github.com/N283T/chemari). A PyPI release and more widgets are under consideration
+    * **AI use**: I used Claude (Anthropic) as a coding assistant for the widgets, the video and the notebook scaffolding. The questions I ask, the choice of analyses and the interpretation are my own.
 
-    ## 参考文献
+    ## References
 
     1. <span id="ref-1"></span>Rogers, D.; Hahn, M. Extended-Connectivity Fingerprints. *J. Chem. Inf. Model.* **2010**, 50, 742–754. [doi:10.1021/ci100050t](https://doi.org/10.1021/ci100050t)
-    2. <span id="ref-2"></span>Virany, W.; Tripp, A. Hash Collisions in Molecular Fingerprints: Effects on Property Prediction and Bayesian Optimization. AI for Science workshop, NeurIPS 2025. [arXiv:2511.17078](https://arxiv.org/abs/2511.17078) (collision が類似度を高めに見せることと、予測への影響)
-    3. <span id="ref-3"></span>Gütlein, M.; Kramer, S. Filtered circular fingerprints improve either prediction or runtime performance while retaining interpretability. *J. Cheminform.* **2016**, 8, 60. [doi:10.1186/s13321-016-0173-z](https://doi.org/10.1186/s13321-016-0173-z) (1 bit あたりの部分構造の数を bit-load と呼んでいる)
+    2. <span id="ref-2"></span>Virany, W.; Tripp, A. Hash Collisions in Molecular Fingerprints: Effects on Property Prediction and Bayesian Optimization. AI for Science workshop, NeurIPS 2025. [arXiv:2511.17078](https://arxiv.org/abs/2511.17078) (collisions make similarity look higher, and what that does to prediction)
+    3. <span id="ref-3"></span>Gütlein, M.; Kramer, S. Filtered circular fingerprints improve either prediction or runtime performance while retaining interpretability. *J. Cheminform.* **2016**, 8, 60. [doi:10.1186/s13321-016-0173-z](https://doi.org/10.1186/s13321-016-0173-z) (calls the number of substructures per bit the bit-load)
     4. <span id="ref-4"></span>Johnson, M. A.; Maggiora, G. M. (eds.) *Concepts and Applications of Molecular Similarity*. Wiley, **1990**
     5. <span id="ref-5"></span>Maggiora, G. M. On Outliers and Activity Cliffs — Why QSAR Often Disappoints. *J. Chem. Inf. Model.* **2006**, 46, 1535. [doi:10.1021/ci060117s](https://doi.org/10.1021/ci060117s)
     6. <span id="ref-6"></span>Schönherr, H.; Cernak, T. Profound Methyl Effects in Drug Discovery and a Call for New C–H Methylation Reactions. *Angew. Chem. Int. Ed.* **2013**, 52, 12256–12267. [doi:10.1002/anie.201303207](https://doi.org/10.1002/anie.201303207)

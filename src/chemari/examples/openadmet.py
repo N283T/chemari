@@ -14,11 +14,14 @@ from typing import Any
 
 import numpy as np
 
-from .chem import _generator, bit_census, standardize_smiles
+from .. import __version__
+from ..chem import _generator, bit_census, standardize_smiles
 
 HF = "https://huggingface.co/datasets/openadmet/"
+# the tables of the release this package was installed from, so a published notebook keeps
+# reading the data it was written against
 PRECOMPUTED_URL = (
-    "https://raw.githubusercontent.com/N283T/openadmet-marimo/main/results/precomputed/"
+    f"https://raw.githubusercontent.com/N283T/chemari/v{__version__}/results/precomputed/"
 )
 TABLES = ["molecules", "neighbours", "predictions", "metrics", "shap", "gain", "bitlen"]
 # fingerprint lengths compared in the "bitlen" table

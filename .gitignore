@@ -6,3 +6,4 @@ __pycache__/
 __marimo__/
 data/
 .claude/launch.json
+.claude/worktrees/

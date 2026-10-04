@@ -3,8 +3,8 @@ const RDKIT_VERSION = "2026.3.6";
 const RDKIT_BASE = `https://cdn.jsdelivr.net/npm/@rdkit/rdkit@${RDKIT_VERSION}/dist/`;
 
 export function loadRDKit() {
-  if (!globalThis.__molwidgetsRDKit) {
-    globalThis.__molwidgetsRDKit = new Promise((resolve, reject) => {
+  if (!globalThis.__chemariRDKit) {
+    globalThis.__chemariRDKit = new Promise((resolve, reject) => {
       const init = () =>
         globalThis
           .initRDKitModule({ locateFile: (f) => RDKIT_BASE + f })
@@ -20,7 +20,7 @@ export function loadRDKit() {
       document.head.appendChild(script);
     });
   }
-  return globalThis.__molwidgetsRDKit;
+  return globalThis.__chemariRDKit;
 }
 
 // Draw a SMILES to an SVG string. `hl` = {atoms, bonds, atomColors, bondColors}.

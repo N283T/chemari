@@ -3,7 +3,7 @@ import pytest
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
 
-from molwidgets.similarity import METHODS, coefficient, similarity_table
+from chemari.similarity import METHODS, coefficient, similarity_table
 
 A, B = "CC(=O)Nc1ccc(O)cc1", "CCOc1ccc(NC(C)=O)cc1"
 
@@ -40,7 +40,7 @@ def test_similarity_table_acyclic():
 
 
 def test_molpair_single_molecule():
-    from molwidgets import MolPair
+    from chemari import MolPair
 
     w = MolPair({"id": "x", "smiles": A, "y": 1.5}, value_cols=["y"])
     assert len(w.data["sides"]) == 1 and w.data["similarity"] is None
@@ -50,7 +50,7 @@ def test_molpair_single_molecule():
 
 
 def test_molgrid_similarity_search():
-    from molwidgets import MolGrid
+    from chemari import MolGrid
 
     g = MolGrid(
         [
