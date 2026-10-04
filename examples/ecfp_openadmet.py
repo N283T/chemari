@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "marimo>=0.25",
-#     "chemari @ git+https://github.com/N283T/chemari@v0.1.0",
+#     "chemari @ git+https://github.com/N283T/chemari@v0.1.1",
 #     "polars>=1.30",
 #     "numpy>=2",
 #     "altair>=5.5",
