@@ -67,7 +67,7 @@ components are used throughout.
     folds onto it; `mode="count"` shows each bit's count, and a chirality switch uses
     `includeChirality=True`
   - `BitAtlas`: every folded bit of a dataset, one row per bit, with the distinct substructures
-    that fold onto it and its purity (the share of its molecules that set it through its most
+    that fold onto it and its purity (the share of its molecules that contain its most
     common substructure); sortable by bit index, number of substructures, number of molecules
     or purity, either way round. A panel on the right has the dataset's totals and a histogram
     of substructures per bit; clicking a bar lists only those bits
@@ -89,7 +89,8 @@ components are used throughout.
     lists each molecule's count and the bits whose counts differ
 - `src/molwidgets/bench.py` — the datasets and endpoints of `ecfp_openadmet_ja.py` (loading,
   standardisation, log10(x + 1) for ratio-scale endpoints), features (ECFP4 bit / count, RDKit
-  descriptors), the LightGBM baseline, nearest neighbours, TreeSHAP and gain per endpoint, and the
+  descriptors), the LightGBM baseline, nearest neighbours, TreeSHAP, and gain and mean |SHAP|
+  per bit for each endpoint, and the
   bit model refitted at 1024–8192 bits (`bitlen`); `dev/precompute.py` writes them to
   `results/precomputed/` (`--only-gain` / `--only-bitlen` rebuild one table from the stored
   molecules)

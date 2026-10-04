@@ -719,7 +719,9 @@ def _(census_for, mo, np, task, train):
     * 1 分子あたりの部分構造は **{np.median(_n_envs):.0f} 種類** (中央値)
     * 分子内の collision がある化合物は train の **{(_n_bits < _n_envs).mean():.0%}**
     * train {train.height:,} 化合物全体の部分構造は **{int(_envs.sum()):,} 種類**。2048 bit に折りたたむので、1 bit に平均 **{_envs[_envs > 0].mean():.0f} 種類**が入る<sup><a href="#ref-3">3</a></sup>
-    * bit が立っているとき、それがその bit でいちばん多い部分構造によるものである割合 (purity) は平均 **{_census.purity()[1]:.0%}**
+    * bit が立っている化合物のうち、その bit でいちばん多い部分構造を持つものの割合 (purity) は平均 **{_census.purity()[1]:.0%}**
+
+    部分構造の区別には、RDKit が折りたたむ前に付ける識別子を使っています。別の部分構造が同じ識別子になる場合は、ここでは数えられません。
 
     """)
     return
@@ -1295,7 +1297,7 @@ def _(mo):
     ECFP4 bit のモデルがどの bit を使っているかを、2 つの指標で並べます。
 
     * **gain**: LightGBM の木がその bit で分岐したときに減った誤差の合計 ([`feature_importance(importance_type="gain")`](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Booster.html#lightgbm.Booster.feature_importance))
-    * **mean |SHAP|**: TreeSHAP (各 bit がその分子の予測をどれだけ上げたか下げたか) の絶対値を train の全化合物で平均したもの
+    * **mean |SHAP|**: TreeSHAP (各 bit がその分子の予測をどれだけ上げたか下げたか) の絶対値を train の全化合物で平均したもの。bit が立っていない化合物の分も含む
 
     行をクリックすると、その bit に入る部分構造と、その bit が立っている分子が下に出ます。
     """)
@@ -1309,18 +1311,17 @@ def _(BitImportance, gain, mo, np, pl, shap, task, train):
         & (pl.col("bit") >= 0)
         & pl.col("id").is_in(train["id"].implode())
     )
-    _agg = _s.group_by("bit").agg(
-        pl.col("shap").abs().sum().alias("abs"), pl.col("shap").mean().alias("on")
-    )
-    _imp, _eff = np.zeros(2048), np.zeros(2048)
-    _imp[_agg["bit"].to_numpy()] = _agg["abs"].to_numpy() / train.height
+    # the mean SHAP of each bit over the train compounds that set it
+    _agg = _s.group_by("bit").agg(pl.col("shap").mean().alias("on"))
+    _eff = np.zeros(2048)
     _eff[_agg["bit"].to_numpy()] = _agg["on"].to_numpy()
+    _gain = gain.filter(pl.col("task") == task.key).sort("bit")
     mo.ui.anywidget(
         BitImportance(
             train["smiles"].to_list(),
             importance={
-                "gain": gain.filter(pl.col("task") == task.key).sort("bit")["gain"].to_numpy(),
-                "mean |SHAP|": _imp,
+                "gain": _gain["gain"].to_numpy(),
+                "mean |SHAP|": _gain["shap_abs"].to_numpy(),
             },
             effect=_eff,
             effect_label="mean SHAP (bit on)",
@@ -1350,7 +1351,7 @@ def _(mo, neighbours, pl, task):
     mo.vstack(
         [
             mo.md(r"""
-    1 つの予測を分解します。test 化合物と train の NN を並べ、原子を TreeSHAP 寄与で塗っています (赤は予測を上げ、青は下げます)。
+    1 つの予測を分解します。test 化合物と train の NN を並べています。原子の色は、bit の TreeSHAP 寄与を、その bit に入る部分構造の原子に均等に割り振ったものです (赤は予測を上げ、青は下げます)。
     """),
             shap_pick,
         ]
@@ -1386,7 +1387,8 @@ def _(MorganExplorer, mo, mols, neighbours, pl, predictions, shap, shap_pick, ta
                 {
                     "id": _ids[1],
                     "smiles": _smi[_ids[1]],
-                    "label": f"train · 測定 {_y[_ids[1]]:.2f} · 予測 (out of fold) {_pred[_ids[1]]:.2f}",
+                    # no prediction here: the stored one is out of fold, the SHAP is not
+                    "label": f"train · 測定 {_y[_ids[1]]:.2f}",
                 },
             ],
             reference=train["smiles"].to_list(),

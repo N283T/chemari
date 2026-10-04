@@ -322,13 +322,23 @@ def out_of_fold(x: np.ndarray, y: np.ndarray, folds: int = 5) -> np.ndarray:
 # ---------------------------------------------------------------- one task, all tables
 
 
-def bit_gain(key: str, model: Any) -> Any:
-    """LightGBM split gain per bit of a fitted ECFP4 bit model, as a (task, bit, gain) table."""
+def bit_gain(key: str, model: Any, contrib: np.ndarray) -> Any:
+    """Two importances per bit of a fitted ECFP4 bit model, as a (task, bit, gain, shap_abs)
+    table: LightGBM's split gain, and the mean |TreeSHAP| over the train compounds.
+
+    ``contrib``: the model's TreeSHAP on the train compounds, (n_train, n_bits). The mean runs
+    over every compound, with the bit on or off (an off bit has a contribution too).
+    """
     import polars as pl
 
     gain = model.booster_.feature_importance(importance_type="gain")
     return pl.DataFrame(
-        {"task": key, "bit": np.arange(len(gain), dtype=np.int32), "gain": gain.astype(np.float32)}
+        {
+            "task": key,
+            "bit": np.arange(len(gain), dtype=np.int32),
+            "gain": gain.astype(np.float32),
+            "shap_abs": np.abs(contrib).mean(0).astype(np.float32),
+        }
     )
 
 
@@ -339,7 +349,8 @@ def compute_gain(mol):
 
     tr = mol.filter(pl.col("split") == "train")
     x = fingerprints(tr["smiles"].to_list())
-    return bit_gain(mol["task"][0], make_model().fit(x, tr["y"].to_numpy()))
+    model = make_model().fit(x, tr["y"].to_numpy())
+    return bit_gain(mol["task"][0], model, model.predict(x, pred_contrib=True)[:, :-1])
 
 
 def compute_bitlen(mol, lengths: list[int] | None = None):
@@ -447,10 +458,10 @@ def compute_task(mol):
         metrics[f"pair_slope {name}"] = float(np.polyfit(dt, dp, 1)[0])
         metrics[f"pair_r {name}"] = float(pearsonr(dp, dt)[0])
         if name == "ECFP4 bit":
-            gain = bit_gain(key, model)
             # TreeSHAP of the bit model on test and train compounds, on-bits only (long format)
             x = np.vstack([fte[name], ftr[name]])
             c = model.predict(x, pred_contrib=True)
+            gain = bit_gain(key, model, c[len(yte) :, :-1])
             ids = pl.concat([te["id"], tr["id"]]).to_numpy()
             rows, bits = np.nonzero(x > 0)
             shap = pl.DataFrame(

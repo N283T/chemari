@@ -154,7 +154,7 @@ function render({ model, el: host }) {
         `<div class="ba-num">${r.n_mols.toLocaleString()} mols</div>` +
         `<div class="ba-meter"><i style="width:${(100 * r.n_mols) / Math.max(sum.max_mols || 1, 1)}%"></i></div>` +
         (r.purity != null
-          ? `<div class="ba-num" title="share of the bit's molecules that set it through its most common substructure">purity ${Math.round(r.purity * 100)}%</div>` +
+          ? `<div class="ba-num" title="share of the bit's molecules that contain its most common substructure">purity ${Math.round(r.purity * 100)}%</div>` +
             `<div class="ba-meter"><i style="width:${100 * r.purity}%"></i></div>`
           : ""));
       const strip = el("div", { className: "ba-strip" });
@@ -201,7 +201,7 @@ function render({ model, el: host }) {
         `<span>bits used</span><b>${sum.used_bits.toLocaleString()} / ${per.length.toLocaleString()}</b>` +
         `<span>mean per bit</span><b>${(sum.n_envs / Math.max(sum.used_bits, 1)).toFixed(1)}</b>` +
         (sum.mean_purity != null
-          ? `<span title="how often a set bit comes from its bit's most common substructure">mean purity</span><b>${Math.round(sum.mean_purity * 100)}%</b>`
+          ? `<span title="how often a set bit comes with its bit's most common substructure">mean purity</span><b>${Math.round(sum.mean_purity * 100)}%</b>`
           : "")));
     box.insertAdjacentHTML("beforeend", `<div class="h">Substructures per bit</div>` +
       `<div class="r head"><span class="k">per bit</span><span></span><span class="n">bits</span></div>`);
