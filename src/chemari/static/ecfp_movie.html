@@ -823,6 +823,8 @@ function frame(now) {
 function setPlay(v) { playing = v; if (v && t >= T_END) t = 0; $("#pp").textContent = v ? "❚❚" : "▶"; $("#big").style.display = v ? "none" : "flex"; }
 $("#pp").onclick = () => setPlay(!playing);
 $("#big").onclick = () => setPlay(true);
+// while playing, the big button is hidden and a click on the picture pauses
+$("#stage").onclick = () => setPlay(false);
 function seekFrom(ev) { const r = bar.getBoundingClientRect(); t = clamp((ev.clientX - r.left) / r.width) * T_END; }
 bar.addEventListener("pointerdown", (ev) => { seekFrom(ev); const mv = (e) => seekFrom(e); addEventListener("pointermove", mv); addEventListener("pointerup", () => removeEventListener("pointermove", mv), { once: true }); });
 addEventListener("keydown", (ev) => {
