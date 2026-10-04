@@ -44,7 +44,13 @@ def _(mo):
 
     これが **ECFP4**<sup><a href="#ref-1">1</a></sup> です。計算が速く、調整するパラメータもほとんどなく、多くのデータで最初に試す表現です。ただ、同じ ECFP4 でも、よく効くデータとそうでないデータがあります。どこで効いて、どこで効かないのか、その理由は何なのかは、中身を知らないとわかりません。
 
-    この notebook では、ECFP4 の中身を追ったあと ([第 1 部](#part-1))、OpenADMET が公開している 3 つのデータセット・16 のエンドポイントで同じ見方を繰り返します ([第 2 部](#part-2))。データセットを切り替えると、[第 2 部](#part-2)のすべてのセルが切り替わります。最後に、データセットをまたいで見えたことをまとめます ([第 3 部](#part-3))。
+    この notebook では、ECFP4 の中身を追ったあと ([第 1 部](#part-1))、OpenADMET が公開している 3 つのデータセット・16 のエンドポイントで同じ見方を繰り返します ([第 2 部](#part-2))。データセットを切り替えると、[第 2 部](#part-2)のすべてのセルが切り替わります。最後に、おまけとして 16 のエンドポイントを並べて比べます ([第 3 部](#part-3))。
+
+    おすすめの読み方は次の順番です。
+
+    1. [第 1 部](#part-1)と[第 2 部](#part-2)で、ECFP4 の仕組みとウィジェットの見方を確かめる (第 2 部は、まず 1 つのエンドポイントで)
+    2. [第 3 部](#part-3)で 16 のエンドポイントを眺める
+    3. 気になったエンドポイントを[選び直して](#picker)、第 2 部で中身を見る
     """)
     return
 
@@ -586,7 +592,7 @@ def _(mo, tasks):
     mo.vstack(
         [
             mo.md(r"""
-    下から好きなデータセットとエンドポイントを選んでください。選んだデータの中で、同じ手順で ECFP を見ていきます。データセットの中身にはあえて詳しく触れません。いろいろなデータセットに切り替えて、違いを楽しんでみてください。
+    <span id="picker"></span>下から好きなデータセットとエンドポイントを選んでください。選んだデータの中で、同じ手順で ECFP を見ていきます。データセットの中身にはあえて詳しく触れません。いろいろなデータセットに切り替えて、違いを楽しんでみてください。
     """),
             task_pick,
         ]
@@ -1410,7 +1416,7 @@ def _(mo, task):
 
     ## <span id="part-3"></span>第 3 部 · データセットをまたいで見る
 
-    [第 2 部](#part-2)では 1 つのエンドポイントずつ見てきました。ここでは 16 のエンドポイントを並べて比べます。上で選んでいる {task.dataset} · {task.endpoint} は太字にしています。
+    [第 2 部](#part-2)では、エンドポイントを 1 つ選んで中身を見てきました。最後におまけとして、16 のエンドポイントを並べて比べます。気になるエンドポイントがあれば、[上の選択](#picker)で切り替えて、第 2 部のウィジェットで中身を見てください。いま選んでいる {task.dataset} · {task.endpoint} は太字にしています。
 
     ### <span id="sec-3-1"></span>3.1 · 1 bit に入る部分構造
 
@@ -1592,6 +1598,8 @@ def _(bit_load_of, mo, train_sets):
         * ExpansionRx は PXR より化合物が多いのに、部分構造の種類は PXR の {_exp["substructures"] / _pxr["substructures"]:.0%} ほど
 
     PXR の化合物は、構造がかなり多様だとわかります。bit 数を増やすと分布は左 (0 の側) に寄りますが、8192 bit にしても PXR は 1 bit に平均 {_pxr_long["per_bit"]:.1f} 種類の部分構造が入ります。
+
+    1 つの bit にどんな部分構造が入っているかは、[2.2](#sec-2-2) の表で見られます。[上の選択](#picker)で PXR と ASAP を切り替えると、違いがわかります。
     """)
     return
 
@@ -1782,9 +1790,9 @@ def _(
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### <span id="sec-3-3"></span>3.3 · 近い化合物があるかどうか
+    ### <span id="sec-3-3"></span>3.3 · train との近さと精度
 
-    ここからの図は、行を test 化合物と NN の類似度の中央値の順に並べています。
+    test 化合物に似た化合物が train にあれば、その値は予測の手がかりになります。[2.4](#sec-2-4) の NN との類似度と、[2.6](#sec-2-6) の予測の精度を、16 のエンドポイントで並べます。
     """)
     return
 
@@ -1811,12 +1819,24 @@ def _(db, mo):
 @app.cell
 def _(db, mo):
     # every score of every model, one row each; best marks the top model per endpoint
+    # (the lowest for MAE). NN value's R² and MAE come from the neighbours table
     scores = mo.sql(
         """
-        WITH long AS (
+        WITH nn AS (
+            SELECT
+                n.task,
+                1 - sum(power(n.y_nn - n.y_test, 2)) / sum(power(n.y_test - a.mean, 2)) AS r2,
+                avg(abs(n.y_nn - n.y_test)) AS mae
+            FROM neighbours n
+            JOIN (SELECT task, avg(y_test) AS mean FROM neighbours GROUP BY task) a USING (task)
+            GROUP BY n.task
+        ),
+        long AS (
             UNPIVOT (
-                SELECT task, rho_1nn AS "rho NN value", COLUMNS('^(rho|pair_slope) ')
-                FROM metrics
+                SELECT
+                    m.task, m.rho_1nn AS "rho NN value", nn.r2 AS "r2 NN value",
+                    nn.mae AS "mae NN value", COLUMNS('^(rho|r2|mae|pair_slope) ')
+                FROM metrics m JOIN nn USING (task)
             )
             ON COLUMNS(* EXCLUDE task) INTO NAME metric VALUE score
         )
@@ -1825,7 +1845,10 @@ def _(db, mo):
             split_part(l.metric, ' ', 1) AS stat,
             substr(l.metric, strpos(l.metric, ' ') + 1) AS model,
             l.score,
-            l.score = max(l.score) OVER (PARTITION BY l.task, stat) AS best
+            CASE WHEN stat = 'mae'
+                THEN l.score = min(l.score) OVER (PARTITION BY l.task, stat)
+                ELSE l.score = max(l.score) OVER (PARTITION BY l.task, stat)
+            END AS best
         FROM long l JOIN tasks t USING (task)
         """,
         output=False,
@@ -1847,7 +1870,7 @@ def _(alt, nn_by_task, task):
 
 
 @app.cell(hide_code=True)
-def _(alt, mo, nn_by_task, pl, row_axis, rows, scores):
+def _(alt, mo, neighbours, nn_by_task, pl, predictions, row_axis, rows, scores):
     _y = alt.Y("name:N", sort=rows, title=None, axis=row_axis)
     _x = alt.X("lo:Q", title="Tanimoto to the NN (ECFP4)", scale=alt.Scale(domain=[0, 1]))
     _base = alt.Chart(nn_by_task).encode(y=_y)
@@ -1892,18 +1915,44 @@ def _(alt, mo, nn_by_task, pl, row_axis, rows, scores):
     ).properties(
         width=300, height=380, title=alt.Title("NN value → ECFP4 bit", fontSize=12, anchor="start")
     )
+    # how far the model's rho is above NN value, per endpoint
+    _rho = scores.filter(pl.col("stat") == "rho").pivot(on="model", index="task", values="score")
+    _gain = dict(_rho.select("task", pl.col("ECFP4 bit") - pl.col("NN value")).iter_rows())
+    # the model's test error for compounds with and without a close NN, per endpoint
+    _err = (
+        neighbours.join(
+            predictions.filter(
+                (pl.col("features") == "ECFP4 bit") & (pl.col("split") == "test")
+            ).select("task", pl.col("id").alias("test_id"), "pred"),
+            on=["task", "test_id"],
+        )
+        .group_by("task", (pl.col("tanimoto") >= 0.6).alias("close"))
+        .agg((pl.col("pred") - pl.col("y_test")).abs().mean().alias("mae"))
+        .pivot(on="close", index="task", values="mae")
+    )
+    _closer_better = int((_err["true"] < _err["false"]).sum())
+    _pxr = _err.filter(pl.col("task") == "pxr/pEC50").row(0, named=True)
+    _pxr_mae = {True: _pxr["true"], False: _pxr["false"]}
     mo.vstack(
         [
             mo.md(
-                "左は test 化合物と NN の類似度 (箱は 25〜75%、黒い線は中央値) です。"
-                "右は、NN の値をそのまま使った予測 (NN value) と ECFP4 bit のモデルの Spearman ρ です。"
+                """
+    * 左: test 化合物と NN の類似度
+    * 右: 精度の比較 (Spearman ρ)。NN の測定値をそのまま予測値にした場合 (NN value) と、ECFP4 bit のモデル
+    """
             ),
             mo.hstack([alt.hconcat(_box, _dumbbell, spacing=24)], justify="center"),
             mo.md(
-                """
-    * ASAP の MERS-CoV と SARS-CoV-2 は、test 化合物の 98% に Tanimoto 0.6 以上の NN があります。NN value だけで ρ は 0.61 と 0.75 で、モデルはそこから少し上がるだけです
-    * PXR は NN が 0.6 以上の化合物が 18% しかなく、NN value の ρ は 0.05 です。それでも ECFP4 bit のモデルは 0.61 まで出ています。近い化合物がなくても、部分構造の組み合わせから値を予測しています
-    * ASAP の LogD と KSOL は近い化合物があるのに、ECFP4 bit のモデルは NN value と同じくらいか、それより低くなっています (LogD 0.25 → 0.33、KSOL 0.23 → 0.04)
+                f"""
+    * ASAP の pIC50: test のほぼすべてに似た NN がある。NN value だけで ρ は 0.61 と 0.75
+    * PXR: 似た NN がほとんどない。NN value の ρ は 0.05 だがモデルは 0.61
+    * ASAP の KSOL: モデルが NN value を下回る。測定値が上限付近に集まっていて順位がつきにくい
+
+    エンドポイントどうしで比べると、NN との類似度が高いほど NN value の ρ は高くなります。モデルが NN value を上回る幅は、類似度が低いエンドポイントほど大きくなります (PXR で {_gain["pxr/pEC50"]:+.2f}、ASAP の pIC50 で {_gain["asap/mers"]:+.2f} と {_gain["asap/sars2"]:+.2f})。
+
+    同じエンドポイントの中でも、似た NN がある test 化合物のほうがモデルの誤差は小さく、16 のうち {_closer_better} でそうなっています。PXR では、類似度が 0.6 以上の化合物の MAE は {_pxr_mae[True]:.2f}、0.6 未満は {_pxr_mae[False]:.2f} です。
+
+    test 化合物それぞれの NN と、その構造は [2.4](#sec-2-4) で見られます。
     """
             ),
         ]
@@ -1914,79 +1963,123 @@ def _(alt, mo, nn_by_task, pl, row_axis, rows, scores):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### <span id="sec-3-4"></span>3.4 · どの特徴量が効くか
+    ### <span id="sec-3-4"></span>3.4 · 特徴量と精度
 
-    [2.6](#sec-2-6) の 5 つの予測を、全エンドポイントで並べます。数字は test での Spearman ρ で、各行でいちばん高いものを太字にしています。
+    [2.6](#sec-2-6) の 5 つの予測を 16 のエンドポイントで並べます。
     """)
     return
 
 
 @app.cell(hide_code=True)
-def _(alt, mo, pl, row_axis, rows, scores):
-    def _heat(stat, models, title, domain, scheme):
+def _(mo):
+    score_pick = mo.ui.radio(
+        {"Spearman ρ": "rho", "R²": "r2", "MAE": "mae"},
+        value="Spearman ρ",
+        inline=True,
+        label="test score",
+    )
+    score_view = mo.ui.radio(
+        {"score": "score", "Δ from ECFP4 bit": "delta"}, value="score", inline=True, label="show"
+    )
+    return score_pick, score_view
+
+
+@app.cell(hide_code=True)
+def _(alt, pl, row_axis, rows, scores):
+    def score_heat(stat, models, title, scheme="viridis", best=None, baseline=None):
+        """Endpoints × models, each cell coloured from the worst to the best score of the table
+        (the lowest is best for MAE); ``best`` adds a column naming the best model of each row.
+
+        ``baseline``: a model name; the cells then show each score minus that model's score in
+        the same row, on a diverging scale (blue = better than the baseline, red = worse)."""
         _d = scores.filter((pl.col("stat") == stat) & pl.col("model").is_in(models))
+        _flip = -1 if stat == "mae" else 1
+        if baseline is None:
+            _lo, _hi = _d["score"].min(), _d["score"].max()
+            _shade = (pl.col("score") - _lo) / (_hi - _lo)
+            _d = _d.with_columns(
+                pl.col("score").alias("shown"),
+                (1 - _shade if stat == "mae" else _shade).alias("shade"),
+            )
+            _scale, _fmt = alt.Scale(domain=[0, 1], scheme=scheme), ".2f"
+            # dark cells get white numbers; viridis is dark at the low end, the others at the high
+            _dark = "datum.shade < 0.62" if scheme == "viridis" else "datum.shade > 0.6"
+        else:
+            _base_score = _d.filter(pl.col("model") == baseline).select(
+                "task", pl.col("score").alias("base")
+            )
+            _d = _d.join(_base_score, on="task").with_columns(
+                (pl.col("score") - pl.col("base")).alias("shown")
+            )
+            _d = _d.with_columns((_flip * pl.col("shown")).alias("shade"))
+            _most = float(_d["shade"].abs().max())
+            _scale, _fmt = alt.Scale(domain=[-_most, 0, _most], scheme="redblue"), "+.2f"
+            _dark = f"abs(datum.shade) > {0.6 * _most}"
         _base = alt.Chart(_d).encode(
             x=alt.X("model:N", sort=models, title=None, axis=alt.Axis(orient="top", labelAngle=0)),
             y=alt.Y("name:N", sort=rows, title=None, axis=row_axis),
         )
         _rect = _base.mark_rect().encode(
-            color=alt.Color(
-                "score:Q", scale=alt.Scale(domain=domain, scheme=scheme, clamp=True), legend=None
-            ),
+            color=alt.Color("shade:Q", scale=_scale, legend=None),
             tooltip=["name", "model", alt.Tooltip("score:Q", title=title, format=".2f")],
         )
-        _ink = alt.condition(
-            f"datum.score > {domain[1] * 0.7}", alt.value("white"), alt.value("#212529")
-        )
+        _ink = alt.condition(_dark, alt.value("white"), alt.value("#212529"))
         # the best model of each row in bold
         _text = [
             _base.mark_text(fontSize=11, fontWeight=w)
             .transform_filter(f"{'' if b else '!'}datum.best")
-            .encode(text=alt.Text("score:Q", format=".2f"), color=_ink)
+            .encode(text=alt.Text("shown:Q", format=_fmt), color=_ink)
             for b, w in ((True, "bold"), (False, "normal"))
         ]
-        return alt.layer(_rect, *_text).properties(width=82 * len(models), height=380)
+        _heat = alt.layer(_rect, *_text).properties(width=82 * len(models), height=380)
+        if best is None:
+            return _heat
+        _name = (
+            alt.Chart(_d.filter(pl.col("best")), title=alt.Title("best", fontSize=11))
+            .mark_text(align="left", fontSize=12, fontWeight="bold")
+            .encode(
+                x=alt.value(6),
+                y=alt.Y("name:N", sort=rows, title=None, axis=None),
+                text="model:N",
+                color=alt.Color("model:N", scale=best, legend=None),
+            )
+            .properties(width=90, height=380)
+        )
+        return alt.hconcat(_heat, _name, spacing=4).resolve_scale(color="independent")
 
-    rho_heat = _heat(
-        "rho",
-        ["NN value", "ECFP4 bit", "ECFP4 count", "RDKit desc", "bit + desc"],
-        "Spearman ρ",
-        [0, 1],
-        "blues",
-    )
-    slope_heat = _heat(
-        "pair_slope",
-        ["ECFP4 bit", "ECFP4 count", "RDKit desc", "bit + desc"],
-        "slope",
-        [0, 1],
-        "purples",
-    )
-    mo.hstack([rho_heat], justify="center")
-    return (slope_heat,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    * **ECFP4 count** は 16 のうち 15 で ECFP4 bit 以上です。同じ部分構造がいくつあるかも、多くの値に効いています
-    * **RDKit desc** は 16 のうち 11 で ECFP4 bit を上回ります。差が大きいのは ASAP の LogD (0.33 → 0.76) と KSOL (0.04 → 0.34) で、分子全体の性質で決まる値です
-    * MERS-CoV と SARS-CoV-2 の pIC50 は、どの特徴量でもほぼ同じです。近い化合物が揃っていると、表現の違いは結果にあまり出ません
-
-    ### <span id="sec-3-5"></span>3.5 · 近いペアの差
-
-    最後に、test 化合物と NN の差をモデルが予測できているかを見ます。数字は、予測の差を測定の差に回帰した傾きです。1 なら差の大きさまで再現、0 なら差をまったく予測できていません。NN の予測には、その化合物を学習に使っていないモデル (train の 5-fold の out of fold) の値を使っています。
-    """)
-    return
+    return (score_heat,)
 
 
 @app.cell(hide_code=True)
-def _(mo, slope_heat):
+def _(alt, mo, score_heat, score_pick, score_view):
+    _models = ["NN value", "ECFP4 bit", "ECFP4 count", "RDKit desc", "bit + desc"]
+    # the model colours of 2.6
+    _colours = alt.Scale(
+        domain=_models, range=["#adb5bd", "#4c78a8", "#f58518", "#e45756", "#72b7b2"]
+    )
+    _title = {"rho": "Spearman ρ", "r2": "R²", "mae": "MAE"}[score_pick.value]
     mo.vstack(
         [
-            mo.hstack([slope_heat], justify="center"),
+            mo.hstack([score_pick, score_view], justify="start", gap=2),
+            mo.hstack(
+                [
+                    score_heat(
+                        score_pick.value,
+                        _models,
+                        _title,
+                        best=_colours,
+                        baseline="ECFP4 bit" if score_view.value == "delta" else None,
+                    )
+                ],
+                justify="center",
+            ),
             mo.md(
                 """
-    傾きはどのエンドポイントでも 0.55 以下で、ASAP の MERS-CoV、SARS-CoV-2、KSOL ではほぼ 0 です。MERS-CoV と SARS-CoV-2 は ρ が高いのに、予測の差と測定の差の相関は 0.03 と −0.10 です。モデルは NN と同じあたりの値を出せていても、2 つの化合物の差は予測できていません。[2.5](#sec-2-5) の activity cliff は、まさにこの差です。
+    ECFP4 bit だけのモデルがいちばん良いエンドポイントは、ほとんどありませんでした。多くのエンドポイントで、記述子を足すと精度が上がります。
+
+    ただし、上がり幅はエンドポイントごとに違います。同じ LogD でも、bit + desc にしたときの ρ の上がり幅は ASAP で +0.42、ExpansionRx で +0.03 です。どの特徴量が合うかは、測る値の種類だけでなくデータセットによっても変わります。特徴量や設定を変えて比べると、そのデータセットの傾向が見えてきます。
+
+    これは、ECFP4 の精度が悪いという話ではありません。単独では精度が低いモデルでも、ほかのモデルと違う外し方をしているなら、アンサンブルで精度が上がる見込みがあります。選んだエンドポイントで、どの化合物の予測が外れているかは [2.6](#sec-2-6) の散布図で見られます。
     """
             ),
         ]
@@ -1997,12 +2090,115 @@ def _(mo, slope_heat):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### まとめ
+    ### <span id="sec-3-5"></span>3.5 · activity cliff と精度
 
-    * ECFP4 は、train に近い化合物があるデータでよく効きます。ただしそのとき、NN の値をそのまま使っても同じくらい当たります
-    * 近い化合物がない PXR でも、ECFP4 のモデルは NN value よりずっと良い予測を出します。bit を部分構造として組み合わせているからです
-    * bit より count、物性値では記述子のほうが良いことが多く、ECFP4 bit は最初に試すものであって、最後に使うものとは限りません
-    * 似た化合物どうしの差は、どのデータ、どの特徴量でもほとんど予測できません。activity cliff を当てたいなら、ECFP4 と木のモデルの組み合わせでは足りません
+    [2.5](#sec-2-5) の activity cliff は、NN と構造が似ているのに値が大きく違う test 化合物でした。その化合物でモデルの誤差がどうなるかを、16 のエンドポイントで比べます。比べる相手は、同じく NN との類似度が 0.6 以上で、activity cliff ではない化合物です。
+    """)
+    return
+
+
+@app.cell
+def _(bench, neighbours, np, pl, predictions):
+    # test compounds with a close NN, split as in 2.5 into activity cliffs and the rest, and
+    # each model's test error (MAE) on the two groups
+    _parts = []
+    for _t in bench.TASKS:
+        _nb = neighbours.filter(pl.col("task") == _t.key)
+        _dy = (_nb["y_test"] - _nb["y_nn"]).abs().to_numpy()
+        _random = np.abs(
+            np.random.default_rng(0).permutation(_nb["y_nn"].to_numpy()) - _nb["y_test"].to_numpy()
+        ).mean()
+        _parts.append(
+            _nb.with_columns(pl.Series("cliff", _dy >= _random)).filter(pl.col("tanimoto") >= 0.6)
+        )
+    cliff_error = (
+        pl.concat(_parts)
+        .join(
+            predictions.filter(pl.col("split") == "test").select(
+                "task", pl.col("id").alias("test_id"), "features", "pred"
+            ),
+            on=["task", "test_id"],
+        )
+        .group_by("task", "features", "cliff")
+        .agg(pl.len().alias("n"), (pl.col("pred") - pl.col("y_test")).abs().mean().alias("mae"))
+    )
+    return (cliff_error,)
+
+
+@app.cell(hide_code=True)
+def _(bench, mo):
+    cliff_model = mo.ui.radio(bench.FEATURES, value="ECFP4 bit", inline=True, label="model")
+    return (cliff_model,)
+
+
+@app.cell(hide_code=True)
+def _(alt, cliff_error, cliff_model, mo, pl, row_axis, rows, tasks):
+    _d = (
+        cliff_error.filter(pl.col("features") == cliff_model.value)
+        .join(tasks.select("task", "dataset", "endpoint"), on="task")
+        .with_columns(
+            (pl.col("dataset") + " · " + pl.col("endpoint")).alias("name"),
+            pl.when(pl.col("cliff"))
+            .then(pl.lit("activity cliff"))
+            .otherwise(pl.lit("other compounds with a close NN"))
+            .alias("group"),
+        )
+    )
+    _base = alt.Chart(_d).encode(y=alt.Y("name:N", sort=rows, title=None, axis=row_axis))
+    _chart = (
+        _base.mark_line(color="#ced4da", strokeWidth=2).encode(x="mae:Q", detail="name:N")
+        + _base.mark_circle(size=90, opacity=1).encode(
+            x=alt.X("mae:Q", title=f"MAE (test, {cliff_model.value})"),
+            color=alt.Color(
+                "group:N",
+                scale=alt.Scale(
+                    domain=["other compounds with a close NN", "activity cliff"],
+                    range=["#adb5bd", "#d6336c"],
+                ),
+                title=None,
+                legend=alt.Legend(orient="top", labelLimit=300),
+            ),
+            tooltip=[
+                "name",
+                "group",
+                alt.Tooltip("n:Q", title="compounds"),
+                alt.Tooltip("mae:Q", title="MAE", format=".2f"),
+            ],
+        )
+    ).properties(width=460, height=380)
+    _wide = _d.pivot(on="cliff", index="task", values="mae")
+    _ratio = _wide["true"] / _wide["false"]
+    _larger = int((_ratio > 1).sum())
+    mo.vstack(
+        [
+            cliff_model,
+            mo.hstack([_chart], justify="center"),
+            mo.md(
+                f"""
+    activity cliff の化合物では、16 のうち {_larger} のエンドポイントで誤差が大きくなります。大きさは、それ以外の化合物の {_ratio.median():.1f} 倍です (中央値)。特徴量を変えても、この傾向は変わりません。
+
+    activity cliff のペアの構造と、2 つの間で違う bit は [2.5](#sec-2-5) で見られます。
+    """
+            ),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ---
+
+    ## <span id="summary"></span>まとめ
+
+    この notebook では、ECFP4 を数字だけでなく中身から見てきました。なんとなく ECFP を使っていた方には、初めて知ることも多かったのではないでしょうか。構造を実際に目で見ると、仕組みがつかみやすくなります。
+
+    [第 2 部](#part-2)と[第 3 部](#part-3)では、データセットの中での ECFP4 を見ました。興味深いのは、collision の数などがデータセットごとに大きく違うことです。これは、ECFP を使うだけでは見えてきません。特に PXR の中身は、ほかの 2 つとかなり違っていました。私も PXR のチャレンジに参加しましたが、そのときは気づいていませんでした。まだ見ていない方は、ぜひ[第 2 部](#picker)に戻って確かめてみてください。
+
+    モデルを学習したあとに特徴量の重要度を確かめるのは、よくある手順です。ただ fingerprint では、bit が何を表すのかがわかりにくく、確かめづらい面がありました。[2.7](#sec-2-7) のウィジェットでは、重要な bit の部分構造と、その bit を持つ化合物をその場で見られます。見てみると、重要な bit が意味のありそうな構造だとは限らず、むしろよくある部分構造であることも多いとわかります (データセットによります)。複数のデータセットで見比べると、違いがよくわかります。
+
+    この notebook の結果は、今回のデータセットでのものです。一般に成り立つとは言い切れません。ぜひこの notebook とウィジェット ([`molwidgets`](https://github.com/N283T/openadmet-marimo)) を使って、ECFP への理解を深めたり、ご自身のデータセットで ECFP を調べたりしてみてください。
     """)
     return
 
