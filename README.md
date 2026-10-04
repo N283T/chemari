@@ -17,7 +17,8 @@ components are used throughout.
   low Tanimoto; the same pair by other fingerprints, MCES and properties), then a dataset /
   endpoint picker that drives train–test distance, the similarity principle, cliffs, identical fingerprints, bit collisions, models on bit / count / descriptor
   features and TreeSHAP, and a last part that compares the 16 endpoints (substructures per bit,
-  fingerprint length against test scores, neighbours, features, pair differences). Reads `results/precomputed/` (DuckDB SQL cells) and computes what is
+  fingerprint length against test scores, neighbours, features, activity cliffs) and points
+  back to the widgets. Reads `results/precomputed/` (DuckDB SQL cells) and computes what is
   missing
 - `src/molwidgets/` — the widget package. Every whole-molecule drawing has a copy icon in its
   top-right corner that puts the molecule's SMILES on the clipboard; `copy_smiles=False` hides
