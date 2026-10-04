@@ -131,7 +131,9 @@ async function render({ model, el: host }) {
     box.appendChild(cap);
   }
 
-  function draw() {
+  // keep: the list stays where it was scrolled (a click on a row redraws everything)
+  function draw(keep = false) {
+    const scrolled = keep ? (root.querySelector(".bt-list")?.scrollTop ?? 0) : 0;
     root.querySelectorAll(":scope > :not(style)").forEach((n) => n.remove());
     const tiles = get("tiles");
     const sel = get("selected");
@@ -203,6 +205,7 @@ async function render({ model, el: host }) {
     }
     main.appendChild(list);
     root.appendChild(main);
+    list.scrollTop = scrolled;
     root.appendChild(el("div", { className: "bt-hint" },
       "Each row is one distinct environment, drawn with RDKit's DrawMorganEnv. Hover a row to light it up in the molecule." +
       (count ? " The box on the right is the bit's value in a count fingerprint: how often its environments occur, collisions added together." : " The box on the right is the bit's value: 1 however often the environment occurs.") +
@@ -233,7 +236,8 @@ async function render({ model, el: host }) {
   }
 
   draw();
-  for (const k of ["tiles", "selected", "gallery", "radius", "n_bits", "label", "smiles", "mode", "chirality"]) model.on(`change:${k}`, draw);
+  for (const k of ["selected", "gallery", "label"]) model.on(`change:${k}`, () => draw(true));
+  for (const k of ["tiles", "radius", "n_bits", "smiles", "mode", "chirality"]) model.on(`change:${k}`, () => draw());
 }
 
 export default { render };
