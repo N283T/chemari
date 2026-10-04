@@ -796,7 +796,7 @@ function render(t) {
 }
 
 // ---------- player ----------
-let t = 0, playing = false, last = 0, lastPost = 0;
+let t = 0, playing = false, last = 0, lastPost = 0, drawn = null;
 const vp = $("#viewport"), stage = $("#stage");
 if (EMBED) { $("#controls").style.display = "none"; vp.style.borderRadius = "0"; }
 function fit() {
@@ -811,9 +811,13 @@ const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart
 function frame(now) {
   if (playing) { t += (now - last) / 1000; if (t >= T_END) { t = T_END; setPlay(false); } }
   last = now;
-  render(t === 0 && !playing ? 1.2 : story(t)); // poster frame: the title card
-  bar.querySelector(".fill").style.width = `${(t / T_END) * 100}%`;
-  $("#time").textContent = `${mmss(t)} / ${mmss(T_END)}`;
+  const shown = t === 0 && !playing ? 1.2 : story(t); // poster frame: the title card
+  if (shown !== drawn) { // a paused movie draws nothing: a frame costs most of a CPU core
+    drawn = shown;
+    render(shown);
+    bar.querySelector(".fill").style.width = `${(t / T_END) * 100}%`;
+    $("#time").textContent = `${mmss(t)} / ${mmss(T_END)}`;
+  }
   if (EMBED && now - lastPost > 60) {
     lastPost = now;
     parent.postMessage({ type: "ecfp-movie", t, end: T_END, playing, chapters: CHAPTERS.map(([ct, n]) => [real(ct), n]) }, "*");
@@ -838,8 +842,9 @@ addEventListener("message", (ev) => {
   if (m.cmd === "toggle") setPlay(!playing);
   if (m.cmd === "seek") t = clamp(+m.t, 0, T_END);
 });
-window.seek = (s) => { t = real(s); render(s); }; // takes story time
+window.seek = (s) => { t = real(s); drawn = s; render(s); }; // takes story time
 const q = new URLSearchParams(location.search).get("t"); if (q) t = +q;
+document.fonts?.ready.then(() => { drawn = null; }); // the canvas text is drawn again in the loaded font
 requestAnimationFrame((n) => { last = n; frame(n); });
 </script>
 </body>

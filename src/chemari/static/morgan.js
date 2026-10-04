@@ -213,7 +213,9 @@ async function render({ model, el: host }) {
     });
   }
 
-  function draw() {
+  // stay: the table stays where it was scrolled (a click on a row redraws everything)
+  function draw(stay = false) {
+    const scrolled = stay ? (root.querySelector(".me-table-wrap")?.scrollTop ?? 0) : 0;
     const mols = get("payload");
     const dark = root.classList.contains("dark");
     const sel = get("selected_bit");
@@ -371,6 +373,7 @@ async function render({ model, el: host }) {
         : "Provide a reference set to see dataset statistics and collisions."));
     main.appendChild(right);
     root.appendChild(main);
+    wrap.scrollTop = scrolled;
 
     // --- collision gallery for the selected bit
     const ex = get("bit_examples");
@@ -405,7 +408,8 @@ async function render({ model, el: host }) {
   }
 
   draw();
-  for (const k of ["payload", "bit_stats", "selected_bit", "bit_examples", "radius", "n_bits", "chirality", "mode", "contributions"]) model.on(`change:${k}`, draw);
+  for (const k of ["selected_bit", "bit_examples", "bit_stats", "contributions"]) model.on(`change:${k}`, () => draw(true));
+  for (const k of ["payload", "radius", "n_bits", "chirality", "mode"]) model.on(`change:${k}`, () => draw());
 }
 
 export default { render };
