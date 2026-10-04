@@ -35,7 +35,9 @@ page, radius or bit), the widget dims and shows "computing…" until the answer 
 Notebooks in `examples/`, written for the molab Notebook Competition #3 (OpenADMET × marimo).
 
 - `examples/ecfp_openadmet.py` (`ecfp_openadmet_ja.py` in Japanese): **Do you really know your
-  ECFP4?** ECFP4 across three OpenADMET datasets (PXR, ASAP-Polaris antiviral, ExpansionRx; 16
+  ECFP4?**
+  [![Open in molab](https://molab.marimo.io/molab-shield.svg)](https://molab.marimo.io/github/github.com/N283T/chemari/blob/main/examples/ecfp_openadmet.py/server)
+  ECFP4 across three OpenADMET datasets (PXR, ASAP-Polaris antiviral, ExpansionRx; 16
   endpoints): ECFP4's internals
   and two pitfalls (different molecules with the same fingerprint; near-identical molecules with a
   low Tanimoto; the same pair by other fingerprints, MCES and properties), then a dataset /
