@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "marimo>=0.25",
-#     "chemari @ git+https://github.com/N283T/chemari@v0.1.1",
+#     "chemari @ git+https://github.com/N283T/chemari@v0.1.2",
 #     "polars>=1.30",
 #     "numpy>=2",
 #     "altair>=5.5",
@@ -136,7 +136,7 @@ def _(Path, bench, mo, pl):
                 "dataset": t.dataset,
                 "endpoint": t.endpoint,
                 "label": t.label,
-                "what": t.note,
+                "what": bench.NOTES_JA[t.key],
             }
             for t in bench.TASKS
         ]
@@ -611,7 +611,7 @@ def _(bench, molecules, pl, task_pick):
 
 
 @app.cell(hide_code=True)
-def _(alt, mo, mols, task, test, train):
+def _(alt, bench, mo, mols, task, test, train):
     _hist = (
         alt.Chart(mols.select("y", "split"))
         .mark_bar(opacity=0.6)
@@ -631,7 +631,7 @@ def _(alt, mo, mols, task, test, train):
             mo.md(f"""
     ### <span id="sec-2-1"></span>2.1 · データセットの中身
 
-    **{task.dataset} · {task.endpoint}**: {task.note}。train {train.height:,} 化合物、test {test.height:,} 化合物です。
+    **{task.dataset} · {task.endpoint}**: {bench.NOTES_JA[task.key]}。train {train.height:,} 化合物、test {test.height:,} 化合物です。
     """),
             mo.hstack(
                 [

@@ -40,14 +40,14 @@ class Task:
 
 
 TASKS = [
-    Task("pxr/pEC50", "PXR", "pEC50", "pEC50", False, "PXR 活性化 (レポーター) の EC50"),
+    Task("pxr/pEC50", "PXR", "pEC50", "pEC50", False, "EC50 of PXR activation (reporter assay)"),
     Task(
         "asap/mers",
         "ASAP",
         "pIC50 (MERS-CoV Mpro)",
         "pIC50",
         False,
-        "MERS-CoV メインプロテアーゼ阻害",
+        "inhibition of the MERS-CoV main protease",
     ),
     Task(
         "asap/sars2",
@@ -55,13 +55,25 @@ TASKS = [
         "pIC50 (SARS-CoV-2 Mpro)",
         "pIC50",
         False,
-        "SARS-CoV-2 メインプロテアーゼ阻害",
+        "inhibition of the SARS-CoV-2 main protease",
     ),
-    Task("asap/logd", "ASAP", "LogD", "LogD", False, "分配係数 (pH 7.4)"),
-    Task("asap/ksol", "ASAP", "KSOL", "log10(KSOL + 1) (µM)", True, "速度論的溶解度"),
-    Task("asap/hlm", "ASAP", "HLM", "log10(HLM + 1) (µL/min/mg)", True, "ヒト肝ミクロソーム安定性"),
+    Task("asap/logd", "ASAP", "LogD", "LogD", False, "distribution coefficient (pH 7.4)"),
+    Task("asap/ksol", "ASAP", "KSOL", "log10(KSOL + 1) (µM)", True, "kinetic solubility"),
     Task(
-        "asap/mlm", "ASAP", "MLM", "log10(MLM + 1) (µL/min/mg)", True, "マウス肝ミクロソーム安定性"
+        "asap/hlm",
+        "ASAP",
+        "HLM",
+        "log10(HLM + 1) (µL/min/mg)",
+        True,
+        "human liver microsome stability",
+    ),
+    Task(
+        "asap/mlm",
+        "ASAP",
+        "MLM",
+        "log10(MLM + 1) (µL/min/mg)",
+        True,
+        "mouse liver microsome stability",
     ),
     Task(
         "asap/mdr1",
@@ -69,17 +81,19 @@ TASKS = [
         "MDR1-MDCKII",
         "log10(Papp + 1) (10⁻⁶ cm/s)",
         True,
-        "MDR1-MDCKII 膜透過",
+        "MDR1-MDCKII permeability",
     ),
-    Task("expansion/logd", "ExpansionRx", "LogD", "LogD", False, "分配係数"),
-    Task("expansion/ksol", "ExpansionRx", "KSOL", "log10(KSOL + 1) (µM)", True, "速度論的溶解度"),
+    Task("expansion/logd", "ExpansionRx", "LogD", "LogD", False, "distribution coefficient"),
+    Task(
+        "expansion/ksol", "ExpansionRx", "KSOL", "log10(KSOL + 1) (µM)", True, "kinetic solubility"
+    ),
     Task(
         "expansion/hlm",
         "ExpansionRx",
         "HLM CLint",
         "log10(CLint + 1) (mL/min/kg)",
         True,
-        "ヒト肝ミクロソーム CLint",
+        "human liver microsome CLint",
     ),
     Task(
         "expansion/mlm",
@@ -87,7 +101,7 @@ TASKS = [
         "MLM CLint",
         "log10(CLint + 1) (mL/min/kg)",
         True,
-        "マウス肝ミクロソーム CLint",
+        "mouse liver microsome CLint",
     ),
     Task(
         "expansion/caco2",
@@ -95,7 +109,7 @@ TASKS = [
         "Caco-2 Permeability Papp A>B",
         "log10(Papp + 1) (10⁻⁶ cm/s)",
         True,
-        "Caco-2 膜透過 (A→B)",
+        "Caco-2 permeability (A→B)",
     ),
     Task(
         "expansion/efflux",
@@ -103,7 +117,7 @@ TASKS = [
         "Caco-2 Permeability Efflux",
         "log10(efflux ratio + 1)",
         True,
-        "Caco-2 排出比",
+        "Caco-2 efflux ratio",
     ),
     Task(
         "expansion/mppb",
@@ -111,7 +125,7 @@ TASKS = [
         "MPPB",
         "log10(% unbound + 1)",
         True,
-        "マウス血漿タンパク非結合率",
+        "unbound fraction in mouse plasma",
     ),
     Task(
         "expansion/mbpb",
@@ -119,10 +133,29 @@ TASKS = [
         "MBPB",
         "log10(% unbound + 1)",
         True,
-        "マウス脳組織非結合率",
+        "unbound fraction in mouse brain tissue",
     ),
 ]
 TASK = {t.key: t for t in TASKS}
+# the same notes for the Japanese notebook
+NOTES_JA = {
+    "pxr/pEC50": "PXR 活性化 (レポーター) の EC50",
+    "asap/mers": "MERS-CoV メインプロテアーゼ阻害",
+    "asap/sars2": "SARS-CoV-2 メインプロテアーゼ阻害",
+    "asap/logd": "分配係数 (pH 7.4)",
+    "asap/ksol": "速度論的溶解度",
+    "asap/hlm": "ヒト肝ミクロソーム安定性",
+    "asap/mlm": "マウス肝ミクロソーム安定性",
+    "asap/mdr1": "MDR1-MDCKII 膜透過",
+    "expansion/logd": "分配係数",
+    "expansion/ksol": "速度論的溶解度",
+    "expansion/hlm": "ヒト肝ミクロソーム CLint",
+    "expansion/mlm": "マウス肝ミクロソーム CLint",
+    "expansion/caco2": "Caco-2 膜透過 (A→B)",
+    "expansion/efflux": "Caco-2 排出比",
+    "expansion/mppb": "マウス血漿タンパク非結合率",
+    "expansion/mbpb": "マウス脳組織非結合率",
+}
 
 _SOURCES = {
     "PXR": {
