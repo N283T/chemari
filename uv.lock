@@ -157,6 +157,59 @@ wheels = [
 ]
 
 [[package]]
+name = "chemari"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "anywidget" },
+    { name = "rdkit" },
+    { name = "traitlets" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "altair" },
+    { name = "duckdb" },
+    { name = "lightgbm" },
+    { name = "marimo" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "polars" },
+    { name = "pyarrow" },
+    { name = "pytest" },
+    { name = "ruff" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "sqlglot" },
+    { name = "ty" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anywidget", specifier = ">=0.11" },
+    { name = "rdkit", specifier = ">=2025.9" },
+    { name = "traitlets", specifier = ">=5" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "altair", specifier = ">=5.5" },
+    { name = "duckdb", specifier = ">=1.5.6" },
+    { name = "lightgbm", specifier = ">=4.7.0" },
+    { name = "marimo", specifier = ">=0.25" },
+    { name = "numpy", specifier = ">=2" },
+    { name = "pandas", specifier = ">=2.3" },
+    { name = "polars", specifier = ">=1.30" },
+    { name = "pyarrow", specifier = ">=25.0.1" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.12" },
+    { name = "scikit-learn", specifier = ">=1.7" },
+    { name = "scipy", specifier = ">=1.14" },
+    { name = "sqlglot", specifier = ">=30.20.0" },
+    { name = "ty" },
+]
+
+[[package]]
 name = "click"
 version = "8.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -586,59 +639,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bd/c0/9f7c9a46090390368a4d7bcb76bb87a4a36c421e4c0792cdb53486ffac7a/matplotlib_inline-0.2.2.tar.gz", hash = "sha256:72f3fe8fce36b70d4a5b612f899090cd0401deddc4ea90e1572b9f4bfb058c79", size = 8150, upload-time = "2026-05-08T17:33:33.49Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/09/5b161152e2d90f7b87f781c2e1267494aef9c32498df793f73ad0a0a494a/matplotlib_inline-0.2.2-py3-none-any.whl", hash = "sha256:3c821cf1c209f59fb2d2d64abbf5b23b67bcb2210d663f9918dd851c6da1fcf6", size = 9534, upload-time = "2026-05-08T17:33:32.055Z" },
-]
-
-[[package]]
-name = "molwidgets"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "anywidget" },
-    { name = "rdkit" },
-    { name = "traitlets" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "altair" },
-    { name = "duckdb" },
-    { name = "lightgbm" },
-    { name = "marimo" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "polars" },
-    { name = "pyarrow" },
-    { name = "pytest" },
-    { name = "ruff" },
-    { name = "scikit-learn" },
-    { name = "scipy" },
-    { name = "sqlglot" },
-    { name = "ty" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "anywidget", specifier = ">=0.11" },
-    { name = "rdkit", specifier = ">=2025.9" },
-    { name = "traitlets", specifier = ">=5" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "altair", specifier = ">=5.5" },
-    { name = "duckdb", specifier = ">=1.5.6" },
-    { name = "lightgbm", specifier = ">=4.7.0" },
-    { name = "marimo", specifier = ">=0.25" },
-    { name = "numpy", specifier = ">=2" },
-    { name = "pandas", specifier = ">=2.3" },
-    { name = "polars", specifier = ">=1.30" },
-    { name = "pyarrow", specifier = ">=25.0.1" },
-    { name = "pytest", specifier = ">=8" },
-    { name = "ruff", specifier = ">=0.12" },
-    { name = "scikit-learn", specifier = ">=1.7" },
-    { name = "scipy", specifier = ">=1.14" },
-    { name = "sqlglot", specifier = ">=30.20.0" },
-    { name = "ty" },
 ]
 
 [[package]]

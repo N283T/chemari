@@ -22,7 +22,7 @@ def _():
 
     import polars as pl
 
-    from molwidgets import MolPair
+    from chemari import MolPair
 
     return MolPair, Path, pl
 

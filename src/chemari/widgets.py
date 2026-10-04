@@ -1026,7 +1026,7 @@ class MolPair(_Computing):
 
     The third table view, "similarity", compares the pair by several fingerprints (Tanimoto,
     Dice or cosine, switched in the view), MCES (RDKit's RASCAL) and whole-molecule properties;
-    ``similarity_methods`` picks the rows (keys of ``molwidgets.similarity.METHODS``). The
+    ``similarity_methods`` picks the rows (keys of ``chemari.similarity.METHODS``). The
     methods' values are on different scales; a note above the table says so. ``show_formula`` / ``show_smiles`` switch the captions under the drawings. Two
     switches, both off by default: "common part" (``show_common``) highlights the maximum
     common substructure, and "align B to A" (``align``) redraws B in A's orientation along it.
@@ -1047,7 +1047,7 @@ class MolPair(_Computing):
     mcs = traitlets.Dict().tag(sync=True)  # find_mcs options: atoms, bonds, ring_matches_ring, …
     data = traitlets.Dict().tag(sync=True)
     similarity_bands = traitlets.List(traitlets.Dict()).tag(sync=True)
-    # the "similarity" view: one row per method (see molwidgets.similarity.METHODS)
+    # the "similarity" view: one row per method (see chemari.similarity.METHODS)
     similarity_methods = traitlets.List(traitlets.Unicode()).tag(sync=True)
     similarity_metric = traitlets.Unicode("Tanimoto").tag(sync=True)
     similarities = traitlets.Dict().tag(sync=True)

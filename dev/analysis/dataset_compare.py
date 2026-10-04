@@ -31,7 +31,7 @@ from rdkit.Chem import Descriptors, rdFingerprintGenerator
 from scipy.stats import pearsonr, spearmanr
 from sklearn.model_selection import KFold
 
-from molwidgets import standardize_smiles
+from chemari import standardize_smiles
 
 sys.path.insert(0, str(Path(__file__).parent))
 from pair_shap import ROOT, make_model

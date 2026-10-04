@@ -1,4 +1,6 @@
-"""Molecule widgets for marimo: a molecule grid and a Morgan fingerprint explorer."""
+"""CheMari: chemistry widgets for marimo notebooks (molecule grids, pairs, fingerprints)."""
+
+__version__ = "0.1.0"
 
 from .chem import (
     BitCensus,
@@ -49,4 +51,3 @@ __all__ = [
     "standardize_smiles",
     "tanimoto_matrix",
 ]
-__version__ = "0.1.0"

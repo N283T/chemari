@@ -8,7 +8,7 @@ app = marimo.App(width="medium")
 def _():
     import marimo as mo
 
-    from molwidgets import ECFPStepper
+    from chemari import ECFPStepper
 
     return ECFPStepper, mo
 

@@ -8,7 +8,7 @@ def _():
     import marimo as mo
     import polars as pl
 
-    from molwidgets import MolGrid, MorganExplorer, standardize_smiles
+    from chemari import MolGrid, MorganExplorer, standardize_smiles
 
     df = (
         pl.read_csv("data/pxr-challenge_TRAIN.csv")
