@@ -8,7 +8,8 @@ The training neighbour's prediction is taken out of fold (5-fold CV on train): t
 predicts a neighbour never saw it, so the predicted difference does not borrow the neighbour's
 own label. The in-sample version is kept for comparison.
 
-Same data preparation and LightGBM settings as examples/ecfp_pxr.py (section 4).
+Same data preparation and LightGBM settings as the former PXR notebook
+(examples/ecfp_pxr.py, section 4; removed).
 Writes results/pair_shap/pairs.csv and results/pair_shap/summary.md.
 
     uv run python dev/analysis/pair_shap.py
