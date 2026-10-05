@@ -43,3 +43,4 @@ line-length = 100
 # marimo cells end with a bare expression (the cell output) and an explicit return
 "examples/*.py" = ["B018", "PLR1711"]
 "dev/*.py" = ["B018", "PLR1711"]
+"docs/*.py" = ["B018", "PLR1711"]

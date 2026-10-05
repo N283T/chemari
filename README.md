@@ -40,6 +40,9 @@ statistics are computed with RDKit in Python.
 
 ## Widgets
 
+Every widget with the code that makes it: [n283t.github.io/chemari](https://n283t.github.io/chemari/)
+(a static page; the notebook behind it is `docs/widgets.py`).
+
 | Widget | What it shows |
 | --- | --- |
 | `MolGrid` | A paged, sortable grid of molecules with text, SMARTS and similarity search, and selection |
@@ -81,6 +84,7 @@ a release reads the precomputed tables of that release's tag.
   them (`chem.py`, `ecfp.py`, `similarity.py`)
 - `src/chemari/examples/openadmet.py` — the code behind `ecfp_openadmet`: datasets, features,
   the LightGBM baseline, nearest neighbours and TreeSHAP
+- `docs/widgets.py` — the notebook of the documentation page, exported by `.github/workflows/docs.yml`
 - `dev/precompute.py` — writes the tables in `results/precomputed/`
 - `results/` — the precomputed tables and the analyses in `dev/analysis/`
 
