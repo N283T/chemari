@@ -58,7 +58,7 @@ Every widget with the code that makes it: [n283t.github.io/chemari](https://n283
 
 ## Examples
 
-Notebooks in `examples/`, written for the molab Notebook Competition #3 (OpenADMET × marimo).
+The notebook in `examples/`, written for the molab Notebook Competition #3 (OpenADMET × marimo).
 
 - **Do you really know your ECFP4?** — `ecfp_openadmet.py` (`ecfp_openadmet_ja.py` in Japanese)
   [![Open in molab](https://molab.marimo.io/molab-shield.svg)](https://molab.marimo.io/github/github.com/N283T/chemari/blob/main/examples/ecfp_openadmet.py/server)
@@ -66,16 +66,13 @@ Notebooks in `examples/`, written for the molab Notebook Competition #3 (OpenADM
   ECFP4 across three OpenADMET datasets (PXR, ASAP-Polaris antiviral, ExpansionRx; 16 endpoints):
   how ECFP4 is built and two of its pitfalls, what it looks like inside each dataset, and a
   comparison of the 16 endpoints.
-- **ECFP4 on the PXR data** — `ecfp_pxr.py` (`ecfp_pxr_ja.py` in Japanese)
-
-  The earlier notebook on the PXR dataset alone.
 
 ```bash
 uv sync
 uv run marimo edit examples/ecfp_openadmet.py
 ```
 
-The notebooks read the data from Hugging Face on first run (PXR, CC-BY-4.0; ASAP-Polaris, MIT;
+The notebook reads the data from Hugging Face on first run (PXR, CC-BY-4.0; ASAP-Polaris, MIT;
 ExpansionRx, CC-BY-4.0), or from `data/` when the CSV files are there. A notebook installed from
 a release reads the precomputed tables of that release's tag.
 
