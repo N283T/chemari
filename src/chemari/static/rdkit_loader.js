@@ -121,6 +121,9 @@ const BUSY_CSS = `
   font: 600 11px/1.6 system-ui, sans-serif; color: #fff; background: rgba(28, 126, 214, .92);
   padding: 0 9px; border-radius: 999px; }
 @keyframes mw-slide { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+.mw-host.mw-static::after { content: "needs Python: not available on a static page"; position: absolute; top: 8px;
+  right: 8px; z-index: 5; font: 600 11px/1.6 system-ui, sans-serif; color: #fff; background: rgba(73, 80, 87, .94);
+  padding: 0 9px; border-radius: 999px; }
 `;
 
 export function busyIndicator(model, host, triggers) {
@@ -135,6 +138,12 @@ export function busyIndicator(model, host, triggers) {
     const same = (k) => JSON.stringify(model.get(k)) === JSON.stringify(changes[k]);
     if (!Object.keys(changes).some((k) => triggers.includes(k) && !same(k))) return;
     clearTimeout(show); clearTimeout(giveUp);
+    // a static export of a marimo notebook has no Python to answer: say so instead of waiting
+    if (globalThis.__MARIMO_STATIC__) {
+      host.classList.add("mw-static");
+      giveUp = setTimeout(() => host.classList.remove("mw-static"), 3500);
+      return;
+    }
     show = setTimeout(() => host.classList.add("mw-busy"), 150);
     giveUp = setTimeout(stop, 30000); // never leave it spinning if an answer is lost
   };
