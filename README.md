@@ -41,7 +41,8 @@ statistics are computed with RDKit in Python.
 ## Widgets
 
 Every widget with the code that makes it: [n283t.github.io/chemari](https://n283t.github.io/chemari/)
-(a static page; the notebook behind it is `docs/widgets.py`).
+(a static page). The notebook behind it is `docs/widgets.py`; on molab every control works.
+[![Open in molab](https://molab.marimo.io/molab-shield.svg)](https://molab.marimo.io/github/N283T/chemari/blob/main/docs/widgets.py/server)
 
 | Widget | What it shows |
 | --- | --- |
