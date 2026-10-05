@@ -23,6 +23,19 @@ def _(mo):
     Chemistry widgets for [marimo](https://marimo.io) notebooks. Every widget of
     [CheMari](https://github.com/N283T/chemari) is shown below with the code that makes it.
 
+    ```bash
+    pip install "chemari @ git+https://github.com/N283T/chemari"
+    ```
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    import os
+
+    # only on the exported page (the docs workflow sets the variable); a running notebook needs no warning
+    mo.md(r"""
     /// attention | This page is a snapshot
 
     The widgets on this page run without Python. What a widget does in the browser still works
@@ -35,13 +48,9 @@ def _(mo):
     shows "needs Python" and changes nothing.
 
     To try everything, open the notebook on molab:
-    [![Open in molab](https://molab.marimo.io/molab-shield.svg)](https://molab.marimo.io/github/github.com/N283T/chemari/blob/main/docs/widgets.py/server)
+    [![Open in molab](https://molab.marimo.io/molab-shield.svg)](https://molab.marimo.io/github/N283T/chemari/blob/main/docs/widgets.py/server)
     ///
-
-    ```bash
-    pip install "chemari @ git+https://github.com/N283T/chemari"
-    ```
-    """)
+    """) if os.environ.get("CHEMARI_DOCS_STATIC") else None
     return
 
 
