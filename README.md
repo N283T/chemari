@@ -59,6 +59,7 @@ Every widget with the code that makes it: [n283t.github.io/chemari](https://n283
 ## Examples
 
 The notebook in `examples/`, written for the molab Notebook Competition #3 (OpenADMET × marimo).
+It won the competition ([announcement](https://x.com/marimo_io/status/2110388816280203445)).
 
 - **Do you really know your ECFP4?** — `ecfp_openadmet.py` (`ecfp_openadmet_ja.py` in Japanese)
   [![Open in molab](https://molab.marimo.io/molab-shield.svg)](https://molab.marimo.io/github/github.com/N283T/chemari/blob/main/examples/ecfp_openadmet.py/server)
