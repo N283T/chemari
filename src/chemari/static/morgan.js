@@ -38,7 +38,7 @@ const CSS = `
 .me-table .me-pin { position:sticky; min-width:112px; width:112px; box-sizing:border-box; background:var(--me-card); }
 .me-table th.me-pin { background:var(--me-soft); z-index:3; }
 .me-table .me-pin0 { right:0; }
-/* the edge of marimo's frozen columns: a soft inset shadow; a single pinned column draws it itself */
+/* the edge of the frozen columns: a soft inset shadow; a single pinned column draws it itself */
 .me-table .me-pin0.me-solo { box-shadow:inset 4px 0 4px -4px var(--me-pin-edge); }
 .me-table .me-pin1 { right:112px; box-shadow:inset 4px 0 4px -4px var(--me-pin-edge); }
 .me-table tr.sel td.me-pin { background:var(--me-sel); }

@@ -90,10 +90,13 @@ export const MORGAN_ENV_KEY = [
 ];
 
 export function isDark(el) {
-  // marimo toggles a `dark` / `dark-theme` class; otherwise use the first opaque background.
+  // marimo toggles a `dark` / `dark-theme` class, VS Code `vscode-dark` / `vscode-light`, and
+  // JupyterLab sets `data-jp-theme-light` on <body>; otherwise use the first opaque background.
   for (const n of [document.documentElement, document.body]) {
-    if (n.classList.contains("dark") || n.classList.contains("dark-theme")) return true;
-    if (n.classList.contains("light") || n.classList.contains("light-theme")) return false;
+    const c = n.classList;
+    if (c.contains("dark") || c.contains("dark-theme") || c.contains("vscode-dark")) return true;
+    if (c.contains("light") || c.contains("light-theme") || c.contains("vscode-light")) return false;
+    if (n.dataset.jpThemeLight) return n.dataset.jpThemeLight === "false";
   }
   for (let n = el; n && n.nodeType === 1; n = n.parentElement || n.getRootNode()?.host) {
     const css = getComputedStyle(n).backgroundColor;
@@ -126,6 +129,11 @@ const BUSY_CSS = `
   padding: 0 9px; border-radius: 999px; }
 `;
 
+function isStatic() {
+  return Boolean(globalThis.__MARIMO_STATIC__) ||
+    document.querySelector('script[type="application/vnd.jupyter.widget-state+json"]') !== null;
+}
+
 export function busyIndicator(model, host, triggers) {
   host.classList.add("mw-host");
   const style = document.createElement("style");
@@ -138,8 +146,9 @@ export function busyIndicator(model, host, triggers) {
     const same = (k) => JSON.stringify(model.get(k)) === JSON.stringify(changes[k]);
     if (!Object.keys(changes).some((k) => triggers.includes(k) && !same(k))) return;
     clearTimeout(show); clearTimeout(giveUp);
-    // a static export of a marimo notebook has no Python to answer: say so instead of waiting
-    if (globalThis.__MARIMO_STATIC__) {
+    // a static export (marimo, or Jupyter HTML with the widget state embedded) has no Python to
+    // answer: say so instead of waiting
+    if (isStatic()) {
       host.classList.add("mw-static");
       giveUp = setTimeout(() => host.classList.remove("mw-static"), 3500);
       return;

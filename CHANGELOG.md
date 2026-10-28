@@ -10,6 +10,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ([n283t.github.io/chemari](https://n283t.github.io/chemari/)); the notebook behind it is
   `docs/widgets.py`.
 - `LICENSE` (MIT) and this changelog.
+- Jupyter support: the widgets follow the JupyterLab and VS Code light/dark theme, and on a
+  static HTML export of a Jupyter notebook a control that needs Python shows "needs Python".
+  `examples/jupyter_widgets.ipynb` shows every widget in Jupyter.
 
 ### Changed
 

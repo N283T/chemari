@@ -1,11 +1,11 @@
 # CheMari
 
-Chemistry widgets for [marimo](https://marimo.io) notebooks: molecule grids, pairs and scatter
-plots, and views inside Morgan fingerprints (ECFP). Built on [anywidget](https://anywidget.dev)
-and RDKit.
+Chemistry widgets for [marimo](https://marimo.io) and Jupyter notebooks: molecule grids, pairs
+and scatter plots, and views inside Morgan fingerprints (ECFP). Built on
+[anywidget](https://anywidget.dev) and RDKit.
 
 > [!NOTE]
-> CheMari is planned to grow into a cheminformatics package for marimo. For now it holds the
+> CheMari is planned to grow into a cheminformatics package for notebooks. For now it holds the
 > widgets written for the notebooks in `examples/`.
 
 ## Install
@@ -15,6 +15,8 @@ pip install "chemari @ git+https://github.com/N283T/chemari"
 ```
 
 ## Usage
+
+In marimo, wrap a widget in `mo.ui.anywidget` so that cells re-run when it changes:
 
 ```python
 import marimo as mo
@@ -34,6 +36,19 @@ explorer = mo.ui.anywidget(
     )
 )
 ```
+
+In Jupyter (JupyterLab, Notebook 7, VS Code), a widget displays as it is; read its traits or
+watch them with `observe`:
+
+```python
+from chemari import MolGrid
+
+grid = MolGrid(df, id_col="id", smiles_col="smiles", color_by="pEC50")
+grid  # the last expression of a cell displays the widget
+grid.observe(lambda change: print(change["new"]), names="selection")
+```
+
+`examples/jupyter_widgets.ipynb` shows every widget in Jupyter.
 
 Molecules are drawn in the browser with RDKit.js. Fingerprints, bit environments and collision
 statistics are computed with RDKit in Python.
@@ -83,6 +98,7 @@ a release reads the precomputed tables of that release's tag.
   them (`chem.py`, `ecfp.py`, `similarity.py`)
 - `src/chemari/examples/openadmet.py` — the code behind `ecfp_openadmet`: datasets, features,
   the LightGBM baseline, nearest neighbours and TreeSHAP
+- `examples/jupyter_widgets.ipynb` — every widget in a Jupyter notebook
 - `docs/widgets.py` — the notebook of the documentation page, exported by `.github/workflows/docs.yml`
 - `dev/precompute.py` — writes the tables in `results/precomputed/`
 - `results/` — the precomputed tables and the analyses in `dev/analysis/`
@@ -93,4 +109,5 @@ a release reads the precomputed tables of that release's tag.
 uv run pytest
 uv run ruff format . && uv run ruff check --fix .
 uv run marimo check examples/*.py
+uv run jupyter lab examples/jupyter_widgets.ipynb
 ```
