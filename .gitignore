@@ -4,6 +4,7 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 __marimo__/
+.ipynb_checkpoints/
 data/
 .claude/launch.json
 .claude/worktrees/

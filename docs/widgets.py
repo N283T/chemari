@@ -20,7 +20,7 @@ def _(mo):
     mo.md(r"""
     # CheMari widgets
 
-    Chemistry widgets for [marimo](https://marimo.io) notebooks. Every widget of
+    Chemistry widgets for [marimo](https://marimo.io) and Jupyter notebooks. Every widget of
     [CheMari](https://github.com/N283T/chemari) is shown below with the code that makes it.
 
     ```bash

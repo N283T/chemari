@@ -66,8 +66,9 @@ def _records(data: Any) -> list[dict]:
 class MolGrid(anywidget.AnyWidget):
     """Paged molecule grid with text + SMARTS filtering, sorting, colouring and selection.
 
-    `selection` holds the ids of selected molecules and syncs both ways, so a marimo
-    cell that reads `grid.selection` (via `mo.ui.anywidget`) re-runs on every click.
+    `selection` holds the ids of selected molecules and syncs both ways: a marimo cell that
+    reads it (via `mo.ui.anywidget`) re-runs on every click, and in Jupyter
+    `grid.observe(callback, names="selection")` is called on every click.
     `selection_mode` is "multiple", "single" or "pair" (keeps the last two picks).
     `group_by` names a column with a few values (e.g. a train / test split): the grid gets a
     button per value to show only that group, and each card's left edge takes the group's colour

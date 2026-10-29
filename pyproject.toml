@@ -1,7 +1,7 @@
 [project]
 name = "chemari"
 version = "0.1.4"
-description = "CheMari: anywidget chemistry widgets for marimo notebooks (molecule grids, pairs, fingerprints)"
+description = "CheMari: anywidget chemistry widgets for marimo and Jupyter notebooks (molecule grids, pairs, fingerprints)"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -28,6 +28,9 @@ dev = [
     "duckdb>=1.5.6",
     "pyarrow>=25.0.1",
     "sqlglot>=30.20.0",
+    "jupyterlab>=4.6.4",
+    "nbconvert>=7.17.2",
+    "ipykernel>=7.4.0",
 ]
 
 [build-system]
